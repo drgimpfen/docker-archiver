@@ -1,0 +1,29 @@
+/* Custom Styles for Docker Backup Manager */
+
+/* Makes the list of stacks scrollable if it's too long */
+.stack-list {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    padding: 10px;
+    border-radius: 5px;
+}
+
+/* Styling for log content in modals */
+.log-content {
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    padding: 15px;
+    max-height: 400px;
+    overflow-y: auto;
+    white-space: pre-wrap; /* Ensures long lines wrap */
+    word-break: break-all;
+}
+
+.card {
+    margin-bottom: 1.5rem;
+}
+
+.table-hover tbody tr:hover {
+    background-color: rgba(0, 0, 0, 0.04);
+}

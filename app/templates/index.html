@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <!-- Archive Control Column -->
+    <div class="col-md-5">
+        <h2>Start New Archive</h2>
+        <div class="card">
+            <div class="card-body">
+                <form action="{{ url_for('start_archive_route') }}" method="post">
+                    <div class="mb-3">
+                        <label class="form-label"><strong>Select Stacks</strong></label>
+                        {% if stacks %}
+                            <div class="stack-list">
+                                {% for stack in stacks %}
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" name="stacks" value="{{ stack.path }}" id="stack-{{ loop.index }}">
+                                        <label class="form-check-label" for="stack-{{ loop.index }}">
+                                            {{ stack.name }}
+                                        </label>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <p class="text-muted">No Docker Compose stacks found in configured directories.</p>
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="retention_days" class="form-label"><strong>Retention (Days)</strong></label>
+                        <input type="number" class="form-control" id="retention_days" name="retention_days" value="{{ retention_days or 28 }}" min="1">
+                    </div>
+
+                    <button type="submit" class="btn btn-primary w-100">Start Archiving</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Jobs Column -->
+    <div class="col-md-7">
+        <h2>Recent Activity</h2>
+        <div class="card">
+            <div class="card-body">
+                {% if recent_jobs %}
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Stack</th>
+                                <th>Start Time</th>
+                                <th>Status</th>
+                                <th>Duration</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for job in recent_jobs %}
+                                <tr>
+                                    <td>{{ job.stack_name }}</td>
+                                    <td>{{ job.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                                    <td>
+                                        <span class="badge 
+                                            {% if job.status == 'Success' %} bg-success
+                                            {% elif job.status == 'Failed' %} bg-danger
+                                            {% elif job.status == 'Running' %} bg-info
+                                            {% else %} bg-secondary {% endif %}">
+                                            {{ job.status }}
+                                        </span>
+                                    </td>
+                                    <td>{{ (job.duration_seconds ~ 's') if job.duration_seconds is not none else 'N/A' }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% else %}
+                    <p class="text-center text-muted">No backup jobs have been run yet.</p>
+                {% endif %}
+                 <div class="text-center mt-3">
+                    <a href="{{ url_for('history') }}" class="btn btn-outline-secondary btn-sm">View Full History</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

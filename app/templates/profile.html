@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <h2 class="mb-4">Profile & Security</h2>
+        
+        <div class="card mb-4">
+            <div class="card-header">
+                User Details
+            </div>
+            <div class="card-body">
+                <p><strong>Username:</strong> {{ user.username }}</p>
+                <p><strong>Email:</strong> {{ user.email if user.email else 'Not set' }}</p>
+                <p><strong>Display Name:</strong> {{ user.display_name if user.display_name else 'Not set' }}</p>
+                <a href="{{ url_for('profile_edit_route') }}" class="btn btn-sm btn-outline-primary me-2">Edit Details</a>
+                <a href="{{ url_for('profile_change_password_route') }}" class="btn btn-sm btn-outline-warning">Change Password</a>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                Passkeys
+            </div>
+            <div class="card-body">
+                <p>Manage your passkeys for passwordless login.</p>
+
+                {% if passkeys %}
+                <ul class="list-group mb-3">
+                    {% for key in passkeys %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <span class="font-monospace text-truncate" style="max-width: 300px;">{{ key.credential_id_b64 }}</span>
+                        <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deletePasskeyModal-{{ key.id }}">Delete</button>
+                    </li>
+                    <!-- Delete Confirmation Modal -->
+                    <div class="modal fade" id="deletePasskeyModal-{{ key.id }}" tabindex="-1">
+                        <div class="modal-dialog">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title">Confirm Passkey Deletion</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <p>Are you sure you want to delete this passkey?</p>
+                                    <p class="font-monospace text-truncate small">{{ key.credential_id_b64 }}</p>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                    <form action="{{ url_for('delete_passkey_route', passkey_id=key.id) }}" method="post">
+                                        <button type="submit" class="btn btn-danger">Delete</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted" id="passkey-status">You have no passkeys registered.</p>
+                {% endif %}
+
+                <button id="register-passkey-btn" class="btn btn-primary">Register New Passkey</button>
+                <div id="passkey-error" class="text-danger mt-2"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Helper functions to handle Base64URL encoding/decoding
+    function bufferToBase64URL(buffer) {
+        const str = String.fromCharCode.apply(null, new Uint8Array(buffer));
+        return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    }
+
+    function base64URLToBuffer(base64url) {
+        const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+        const padLength = (4 - (base64.length % 4)) % 4;
+        const padded = base64.padEnd(base64.length + padLength, '=');
+        const binary = atob(padded);
+        const buffer = new ArrayBuffer(binary.length);
+        const bytes = new Uint8Array(buffer);
+        for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+        }
+        return buffer;
+    }
+
+    document.getElementById('register-passkey-btn').addEventListener('click', async () => {
+        const errorElem = document.getElementById('passkey-error');
+        errorElem.textContent = '';
+
+        // 1. Get options from the server
+        const resp = await fetch('/webauthn/generate-registration-options', {
+            method: 'POST',
+        });
+
+        if (!resp.ok) {
+            errorElem.textContent = 'Error getting registration options.';
+            return;
+        }
+
+        const options = await resp.json();
+        
+        // Prepare options for the WebAuthn API
+        options.user.id = base64URLToBuffer(options.user.id);
+        options.challenge = base64URLToBuffer(options.challenge);
+        if (options.excludeCredentials) {
+            options.excludeCredentials.forEach(cred => {
+                cred.id = base64URLToBuffer(cred.id);
+            });
+        }
+
+        // 2. Call navigator.credentials.create()
+        let credential;
+        try {
+            credential = await navigator.credentials.create({ publicKey: options });
+        } catch (err) {
+            errorElem.textContent = 'Passkey registration cancelled or failed. ' + err;
+            return;
+        }
+        
+        // 3. Send the new credential to the server to verify and save
+        const verificationBody = {
+            id: credential.id,
+            rawId: bufferToBase64URL(credential.rawId),
+            response: {
+                attestationObject: bufferToBase64URL(credential.response.attestationObject),
+                clientDataJSON: bufferToBase64URL(credential.response.clientDataJSON),
+                transports: credential.response.getTransports ? credential.response.getTransports() : [],
+            },
+            type: credential.type,
+        };
+
+        const verificationResp = await fetch('/webauthn/verify-registration', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(verificationBody),
+        });
+
+        const verificationResult = await verificationResp.json();
+
+        if (verificationResult && verificationResult.verified) {
+            alert('Passkey registered successfully!');
+            window.location.reload(); // Reload to show the new passkey
+        } else {
+            errorElem.textContent = 'Failed to verify passkey registration on server.';
+        }
+    });
+</script>
+{% endblock %}
