@@ -2,6 +2,7 @@ import os
 import psycopg2
 from psycopg2.extras import DictCursor
 import threading
+import time
 from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, session, jsonify
 from datetime import datetime
 import subprocess
@@ -36,7 +37,12 @@ ORIGIN = 'http://localhost:5000' # Your full origin URL
 
 def get_db_connection():
     """Establishes a connection to the database."""
-    conn = psycopg2.connect(DATABASE_URL)
+    database_url = DATABASE_URL
+    if not database_url:
+        raise ValueError("DATABASE_URL environment variable is not set.")
+    # allow a short connect timeout so init attempts fail fast and can be retried
+    connect_timeout = int(os.environ.get('DB_CONNECT_TIMEOUT', '5'))
+    conn = psycopg2.connect(database_url, connect_timeout=connect_timeout)
     return conn
 
 def get_user_count():
@@ -115,12 +121,33 @@ def init_db():
     conn.close()
 
 def initialize_app():
-    """Initialize application resources (run in background to avoid blocking worker start)."""
+    """Initialize application resources with retries (runs in background).
+
+    This avoids blocking Gunicorn workers when Postgres isn't immediately reachable.
+    """
+
+    def _init_worker():
+        max_attempts = int(os.environ.get('DB_INIT_ATTEMPTS', '6'))
+        attempt = 0
+        backoff = 1
+        while attempt < max_attempts:
+            try:
+                init_db()
+                print("[init] Database initialization succeeded.")
+                return
+            except Exception as e:
+                attempt += 1
+                print(f"[init] Database init attempt {attempt} failed: {e}")
+                if attempt >= max_attempts:
+                    print("[init] Reached max DB init attempts; continuing without DB initialized.")
+                    return
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 30)
+
     try:
-        # Run DB init in a background thread so WSGI workers don't block if Postgres is slow to start
-        threading.Thread(target=init_db, daemon=True).start()
+        threading.Thread(target=_init_worker, daemon=True).start()
     except Exception:
-        # Fallback: attempt init synchronously
+        # Last resort synchronous attempt
         init_db()
 
 # Start initialization in background at import time
