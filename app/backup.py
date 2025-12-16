@@ -107,32 +107,83 @@ def send_apprise_notification(title, body, job_id=None):
         except Exception:
             body_to_send = body_to_send
 
-        # Build an HTML-safe <pre> version for HTML-capable notifiers
+        # Build a nicer HTML body (header, preformatted body, footer links) when possible
         try:
-            html_body = '<pre style="white-space:pre-wrap;font-family:monospace;">' + _html.escape(body or '') + '</pre>'
+            base_url = os.environ.get('APP_BASE_URL', '').rstrip('/')
         except Exception:
-            html_body = '<pre>' + (body or '') + '</pre>'
+            base_url = ''
 
-        # Try sending with HTML body format if Apprise exposes a NotifyFormat enum
+        try:
+            logo_src = (base_url + '/static/assets/docker-archiver-logo.png') if base_url else '/static/assets/docker-archiver-logo.png'
+        except Exception:
+            logo_src = '/static/assets/docker-archiver-logo.png'
+
+        try:
+            safe_title = _html.escape(title or '')
+            safe_body = _html.escape(body or '')
+            timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
+            links_html = ''
+            if base_url:
+                links_html = f'<a href="{base_url}/archives">Archives</a> | <a href="{base_url}/history">History</a>'
+                if job_id:
+                    links_html += f' | <a href="{base_url}/history#job-{job_id}">Job details</a>'
+
+            # Use a slightly smaller logo and more compact header to fit the new logo
+            html_body = f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial; color:#222;">
+  <div style="display:flex;align-items:center;border-bottom:1px solid #eee;padding:6px 0;margin-bottom:8px;gap:10px;">
+    <img src="{logo_src}" alt="logo" style="height:28px;width:auto;border-radius:4px;object-fit:contain;"/>
+    <div style="display:flex;flex-direction:column;">
+      <div style="font-size:15px;font-weight:600;color:#111;line-height:1;">{safe_title}</div>
+      <div style="font-size:12px;color:#666;line-height:1;">{timestamp}</div>
+    </div>
+  </div>
+  <div style="padding:6px 0;white-space:pre-wrap;font-family:monospace;background:#f8f8f8;border-radius:6px;padding:12px;color:#111;">{safe_body}</div>
+  <div style="border-top:1px solid #eee;padding-top:8px;margin-top:8px;font-size:13px;color:#666;">
+    {links_html}
+  </div>
+</div>
+"""
+        except Exception:
+            html_body = '<pre style="white-space:pre-wrap;font-family:monospace;">' + (body or '') + '</pre>'
+
+        # Decide whether HTML notifications are enabled (default true)
+        try:
+            apprise_html_val = _get_setting('apprise_html')
+            apprise_html_enabled = (str(apprise_html_val).lower() == 'true') if apprise_html_val is not None else True
+        except Exception:
+            apprise_html_enabled = True
+
         sent = False
-        try:
-            if hasattr(apprise, 'common') and hasattr(apprise.common, 'NotifyFormat'):
-                nf = apprise.common.NotifyFormat.HTML
-                # Prefer sending the HTML-wrapped body when requesting HTML body format
-                a.notify(title=title, body=html_body, body_format=nf)
-                sent = True
-        except Exception:
-            sent = False
-
-        # Fallback: append HTML <pre> block to plain body so services that render HTML will show it
-        if not sent:
+        if apprise_html_enabled:
             try:
-                a.notify(title=title, body=body_to_send + '\n\n' + html_body)
+                if hasattr(apprise, 'common') and hasattr(apprise.common, 'NotifyFormat'):
+                    nf = apprise.common.NotifyFormat.HTML
+                    a.notify(title=title, body=html_body, body_format=nf)
+                    sent = True
+            except Exception:
+                sent = False
+
+            # Fallback: append HTML block to plain text body so services that render HTML will show it
+            if not sent:
+                try:
+                    a.notify(title=title, body=body_to_send + '\n\n' + html_body)
+                    sent = True
+                except Exception:
+                    try:
+                        a.notify(title=title, body=body_to_send)
+                        sent = True
+                    except Exception:
+                        sent = False
+        else:
+            # HTML disabled — send plain text only
+            try:
+                a.notify(title=title, body=body_to_send)
                 sent = True
             except Exception:
-                # Last resort: send plain text
-                a.notify(title=title, body=body_to_send)
-        if job_id:
+                sent = False
+
+        if job_id and sent:
             log_to_db(job_id, f"Notification sent: {title}")
     except Exception as e:
         if job_id:
@@ -196,11 +247,14 @@ def compose_action(stack_path, job_id, action="down"):
     except Exception as e:
         log_to_db(job_id, f"Compose command failed: {e}. Command tried: {cmd}")
 
-def create_archive(stack_name, stack_path, backup_dir, job_id):
+def create_archive(stack_name, stack_path, backup_dir, job_id, schedule_label=None):
     """Creates a TAR archive and returns its path and size."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     archive_name_base = f"{stack_name}_{timestamp}.tar"
-    final_backup_path = os.path.join(backup_dir, stack_name)
+    if schedule_label:
+        final_backup_path = os.path.join(backup_dir, schedule_label, stack_name)
+    else:
+        final_backup_path = os.path.join(backup_dir, stack_name)
     os.makedirs(final_backup_path, exist_ok=True)
     
     target_filename = os.path.join(final_backup_path, archive_name_base)
@@ -249,7 +303,7 @@ def cleanup_local_archives(archive_dir, retention_days_str, master_job_id):
 
 # --- MAIN ORCHESTRATOR ---
 
-def run_archive_job(selected_stack_paths, retention_days, archive_dir, master_name=None, master_description=None):
+def run_archive_job(selected_stack_paths, retention_days, archive_dir, master_name=None, master_description=None, schedule_label=None, store_unpacked=False):
     """
     The main function to be run in a background thread.
     It orchestrates the entire archiving process for a list of stack paths.
@@ -268,6 +322,7 @@ def run_archive_job(selected_stack_paths, retention_days, archive_dir, master_na
 
     created_archives = []
 
+    job_log = []  # Initialize job_log to avoid reference errors
     for stack_path in selected_stack_paths:
         stack_name = os.path.basename(stack_path)
         start_time = datetime.now()
@@ -293,15 +348,17 @@ def run_archive_job(selected_stack_paths, retention_days, archive_dir, master_na
             compose_action(stack_path, job_id, action="down")
             
             # 2. Archive Stack
-            archive_path, archive_size = create_archive(stack_name, stack_path, archive_dir, job_id)
+            # If a schedule_label is provided (scheduled run), group archives under it
+            archive_path, archive_size = create_archive(stack_name, stack_path, archive_dir, job_id, schedule_label=schedule_label)
             created_archives.append((archive_path, archive_size))
             
             # 3. Start Stack
             compose_action(stack_path, job_id, action="up")
-            
+
             # 4. Update DB with Success
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
+            job_log.append(f"Archived {stack_name} -> {archive_path}")
             conn = get_db_connection()
             with conn.cursor() as cur:
                 cur.execute(
@@ -314,6 +371,40 @@ def run_archive_job(selected_stack_paths, retention_days, archive_dir, master_na
                 )
                 conn.commit()
             conn.close()
+            # 5. Optionally create unpacked snapshot directory and update `latest` pointer when requested
+            if store_unpacked:
+                try:
+                    ts = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+                    # sanitize schedule/master name for filesystem
+                    schedule_label = (master_name or 'manual').replace(' ', '_').replace(':', '').replace(',', '')
+                    snapshot_dir = os.path.join(archive_dir, schedule_label, stack_name, ts)
+                    os.makedirs(snapshot_dir, exist_ok=True)
+                    # Extract the tar into the snapshot directory (use run_command to log)
+                    try:
+                        run_command(['tar', 'xf', archive_path, '-C', snapshot_dir], job_id, f"Extracting {archive_path} to {snapshot_dir}")
+                        log_to_db(job_id, f"Created unpacked snapshot: {snapshot_dir}")
+                    except Exception as e:
+                        log_to_db(job_id, f"Failed to extract archive to snapshot dir: {e}")
+
+                    # Create or update a 'latest' symlink (or fallback to a text pointer on platforms without symlink support)
+                    latest_link = os.path.join(archive_dir, schedule_label, stack_name, 'latest')
+                    try:
+                        if os.path.islink(latest_link) or os.path.exists(latest_link):
+                            try:
+                                os.remove(latest_link)
+                            except Exception:
+                                # ignore removal failures
+                                pass
+                        os.symlink(snapshot_dir, latest_link)
+                    except Exception:
+                        # Fallback: write a small pointer file with the path
+                        try:
+                            with open(latest_link + '.txt', 'w', encoding='utf-8') as pf:
+                                pf.write(snapshot_dir)
+                        except Exception:
+                            log_to_db(job_id, f"Warning: could not create latest pointer for {snapshot_dir}")
+                except Exception as e:
+                    log_to_db(job_id, f"Warning: failed to create unpacked snapshot for {stack_name}: {e}")
             # send success notification for this stack
             try:
                 send_apprise_notification(
@@ -331,6 +422,7 @@ def run_archive_job(selected_stack_paths, retention_days, archive_dir, master_na
             error_log = f"FATAL: Archive failed for {stack_name}. Reason: {e}\n"
             log_to_db(job_id, error_log)
             conn = get_db_connection()
+                # Log the successful archiving
             with conn.cursor() as cur:
                 cur.execute(
                     "UPDATE archive_jobs SET status = 'Failed', end_time = %s, duration_seconds = %s WHERE id = %s;",
@@ -477,28 +569,43 @@ def _delete_old_files_in_dir(target_dir, retention_days, master_job_id):
         return deleted_count, freed_space, deleted_files
 
     for fname in os.listdir(target_dir):
-        if not fname.endswith('.tar'):
-            continue
-        fpath = os.path.join(target_dir, fname)
+        entry_path = os.path.join(target_dir, fname)
         try:
-            mtime = os.path.getmtime(fpath)
+            mtime = os.path.getmtime(entry_path)
         except Exception:
             continue
         try:
             if (datetime.now() - datetime.fromtimestamp(mtime)).days > int(retention_days):
-                try:
-                    size = os.path.getsize(fpath)
-                except Exception:
-                    size = 0
-                try:
-                    os.remove(fpath)
-                    rel = os.path.relpath(fpath, start=target_dir)
-                    log_to_db(master_job_id, f"Deleted old archive: {fpath} ({format_bytes(size)})")
-                    deleted_count += 1
-                    freed_space += size
-                    deleted_files.append((fpath, size))
-                except OSError as e:
-                    log_to_db(master_job_id, f"Error deleting file {fpath}: {e}")
+                # Directory (snapshot) removal
+                if os.path.isdir(entry_path):
+                    try:
+                        size = get_dir_size(entry_path)
+                    except Exception:
+                        size = 0
+                    try:
+                        shutil.rmtree(entry_path)
+                        log_to_db(master_job_id, f"Deleted old snapshot dir: {entry_path} ({format_bytes(size)})")
+                        deleted_count += 1
+                        freed_space += size
+                        deleted_files.append((entry_path, size))
+                    except OSError as e:
+                        log_to_db(master_job_id, f"Error deleting directory {entry_path}: {e}")
+                else:
+                    # File handling (tar archives)
+                    if not entry_path.endswith('.tar'):
+                        continue
+                    try:
+                        size = os.path.getsize(entry_path)
+                    except Exception:
+                        size = 0
+                    try:
+                        os.remove(entry_path)
+                        log_to_db(master_job_id, f"Deleted old archive: {entry_path} ({format_bytes(size)})")
+                        deleted_count += 1
+                        freed_space += size
+                        deleted_files.append((entry_path, size))
+                    except OSError as e:
+                        log_to_db(master_job_id, f"Error deleting file {entry_path}: {e}")
         except Exception:
             continue
 
@@ -548,9 +655,9 @@ def run_cleanup_job(archive_dir, master_name=None, master_description=None, sche
         conn = get_db_connection()
         with conn.cursor(cursor_factory=DictCursor) as cur:
             if schedule_id:
-                cur.execute("SELECT id, name, stack_paths, retention_days FROM schedules WHERE id = %s AND enabled = true;", (schedule_id,))
+                cur.execute("SELECT id, name, stack_paths, retention_days, store_unpacked FROM schedules WHERE id = %s AND enabled = true;", (schedule_id,))
             else:
-                cur.execute("SELECT id, name, stack_paths, retention_days FROM schedules WHERE enabled = true;")
+                cur.execute("SELECT id, name, stack_paths, retention_days, store_unpacked FROM schedules WHERE enabled = true;")
             schedules = cur.fetchall()
         conn.close()
     except Exception as e:
@@ -566,7 +673,8 @@ def run_cleanup_job(archive_dir, master_name=None, master_description=None, sche
             schedule_freed = 0
             for sp in paths:
                 stack_name = os.path.basename(sp)
-                target_dir = os.path.join(archive_dir, stack_name)
+                # For scheduled runs we store archives under archive_dir/<schedule_name>/<stack_name>/
+                target_dir = os.path.join(archive_dir, s_name, stack_name)
                 dcount, dfreed, dfiles = _delete_old_files_in_dir(target_dir, retention, master_job_id)
                 schedule_deleted += dcount
                 schedule_freed += dfreed

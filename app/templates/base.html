@@ -9,10 +9,10 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body data-server-theme="{{ user_theme or '' }}">
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <nav class="navbar navbar-expand-lg">
         <div class="container-fluid">
             <a class="navbar-brand d-flex align-items-center" href="{{ url_for('index') }}">
-                <img src="{{ url_for('static', filename='assets/docker-archiver-logo.png') }}" alt="logo" style="height:32px; width:auto; margin-right:8px; object-fit:contain;"/>
+                <img src="{{ url_for('static', filename='assets/docker-archiver-logo.png') }}" alt="Docker Archiver logo" class="header-logo"/>
                 <span>Docker Archiver</span>
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
@@ -36,7 +36,7 @@
                 </ul>
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item d-flex align-items-center me-2">
-                        <button id="theme-toggle" class="btn btn-sm btn-outline-light" title="Toggle dark mode">🌙</button>
+                        <button id="theme-toggle" class="btn btn-sm" title="Toggle dark mode">🌙</button>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('profile_route') }}">Profile</a>
@@ -107,14 +107,36 @@
                 isDark = false; // default to light
             }
 
-            if(isDark) document.body.classList.add('dark-mode');
+            const nav = document.querySelector('nav.navbar');
+            const setTheme = (dark) => {
+                if(dark) {
+                    document.body.classList.add('dark-mode');
+                    // navbar classes for dark
+                    nav.classList.remove('navbar-light','bg-light');
+                    nav.classList.add('navbar-dark');
+                    // ensure background blends with CSS vars
+                    nav.style.backgroundColor = 'var(--card-bg)';
+                    toggle.classList.remove('btn-outline-secondary');
+                    toggle.classList.add('btn-outline-light');
+                    toggle.textContent = '☀️';
+                } else {
+                    document.body.classList.remove('dark-mode');
+                    nav.classList.remove('navbar-dark');
+                    nav.classList.add('navbar-light','bg-light');
+                    nav.style.backgroundColor = '';
+                    toggle.classList.remove('btn-outline-light');
+                    toggle.classList.add('btn-outline-secondary');
+                    toggle.textContent = '🌙';
+                }
+            };
+
+            setTheme(isDark);
+
             if(toggle){
-                // set initial label
-                toggle.textContent = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
                 toggle.addEventListener('click', function(){
-                    const nowDark = document.body.classList.toggle('dark-mode');
+                    const nowDark = !document.body.classList.contains('dark-mode');
+                    setTheme(nowDark);
                     localStorage.setItem('theme', nowDark ? 'dark' : 'light');
-                    toggle.textContent = nowDark ? '☀️' : '🌙';
                 });
             }
         })();

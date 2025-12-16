@@ -97,6 +97,10 @@
                         </select>
                         <div class="form-text text-muted">Choose 'cleanup' to run retention-only for the selected stacks.</div>
                     </div>
+                    <div class="mb-3 form-check">
+                        <input class="form-check-input" type="checkbox" id="store_unpacked" name="store_unpacked">
+                        <label class="form-check-label" for="store_unpacked">Store unpacked snapshot (directory) instead of tar</label>
+                    </div>
                     <button class="btn btn-primary">Create Schedule</button>
                 </form>
                 <hr />
@@ -122,6 +126,10 @@
                     <div class="mb-3">
                         <label class="form-label">Retention days</label>
                         <input name="retention_days" class="form-control" value="28" />
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input class="form-check-input" type="checkbox" id="store_unpacked_cleanup" name="store_unpacked">
+                        <label class="form-check-label" for="store_unpacked_cleanup">Store unpacked snapshot (directory) instead of tar</label>
                     </div>
                     <button class="btn btn-danger">Create Cleanup Schedule</button>
                 </form>

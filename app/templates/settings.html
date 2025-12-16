@@ -15,6 +15,15 @@
       </div>
 
       <div class="mb-3">
+        <label for="apprise_html" class="form-label">Use HTML in notifications</label>
+        <select class="form-select" id="apprise_html" name="apprise_html">
+          <option value="true" {% if apprise_html %}selected{% endif %}>Yes (default)</option>
+          <option value="false" {% if not apprise_html %}selected{% endif %}>No (plain text only)</option>
+        </select>
+        <div class="form-text">When enabled, notifications will include an HTML-formatted header/footer. If disabled, only plain text will be sent.</div>
+      </div>
+
+      <div class="mb-3">
         <label for="apprise_urls" class="form-label">Apprise URL(s)</label>
         <textarea class="form-control" id="apprise_urls" name="apprise_urls" rows="6" placeholder="e.g. mailto://user:pass@example.com\nhttps://api.pushover.net/1/messages.json?token=...">{{ apprise_urls or '' }}</textarea>
         <div class="form-text">Enter one Apprise URL per line. See Apprise docs for service URLs.</div>

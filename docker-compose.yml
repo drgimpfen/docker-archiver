@@ -14,6 +14,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://user:password@db:5432/docker_archiver
       - TZ=Europe/Berlin
+      - APP_BASE_URL=http://localhost:5000
     depends_on:
       - db
 

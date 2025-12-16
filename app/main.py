@@ -133,8 +133,12 @@ def init_db():
         cur.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS description TEXT;")
         # Add a type column to schedules so a schedule can be 'backup' or 'cleanup'
         cur.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS type VARCHAR(20) DEFAULT 'backup';")
+        # Add store_unpacked flag to schedules (do we keep unpacked directory snapshots)
+        cur.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS store_unpacked BOOLEAN DEFAULT FALSE;")
         # Set default retention if not present
         cur.execute("INSERT INTO settings (key, value) VALUES ('retention_days', '28') ON CONFLICT (key) DO NOTHING;")
+        # Default: enable HTML in Apprise notifications unless explicitly disabled
+        cur.execute("INSERT INTO settings (key, value) VALUES ('apprise_html', 'true') ON CONFLICT (key) DO NOTHING;")
         conn.commit()
     conn.close()
 
@@ -209,7 +213,9 @@ def _job_runner(schedule_id):
             # For cleanup schedules, run cleanup for this schedule only
             threading.Thread(target=backup.run_cleanup_job, args=(CONTAINER_BACKUP_DIR, master_name, master_description, schedule_id), daemon=True).start()
         else:
-            threading.Thread(target=backup.run_archive_job, args=(stack_paths, retention, CONTAINER_BACKUP_DIR, master_name, master_description), daemon=True).start()
+            store_unpacked_flag = bool(s.get('store_unpacked'))
+            # Pass schedule name as schedule_label so archives are grouped under /archives/<schedule_name>/
+            threading.Thread(target=backup.run_archive_job, args=(stack_paths, retention, CONTAINER_BACKUP_DIR, master_name, master_description, master_name, store_unpacked_flag), daemon=True).start()
     except Exception as e:
         print(f"[scheduler] job_runner error for schedule {schedule_id}: {e}")
 
@@ -683,18 +689,22 @@ def settings_route():
     apprise_urls = get_setting('apprise_urls') or ''
     apprise_enabled = get_setting('apprise_enabled')
     apprise_enabled_bool = (str(apprise_enabled).lower() == 'true') if apprise_enabled is not None else False
+    apprise_html = get_setting('apprise_html')
+    apprise_html_bool = (str(apprise_html).lower() == 'true') if apprise_html is not None else True
 
     if request.method == 'POST':
         apprise_enabled_form = request.form.get('apprise_enabled', 'false')
         apprise_urls_form = request.form.get('apprise_urls', '').strip()
+        apprise_html_form = request.form.get('apprise_html', 'true')
 
         update_setting('apprise_enabled', 'true' if apprise_enabled_form == 'true' else 'false')
         update_setting('apprise_urls', apprise_urls_form)
+        update_setting('apprise_html', 'true' if apprise_html_form == 'true' else 'false')
 
         flash('Settings saved.', 'success')
         return redirect(url_for('settings_route'))
 
-    return render_template('settings.html', apprise_urls=apprise_urls, apprise_enabled=apprise_enabled_bool)
+    return render_template('settings.html', apprise_urls=apprise_urls, apprise_enabled=apprise_enabled_bool, apprise_html=apprise_html_bool)
 
 @app.route('/profile/change_password', methods=['GET', 'POST'])
 def profile_change_password_route():
@@ -936,15 +946,28 @@ def start_archive_route():
     
     stack_names_for_flash = [os.path.basename(path) for path in selected_stack_paths]
 
-    # Run the archiving process in a background thread
-    master_name = f"Manual Run: {', '.join(stack_names_for_flash)}"
+    # Build master name and optional manual label/description
+    master_name = request.form.get('manual_name')
+    master_description = request.form.get('manual_description')
+    if not master_name or not master_name.strip():
+        # fallback to automatic name containing stacks
+        ts_label = datetime.now().strftime('%Y%m%d_%H%M%S')
+        master_name = f"manual_run_{ts_label}"
+    else:
+        # sanitize name for filesystem use
+        master_name = master_name.strip()
+        for ch in (' ', ':', '/', '\\', ',', '"', "'"):
+            master_name = master_name.replace(ch, '_')
+
+    # Start archive job and group files under the provided master_name
     thread = threading.Thread(
         target=backup.run_archive_job,
-        args=(selected_stack_paths, retention_days, CONTAINER_BACKUP_DIR, master_name, None)
+        args=(selected_stack_paths, retention_days, CONTAINER_BACKUP_DIR, master_name, master_description, master_name, False),
+        daemon=True
     )
     thread.start()
 
-    flash(f"Archiving process started in the background for: {', '.join(stack_names_for_flash)}", 'info')
+    flash(f"Archiving process started in the background for: {', '.join(stack_names_for_flash)} (group: {master_name})", 'info')
     return redirect(url_for('index'))
 
 
@@ -992,47 +1015,85 @@ def format_bytes(size):
 
 def scan_archives():
     """Scans the archive directory and returns a structured dictionary with extended info."""
-    archives_info = {}
-    if not os.path.isdir(CONTAINER_BACKUP_DIR):
-        return archives_info
+    result = {
+        'schedules': [],  # each: {name, stacks: {stack_name: {...}}}
+        'stacks': []      # legacy top-level stacks (each: {name, files, total_size_human, last_backup, count})
+    }
 
-    for stack_name in sorted(os.listdir(CONTAINER_BACKUP_DIR)):
-        stack_dir_path = os.path.join(CONTAINER_BACKUP_DIR, stack_name)
-        if os.path.isdir(stack_dir_path):
+    if not os.path.isdir(CONTAINER_BACKUP_DIR):
+        return result
+
+    for top in sorted(os.listdir(CONTAINER_BACKUP_DIR)):
+        top_path = os.path.join(CONTAINER_BACKUP_DIR, top)
+        if not os.path.isdir(top_path):
+            continue
+
+        # Check if this top-level directory contains stack subdirectories (schedule grouping)
+        sub_entries = [e for e in os.listdir(top_path) if os.path.isdir(os.path.join(top_path, e))]
+        if sub_entries:
+            # Treat as schedule grouping
+            sched = {'name': top, 'stacks': {}}
+            for stack_name in sorted(sub_entries):
+                stack_dir = os.path.join(top_path, stack_name)
+                archive_files = []
+                total_size_bytes = 0
+                last_backup_timestamp = 0
+                for filename in sorted(os.listdir(stack_dir), reverse=True):
+                    if filename.endswith('.tar'):
+                        file_path = os.path.join(stack_dir, filename)
+                        try:
+                            stat_info = os.stat(file_path)
+                            archive_files.append({
+                                'name': filename,
+                                'size': stat_info.st_size,
+                                'created_at': datetime.fromtimestamp(stat_info.st_mtime)
+                            })
+                            total_size_bytes += stat_info.st_size
+                            if stat_info.st_mtime > last_backup_timestamp:
+                                last_backup_timestamp = stat_info.st_mtime
+                        except OSError:
+                            continue
+                if archive_files:
+                    sched['stacks'][stack_name] = {
+                        'count': len(archive_files),
+                        'total_size_bytes': total_size_bytes,
+                        'total_size_human': format_bytes(total_size_bytes),
+                        'last_backup': datetime.fromtimestamp(last_backup_timestamp) if last_backup_timestamp else None,
+                        'files': archive_files
+                    }
+            if sched['stacks']:
+                result['schedules'].append(sched)
+        else:
+            # Legacy: top-level stacks containing tar files directly
             archive_files = []
             total_size_bytes = 0
             last_backup_timestamp = 0
-
-            for filename in sorted(os.listdir(stack_dir_path), reverse=True): # Sort to easily find last backup
-                if filename.endswith(".tar"):
-                    file_path = os.path.join(stack_dir_path, filename)
+            for filename in sorted(os.listdir(top_path), reverse=True):
+                if filename.endswith('.tar'):
+                    file_path = os.path.join(top_path, filename)
                     try:
                         stat_info = os.stat(file_path)
-                        file_created_at = datetime.fromtimestamp(stat_info.st_mtime)
-                        
                         archive_files.append({
-                            "name": filename,
-                            "size": stat_info.st_size,
-                            "created_at": file_created_at
+                            'name': filename,
+                            'size': stat_info.st_size,
+                            'created_at': datetime.fromtimestamp(stat_info.st_mtime)
                         })
                         total_size_bytes += stat_info.st_size
                         if stat_info.st_mtime > last_backup_timestamp:
                             last_backup_timestamp = stat_info.st_mtime
-
                     except OSError:
-                        # Skip files that might be gone due to race conditions
                         continue
-            
             if archive_files:
-                archives_info[stack_name] = {
-                    "count": len(archive_files),
-                    "total_size_bytes": total_size_bytes,
-                    "total_size_human": format_bytes(total_size_bytes),
-                    "last_backup": datetime.fromtimestamp(last_backup_timestamp) if last_backup_timestamp else None,
-                    "files": archive_files
-                }
-    
-    return archives_info
+                result['stacks'].append({
+                    'name': top,
+                    'count': len(archive_files),
+                    'total_size_bytes': total_size_bytes,
+                    'total_size_human': format_bytes(total_size_bytes),
+                    'last_backup': datetime.fromtimestamp(last_backup_timestamp) if last_backup_timestamp else None,
+                    'files': archive_files
+                })
+
+    return result
 
 
 @app.route('/archives')
@@ -1040,6 +1101,22 @@ def archives_list():
     """Shows a list of available archives, grouped by stack."""
     all_archives = scan_archives()
     return render_template('archives.html', archives=all_archives)
+
+
+@app.route('/migrate_archives', methods=['POST'])
+def migrate_archives_route():
+    user_id = session.get('user_id')
+    if not user_id:
+        return redirect(url_for('login_route'))
+
+    description = request.form.get('migration_description')
+    # run migration in background
+    try:
+        threading.Thread(target=lambda: backup.migrate_top_level_archives(CONTAINER_BACKUP_DIR, description), daemon=True).start()
+        flash('Archive migration started in background. Check history for details.', 'info')
+    except Exception as e:
+        flash(f'Failed to start migration: {e}', 'danger')
+    return redirect(url_for('archives_list'))
 
 
 @app.route('/schedules', methods=['GET', 'POST'])
@@ -1073,6 +1150,7 @@ def create_schedule_route():
     stacks = request.form.getlist('stacks')
     retention_days = int(request.form.get('retention_days') or 28)
     schedule_type = request.form.get('type') or 'backup'
+    store_unpacked = True if request.form.get('store_unpacked') == 'on' else False
     stack_text = '\n'.join(stacks)
     # Prevent creating more than one cleanup schedule
     if schedule_type == 'cleanup':
@@ -1092,8 +1170,8 @@ def create_schedule_route():
     conn = get_db_connection()
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO schedules (name, time, stack_paths, retention_days, enabled, description, type) VALUES (%s, %s, %s, %s, %s, %s, %s);",
-            (name, time_val, stack_text, retention_days, True, description, schedule_type)
+            "INSERT INTO schedules (name, time, stack_paths, retention_days, enabled, description, type, store_unpacked) VALUES (%s, %s, %s, %s, %s, %s, %s, %s);",
+            (name, time_val, stack_text, retention_days, True, description, schedule_type, store_unpacked)
         )
         conn.commit()
     conn.close()
@@ -1144,6 +1222,7 @@ def edit_schedule_route(schedule_id):
         time_val = request.form.get('time')
         description = request.form.get('description')
         schedule_type = request.form.get('type') or 'backup'
+        store_unpacked = True if request.form.get('store_unpacked') == 'on' else False
         stacks = request.form.getlist('stacks')
         retention_days = int(request.form.get('retention_days') or 28)
         enabled = True if request.form.get('enabled') == 'true' else False
@@ -1166,8 +1245,8 @@ def edit_schedule_route(schedule_id):
 
         conn = get_db_connection()
         with conn.cursor() as cur:
-            cur.execute("UPDATE schedules SET name=%s, time=%s, stack_paths=%s, retention_days=%s, enabled=%s, description=%s, type=%s WHERE id=%s;",
-                        (name, time_val, stack_text, retention_days, enabled, description, schedule_type, schedule_id))
+            cur.execute("UPDATE schedules SET name=%s, time=%s, stack_paths=%s, retention_days=%s, enabled=%s, description=%s, type=%s, store_unpacked=%s WHERE id=%s;",
+                        (name, time_val, stack_text, retention_days, enabled, description, schedule_type, store_unpacked, schedule_id))
             conn.commit()
         conn.close()
         # update scheduler

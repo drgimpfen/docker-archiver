@@ -28,7 +28,7 @@
     background-color: rgba(0, 0, 0, 0.04);
 }
 
-/* Theme variables */
+/* Light (default) theme variables */
 :root {
     --bg: #ffffff;
     --text: #212529;
@@ -39,22 +39,21 @@
     --border: #dee2e6;
     --log-bg: #f8f9fa;
     --table-hover: rgba(0,0,0,0.04);
+    --accent: #0d6efd;
 }
 
-}
-    --bg: #0b1220;
-    --text: #e6eef6;
-    /* Dark mode palette following the provided guidelines */
-    --bg: #121214; /* off-black, avoid pure black */
-    --text: #E0E0E0; /* slightly brightened white for AA contrast */
-    --muted: #A0A0A0; /* secondary text */
-    --card-bg: #1F1F1F; /* raised surface (navbar, cards) */
-    --panel-bg: #161616; /* panels / inputs */
-    --surface: #181818; /* deepest surface */
-    --border: #232323; /* subtle borders */
-    --log-bg: #0f1416; /* code / pre blocks */
+/* Dark mode overrides applied when body has .dark-mode */
+.dark-mode {
+    --bg: #121214;
+    --text: #E0E0E0;
+    --muted: #A0A0A0;
+    --card-bg: #1F1F1F;
+    --panel-bg: #161616;
+    --surface: #181818;
+    --border: #232323;
+    --log-bg: #0f1416;
     --table-hover: rgba(255,255,255,0.025);
-    --accent: #2a7ac7; /* slightly desaturated primary */
+    --accent: #2a7ac7;
 }
 
 body {
@@ -67,7 +66,7 @@ body {
     background-color: var(--card-bg) !important;
     border-color: var(--border) !important;
     transition: background-color 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.35); /* subtle depth */
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
 
 .log-content {
@@ -80,18 +79,18 @@ body {
 
 .text-muted { color: var(--muted) !important; }
 
-/* Navbar tweaks to blend with theme */
-.dark-mode .navbar {
-    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0)) !important;
-    border-bottom: 1px solid rgba(255,255,255,0.03);
+/* Header logo styling */
+.navbar-brand .header-logo {
+    height: 28px;
+    width: auto;
+    margin-right: 8px;
+    object-fit: contain;
+    border-radius: 4px;
 }
 
-.dark-mode .navbar-brand, .dark-mode .nav-link {
-    color: var(--text) !important;
-    opacity: 0.95;
-}
+.nav-link { color: inherit !important; }
 
-/* Buttons */
+/* Buttons: prefer bootstrap defaults, but tweak dark-mode accents */
 .dark-mode .btn-primary {
     background-color: #246bff !important;
     border-color: #1b5ed0 !important;
@@ -118,8 +117,12 @@ body {
     border-bottom: 1px solid var(--border) !important;
 }
 
-.dark-mode .badge-success { background-color: #198754 !important; }
-.dark-mode .badge-danger { background-color: #dc3545 !important; }
+.badge-success { background-color: #198754 !important; }
+.badge-danger { background-color: #dc3545 !important; }
+
+/* Badge color adjustments for dark mode */
+.dark-mode .badge-primary { background-color: #2563eb !important; color: #fff !important; }
+.dark-mode .badge-info { background-color: #0dcaf0 !important; color: #051923 !important; }
 
 /* Improve checkbox contrast */
 .dark-mode .form-check-input {
@@ -128,7 +131,7 @@ body {
 }
 
 /* Slightly soften link hover */
-.dark-mode a.nav-link:hover { opacity: 0.9 !important; }
+.a.nav-link:hover { opacity: 0.9 !important; }
 
 /* Footer styles */
 .footer { border-top: 1px solid var(--border); }

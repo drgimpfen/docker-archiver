@@ -19,7 +19,7 @@
                 </thead>
                 <tbody>
                     {% for job in jobs %}
-                        <tr>
+                        <tr id="job-{{ job.id }}">
                             <td>{{ job.stack_name }}</td>
                             <td>{{ job.start_time.strftime('%Y-%m-%d %H:%M:%S') if job.start_time else 'N/A' }}</td>
                             <td>{{ job.end_time.strftime('%Y-%m-%d %H:%M:%S') if job.end_time else 'N/A' }}</td>

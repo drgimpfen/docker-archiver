@@ -31,6 +31,16 @@
                         <input type="number" class="form-control" id="retention_days" name="retention_days" value="{{ retention_days or 28 }}" min="1">
                     </div>
 
+                    <div class="mb-3">
+                        <label for="manual_name" class="form-label"><strong>Manual Run Name (optional)</strong></label>
+                        <input type="text" class="form-control" id="manual_name" name="manual_name" placeholder="Optional name for this run (used to group archives)">
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="manual_description" class="form-label"><strong>Manual Run Description (optional)</strong></label>
+                        <input type="text" class="form-control" id="manual_description" name="manual_description" placeholder="Optional description shown in notifications">
+                    </div>
+
                     <button type="submit" class="btn btn-primary w-100">Start Archiving</button>
                 </form>
             </div>
