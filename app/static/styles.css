@@ -270,8 +270,8 @@ body.has-sidebar .app-main { margin-left: 240px; width: calc(100% - 240px); padd
 /* Header social icons */
 .header-social-icon { height: 20px; width: auto; margin-left: 8px; opacity: 0.95; }
 
-/* Recent activity card: use full available width inside the container and remove fixed max-width */
-.recent-card { width: 100%; max-width: none; margin: 0; padding: 0 12px; box-shadow: none; border-radius: 8px; }
+/* Recent activity card: centered 80% width to match Backup page */
+.recent-card { width: 80%; max-width: none; margin: 0 auto 1.5rem; padding: 0 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.55); border-radius: 8px; }
 
 /* Ensure recent card text/table is readable in dark mode */
 .recent-card, .recent-card th, .recent-card td, .recent-card .card-header {

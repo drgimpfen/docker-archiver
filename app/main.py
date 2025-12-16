@@ -321,6 +321,29 @@ def format_duration(seconds):
         return None
 
 
+def _ordinal(n: int) -> str:
+    """Return ordinal string for an integer (e.g. 1 -> '1st', 2 -> '2nd')."""
+    try:
+        n = int(n)
+    except Exception:
+        return str(n)
+    if 11 <= (n % 100) <= 13:
+        return f"{n}th"
+    suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
+    return f"{n}{suffix}"
+
+
+def format_start_time_ordinal(dt):
+    """Format datetime as '16th December 2025 21:10' (24h)."""
+    if not dt:
+        return None
+    day = _ordinal(dt.day)
+    month = dt.strftime('%B')
+    year = dt.year
+    time_part = dt.strftime('%H:%M')
+    return f"{day} {month} {year} - {time_part}"
+
+
 def _serialize_webauthn_obj(obj):
     """Recursively serialize a WebAuthn options object to JSON-serializable primitives."""
     if obj is None:
@@ -821,11 +844,32 @@ def index():
     retention_days = get_setting('retention_days')
     
     conn = get_db_connection()
-    with conn.cursor(cursor_factory=DictCursor) as cur:
-        # Get last 10 master jobs only
-        cur.execute("SELECT * FROM archive_jobs WHERE is_master = true ORDER BY start_time DESC LIMIT 10;")
-        recent_jobs = cur.fetchall()
-    conn.close()
+    recent_jobs = []
+    try:
+        with conn.cursor(cursor_factory=DictCursor) as cur:
+            # Get last 10 master jobs only
+            cur.execute("SELECT * FROM archive_jobs WHERE is_master = true ORDER BY start_time DESC LIMIT 10;")
+            masters = cur.fetchall()
+            for m in masters:
+                # fetch child stack rows for this master
+                cur.execute("SELECT stack_name FROM archive_jobs WHERE master_id = %s ORDER BY start_time ASC;", (m.get('id'),))
+                children = cur.fetchall()
+                stacks = [c.get('stack_name') for c in children] if children else []
+                # format start time in long form and duration human readable
+                start_time = m.get('start_time')
+                start_time_str = format_start_time_ordinal(start_time) if start_time else None
+                duration_human = format_duration(m.get('duration_seconds')) if m.get('duration_seconds') is not None else 'N/A'
+                recent_jobs.append({
+                    'id': m.get('id'),
+                    'job_name': m.get('stack_name'),
+                    'stacks': stacks,
+                    'status': m.get('status'),
+                    'start_time': start_time,
+                    'start_time_str': start_time_str,
+                    'duration_human': duration_human,
+                })
+    finally:
+        conn.close()
 
     # expose whether a cleanup is currently in progress so the UI can disable the manual trigger
     cleanup_flag = get_setting('cleanup_in_progress')

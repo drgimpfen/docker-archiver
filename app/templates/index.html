@@ -13,23 +13,35 @@
                         <table class="table table-striped">
                             <thead>
                                 <tr>
-                                    <th>Stack</th>
-                                    <th>Start Time</th>
+                                    <th>Job</th>
+                                    <th>Stacks</th>
                                     <th>Status</th>
+                                    <th>Start Time</th>
                                     <th>Duration</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for job in recent_jobs %}
                                     <tr>
-                                        <td>{{ job.stack_name }}</td>
-                                        <td>{{ job.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                                        <td>{{ job.job_name }}</td>
+                                        <td>
+                                            {% if job.stacks %}
+                                                <ul class="mb-0 ps-3">
+                                                {% for s in job.stacks %}
+                                                    <li>{{ s }}</li>
+                                                {% endfor %}
+                                                </ul>
+                                            {% else %}
+                                                <span class="text-muted">(no stacks)</span>
+                                            {% endif %}
+                                        </td>
                                         <td>
                                             <span class="badge {% if job.status == 'Success' %} bg-success {% elif job.status == 'Failed' %} bg-danger {% elif job.status == 'Running' %} bg-info {% else %} bg-secondary {% endif %}">
                                                 {{ job.status }}
                                             </span>
                                         </td>
-                                        <td>{{ (job.duration_seconds ~ 's') if job.duration_seconds is not none else 'N/A' }}</td>
+                                        <td>{{ job.start_time_str or 'N/A' }}</td>
+                                        <td>{{ job.duration_human or 'N/A' }}</td>
                                     </tr>
                                 {% endfor %}
                             </tbody>
