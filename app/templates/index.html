@@ -49,61 +49,65 @@
         <!-- Recent Activity (full width below) -->
         <div class="col-12">
             <h2>Recent Activity</h2>
-            <div class="card">
-                <div class="card-body">
-                    {% if recent_jobs %}
-                        <table class="table table-striped">
-                            <thead>
-                                <tr>
-                                    <th>Stack</th>
-                                    <th>Start Time</th>
-                                    <th>Status</th>
-                                    <th>Duration</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for job in recent_jobs %}
-                                    <tr>
-                                        <td>{{ job.stack_name }}</td>
-                                        <td>{{ job.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-                                        <td>
-                                            <span class="badge 
-                                                {% if job.status == 'Success' %} bg-success
-                                                {% elif job.status == 'Failed' %} bg-danger
-                                                {% elif job.status == 'Running' %} bg-info
-                                                {% else %} bg-secondary {% endif %}">
-                                                {{ job.status }}
-                                            </span>
-                                        </td>
-                                        <td>{{ (job.duration_seconds ~ 's') if job.duration_seconds is not none else 'N/A' }}</td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    {% else %}
-                        <p class="text-center text-muted">No backup jobs have been run yet.</p>
-                    {% endif %}
-                    <div class="text-center mt-3">
-                        <a href="{{ url_for('history') }}" class="btn btn-outline-secondary btn-sm">View Full History</a>
-                    </div>
-                    <div class="text-center mt-2">
-                        {% if cleanup_in_progress %}
-                            <div class="input-group">
-                                <input class="form-control form-control-sm" placeholder="Cleanup running..." disabled />
-                                <button class="btn btn-outline-secondary btn-sm" disabled>Cleanup Running</button>
+            <div class="container-fluid">
+                <div class="row mt-2">
+                    <!-- Recent Activity (full width) -->
+                    <div class="col-12">
+                        <h2>Recent Activity</h2>
+                        <div class="card">
+                            <div class="card-body">
+                                {% if recent_jobs %}
+                                    <table class="table table-striped">
+                                        <thead>
+                                            <tr>
+                                                <th>Stack</th>
+                                                <th>Start Time</th>
+                                                <th>Status</th>
+                                                <th>Duration</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for job in recent_jobs %}
+                                                <tr>
+                                                    <td>{{ job.stack_name }}</td>
+                                                    <td>{{ job.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                                                    <td>
+                                                        <span class="badge 
+                                                            {% if job.status == 'Success' %} bg-success
+                                                            {% elif job.status == 'Failed' %} bg-danger
+                                                            {% elif job.status == 'Running' %} bg-info
+                                                            {% else %} bg-secondary {% endif %}">
+                                                            {{ job.status }}
+                                                        </span>
+                                                    </td>
+                                                    <td>{{ (job.duration_seconds ~ 's') if job.duration_seconds is not none else 'N/A' }}</td>
+                                                </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                {% else %}
+                                    <p class="text-center text-muted">No backup jobs have been run yet.</p>
+                                {% endif %}
                             </div>
-                        {% else %}
-                            <form method="post" action="{{ url_for('start_cleanup_route') }}" onsubmit="return confirm('Start cleanup now? This will delete archives older than configured retentions.');">
-                                <div class="input-group">
-                                    <input name="description" class="form-control form-control-sm" placeholder="Optional cleanup description" value="{{ default_cleanup_description }}" />
-                                    <button class="btn btn-outline-danger btn-sm">Run Cleanup</button>
-                                </div>
-                            </form>
-                        {% endif %}
+                            <div class="card-action center">
+                                <a href="{{ url_for('history') }}" class="btn btn-outline-secondary btn-sm">View Full History</a>
+                            </div>
+                            <div class="card-action">
+                                {% if cleanup_in_progress %}
+                                    <div class="input-group">
+                                        <input class="form-control form-control-sm" placeholder="Cleanup running..." disabled />
+                                        <button class="btn btn-outline-secondary btn-sm" disabled>Cleanup Running</button>
+                                    </div>
+                                {% else %}
+                                    <form method="post" action="{{ url_for('start_cleanup_route') }}" onsubmit="return confirm('Start cleanup now? This will delete archives older than configured retentions.');">
+                                        <div class="input-group">
+                                            <input name="description" class="form-control form-control-sm" placeholder="Optional cleanup description" value="{{ default_cleanup_description }}" />
+                                            <button class="btn btn-outline-danger btn-sm">Run Cleanup</button>
+                                        </div>
+                                    </form>
+                                {% endif %}
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
-</div>
-{% endblock %}
