@@ -91,6 +91,12 @@ def init_db():
                 log TEXT
             );
         """)
+        # Per-job sequence id (human-friendly incremental job id)
+        cur.execute("CREATE SEQUENCE IF NOT EXISTS job_counter START 1;")
+        # Add job_id and job_type columns if missing
+        cur.execute("ALTER TABLE archive_jobs ADD COLUMN IF NOT EXISTS job_id INTEGER;")
+        cur.execute("ALTER TABLE archive_jobs ALTER COLUMN job_id SET DEFAULT nextval('job_counter');")
+        cur.execute("ALTER TABLE archive_jobs ADD COLUMN IF NOT EXISTS job_type VARCHAR(50) DEFAULT 'manual';")
         # Mark master jobs explicitly so UI can show only masters when desired
         cur.execute("ALTER TABLE archive_jobs ADD COLUMN IF NOT EXISTS is_master BOOLEAN DEFAULT FALSE;")
         # Add master_id to link per-stack jobs to their master run
@@ -228,7 +234,7 @@ def _job_runner(schedule_id):
         else:
             store_unpacked_flag = bool(s.get('store_unpacked'))
             # Pass schedule name as schedule_label so archives are grouped under /archives/<schedule_name>/
-            threading.Thread(target=backup.run_archive_job, args=(stack_paths, retention, CONTAINER_BACKUP_DIR, master_name, master_description, master_name, store_unpacked_flag), daemon=True).start()
+            threading.Thread(target=backup.run_archive_job, args=(stack_paths, retention, CONTAINER_BACKUP_DIR, master_name, master_description, master_name, store_unpacked_flag, 'scheduled'), daemon=True).start()
     except Exception as e:
         print(f"[scheduler] job_runner error for schedule {schedule_id}: {e}")
 
@@ -945,6 +951,8 @@ def index():
                 duration_human = format_duration(m.get('duration_seconds')) if m.get('duration_seconds') is not None else 'N/A'
                 recent_jobs.append({
                     'id': m.get('id'),
+                    'job_seq': m.get('job_id'),
+                    'job_type': m.get('job_type') or 'manual',
                     'job_name': m.get('stack_name'),
                     'stacks': stacks,
                     'status': m.get('status'),
@@ -1009,7 +1017,7 @@ def start_archive_route():
     retention_days = None
     thread = threading.Thread(
         target=backup.run_archive_job,
-        args=(selected_stack_paths, retention_days, CONTAINER_BACKUP_DIR, master_name, master_description, master_name, False),
+        args=(selected_stack_paths, retention_days, CONTAINER_BACKUP_DIR, master_name, master_description, master_name, False, 'manual'),
         daemon=True
     )
     thread.start()

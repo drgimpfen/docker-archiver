@@ -13,7 +13,9 @@
                         <table class="table table-striped">
                             <thead>
                                 <tr>
+                                    <th>Job ID</th>
                                     <th>Job</th>
+                                    <th>Type</th>
                                     <th>Stacks</th>
                                     <th>Status</th>
                                     <th>Start Time</th>
@@ -23,7 +25,9 @@
                             <tbody>
                                 {% for job in recent_jobs %}
                                     <tr>
+                                        <td>{{ job.job_seq or '-' }}</td>
                                         <td>{{ job.job_name }}</td>
+                                        <td>{{ job.job_type|capitalize }}</td>
                                         <td>
                                             {% if job.stacks %}
                                                 <div class="stack-badges">

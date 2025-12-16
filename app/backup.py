@@ -305,7 +305,7 @@ def cleanup_local_archives(archive_dir, retention_days_str, master_job_id):
 
 # --- MAIN ORCHESTRATOR ---
 
-def run_archive_job(selected_stack_paths, retention_days, archive_dir, master_name=None, master_description=None, schedule_label=None, store_unpacked=False):
+def run_archive_job(selected_stack_paths, retention_days, archive_dir, master_name=None, master_description=None, schedule_label=None, store_unpacked=False, job_type='manual'):
     """
     The main function to be run in a background thread.
     It orchestrates the entire archiving process for a list of stack paths.
@@ -315,10 +315,12 @@ def run_archive_job(selected_stack_paths, retention_days, archive_dir, master_na
     conn = get_db_connection()
     with conn.cursor(cursor_factory=DictCursor) as cur:
         cur.execute(
-            "INSERT INTO archive_jobs (stack_name, start_time, status, log, is_master) VALUES (%s, %s, %s, %s, %s) RETURNING id;",
-            (master_label, datetime.now(), 'Running', 'Starting archiving process...\n', True)
+            "INSERT INTO archive_jobs (stack_name, start_time, status, log, is_master, job_type) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, job_id;",
+            (master_label, datetime.now(), 'Running', 'Starting archiving process...\n', True, job_type)
         )
-        master_job_id = cur.fetchone()['id']
+        res = cur.fetchone()
+        master_job_id = res['id']
+        master_job_seq = res.get('job_id')
         conn.commit()
     conn.close()
 
@@ -334,10 +336,12 @@ def run_archive_job(selected_stack_paths, retention_days, archive_dir, master_na
         conn = get_db_connection()
         with conn.cursor(cursor_factory=DictCursor) as cur:
             cur.execute(
-                "INSERT INTO archive_jobs (stack_name, start_time, status, log, master_id) VALUES (%s, %s, %s, %s, %s) RETURNING id;",
-                (stack_name, start_time, 'Running', f"Starting archive for stack: {stack_name}\n", master_job_id)
+                "INSERT INTO archive_jobs (stack_name, start_time, status, log, master_id, job_type) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, job_id;",
+                (stack_name, start_time, 'Running', f"Starting archive for stack: {stack_name}\n", master_job_id, job_type)
             )
-            job_id = cur.fetchone()['id']
+            res = cur.fetchone()
+            job_id = res['id']
+            job_seq = res.get('job_id')
             conn.commit()
         conn.close()
 
@@ -635,10 +639,12 @@ def run_cleanup_job(archive_dir, master_name=None, master_description=None, sche
     conn = get_db_connection()
     with conn.cursor(cursor_factory=DictCursor) as cur:
         cur.execute(
-            "INSERT INTO archive_jobs (stack_name, start_time, status, log, is_master) VALUES (%s, %s, %s, %s, %s) RETURNING id;",
-            (master_label, datetime.now(), 'Running', 'Starting cleanup across configured schedules...\n', True)
+            "INSERT INTO archive_jobs (stack_name, start_time, status, log, is_master, job_type) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, job_id;",
+            (master_label, datetime.now(), 'Running', 'Starting cleanup across configured schedules...\n', True, 'cleanup')
         )
-        master_job_id = cur.fetchone()['id']
+        res = cur.fetchone()
+        master_job_id = res['id']
+        master_job_seq = res.get('job_id')
         conn.commit()
     conn.close()
 
