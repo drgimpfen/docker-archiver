@@ -1,6 +1,7 @@
 import subprocess
 import os
 import sys
+import shutil
 from datetime import datetime
 import psycopg2
 from psycopg2.extras import DictCursor
@@ -69,21 +70,33 @@ def compose_action(stack_path, job_id, action="down"):
     compose_file = "compose.yaml" if os.path.exists(os.path.join(stack_path, "compose.yaml")) else "docker-compose.yml"
     compose_file_path = os.path.join(stack_path, compose_file)
 
-    # Try modern `docker compose -f <file> <action>` first, fall back to `docker-compose -f <file> <action>`.
-    primary_cmd = ["docker", "compose", "-f", compose_file_path, action]
-    fallback_cmd = ["docker-compose", "-f", compose_file_path, action]
-    if action == "up":
-        primary_cmd.append("-d")
-        fallback_cmd.append("-d")
+    # Determine which compose command to use (cached detection)
+    compose_cmd = None
+    # Prefer docker-compose binary if present
+    if shutil.which('docker-compose'):
+        compose_cmd = ['docker-compose']
+    else:
+        # If `docker compose` (v2) is available, prefer it
+        if shutil.which('docker'):
+            try:
+                # quick check whether 'docker compose version' runs
+                subprocess.run(['docker', 'compose', 'version'], capture_output=True, check=True, timeout=5)
+                compose_cmd = ['docker', 'compose']
+            except Exception:
+                compose_cmd = None
+
+    if not compose_cmd:
+        # Last resort: try docker-compose name anyway
+        compose_cmd = ['docker-compose']
+
+    cmd = compose_cmd + ['-f', compose_file_path, action]
+    if action == 'up':
+        cmd.append('-d')
 
     try:
-        run_command(primary_cmd, job_id, f"{action_text} stack in {stack_path}")
+        run_command(cmd, job_id, f"{action_text} stack in {stack_path}")
     except Exception as e:
-        log_to_db(job_id, f"Primary docker compose command failed: {e}. Trying fallback docker-compose...")
-        try:
-            run_command(fallback_cmd, job_id, f"{action_text} stack in {stack_path} (fallback)")
-        except Exception as e2:
-            log_to_db(job_id, f"Fallback docker-compose command also failed: {e2}. Giving up on {action} for {stack_path}.")
+        log_to_db(job_id, f"Compose command failed: {e}. Command tried: {cmd}")
 
 def create_archive(stack_name, stack_path, backup_dir, job_id):
     """Creates a TAR archive and returns its path and size."""
