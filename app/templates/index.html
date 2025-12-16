@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="container">
+<div class="container-fluid">
     <div class="row">
-        <!-- Archive Control Column -->
-        <div class="col-md-6">
+        <!-- Manual Backup (full width) -->
+        <div class="col-12">
             <h2>Manual Backup</h2>
             <div class="card archive-card">
                 <div class="card-body">
@@ -41,10 +41,13 @@
                     </form>
                 </div>
             </div>
+                </div>
+            </div>
         </div>
-
-        <!-- Recent Jobs Column -->
-        <div class="col-md-6">
+    </div>
+    <div class="row mt-4">
+        <!-- Recent Activity (full width below) -->
+        <div class="col-12">
             <h2>Recent Activity</h2>
             <div class="card">
                 <div class="card-body">

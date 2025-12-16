@@ -890,6 +890,13 @@ def start_archive_route():
     return redirect(url_for('index'))
 
 
+@app.route('/backup')
+def backup_route():
+    """Renders the manual backup page."""
+    stacks = discover_stacks()
+    return render_template('backup.html', stacks=stacks)
+
+
 @app.route('/cleanup', methods=['POST'])
 def start_cleanup_route():
     """Starts a global cleanup process in background applying retention of all enabled schedules."""

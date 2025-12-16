@@ -226,6 +226,11 @@ select { color: var(--md-on-surface) !important; }
 .brand-logo { display: flex !important; align-items: center !important; height: 56px; }
 .brand-logo .header-logo { height: 28px; margin-right: 10px; vertical-align: middle; }
 .brand-logo span { line-height: 28px; color: var(--text); font-weight: 600; }
+
+/* Ensure navbar brand and links are readable using theme text color */
+.navbar-brand, .navbar-brand span { color: var(--text) !important; font-weight: 600 !important; }
+.navbar .nav-link { color: var(--text) !important; }
+.navbar { background-color: var(--card-bg) !important; border-bottom: 1px solid var(--border) !important; }
 .nav-wrapper { padding-left: 12px; padding-right: 12px; }
 
 .nav-link { color: inherit !important; }

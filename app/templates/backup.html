@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+  <div class="row justify-content-center">
+    <div class="col-12 col-lg-8">
+      <h2>Backup</h2>
+      <div class="card archive-card">
+        <div class="card-body">
+          <form action="{{ url_for('start_archive_route') }}" method="post">
+            <div class="mb-3">
+              <label class="form-label"><strong>Select Stacks</strong></label>
+              {% if stacks %}
+                <div class="stack-list">
+                  {% for stack in stacks %}
+                    <div class="form-check">
+                      <input class="form-check-input" type="checkbox" name="stacks" value="{{ stack.path }}" id="stack-{{ loop.index }}">
+                      <label class="form-check-label" for="stack-{{ loop.index }}">{{ stack.name }}</label>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <p class="text-muted">No Docker Compose stacks found in configured directories.</p>
+              {% endif %}
+            </div>
+
+            <div class="mb-3">
+              <label for="manual_name" class="form-label"><strong>Manual Run Name (optional)</strong></label>
+              <input type="text" class="form-control" id="manual_name" name="manual_name" placeholder="Optional name for this run (used to group archives)">
+            </div>
+
+            <div class="mb-3">
+              <label for="manual_description" class="form-label"><strong>Manual Run Description (optional)</strong></label>
+              <textarea class="form-control" id="manual_description" name="manual_description" rows="4" placeholder="Optional description shown in notifications"></textarea>
+            </div>
+
+            <div class="d-grid">
+              <button type="submit" class="btn btn-primary btn-lg">Create Backup</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
