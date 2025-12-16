@@ -67,11 +67,23 @@ def compose_action(stack_path, job_id, action="down"):
     
     action_text = "Stopping" if action == "down" else "Starting"
     compose_file = "compose.yaml" if os.path.exists(os.path.join(stack_path, "compose.yaml")) else "docker-compose.yml"
-    cmd = ["docker", "compose", "-f", os.path.join(stack_path, compose_file), action]
+    compose_file_path = os.path.join(stack_path, compose_file)
+
+    # Try modern `docker compose -f <file> <action>` first, fall back to `docker-compose -f <file> <action>`.
+    primary_cmd = ["docker", "compose", "-f", compose_file_path, action]
+    fallback_cmd = ["docker-compose", "-f", compose_file_path, action]
     if action == "up":
-        cmd.append("-d")
-        
-    run_command(cmd, job_id, f"{action_text} stack in {stack_path}")
+        primary_cmd.append("-d")
+        fallback_cmd.append("-d")
+
+    try:
+        run_command(primary_cmd, job_id, f"{action_text} stack in {stack_path}")
+    except Exception as e:
+        log_to_db(job_id, f"Primary docker compose command failed: {e}. Trying fallback docker-compose...")
+        try:
+            run_command(fallback_cmd, job_id, f"{action_text} stack in {stack_path} (fallback)")
+        except Exception as e2:
+            log_to_db(job_id, f"Fallback docker-compose command also failed: {e2}. Giving up on {action} for {stack_path}.")
 
 def create_archive(stack_name, stack_path, backup_dir, job_id):
     """Creates a TAR archive and returns its path and size."""

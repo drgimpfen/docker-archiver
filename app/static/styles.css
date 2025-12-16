@@ -27,3 +27,46 @@
 .table-hover tbody tr:hover {
     background-color: rgba(0, 0, 0, 0.04);
 }
+
+/* Theme variables */
+:root {
+    --bg: #ffffff;
+    --text: #212529;
+    --muted: #6c757d;
+    --card-bg: #ffffff;
+    --border: #dee2e6;
+    --log-bg: #f8f9fa;
+    --table-hover: rgba(0,0,0,0.04);
+}
+
+.dark-mode {
+    --bg: #0b0d0f;
+    --text: #e9ecef;
+    --muted: #adb5bd;
+    --card-bg: #121417;
+    --border: #1f2326;
+    --log-bg: #0f1113;
+    --table-hover: rgba(255,255,255,0.03);
+    background-color: var(--bg);
+    color: var(--text);
+}
+
+body {
+    background-color: var(--bg);
+    color: var(--text);
+}
+
+.card, .navbar, .table, .stack-list {
+    background-color: var(--card-bg) !important;
+    border-color: var(--border) !important;
+}
+
+.log-content {
+    background-color: var(--log-bg) !important;
+}
+
+.table-hover tbody tr:hover {
+    background-color: var(--table-hover) !important;
+}
+
+.text-muted { color: var(--muted) !important; }

@@ -401,7 +401,7 @@ def generate_registration_options_route():
     options = generate_registration_options(
         rp_id=RP_ID,
         rp_name=RP_NAME,
-        user_id=str(user['id']),
+        user_id=str(user['id']).encode('utf-8'),
         user_name=user['username'],
         exclude_credentials=[
             RegistrationCredential(id=key['credential_id']) for key in user_passkeys
