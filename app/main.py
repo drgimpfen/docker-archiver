@@ -855,13 +855,11 @@ def index():
 def start_archive_route():
     """Starts the archiving process in a background thread."""
     selected_stack_paths = request.form.getlist('stacks')
-    retention_days = request.form.get('retention_days')
 
     if not selected_stack_paths:
         flash('Please select at least one stack to archive.', 'warning')
         return redirect(url_for('index'))
 
-    update_setting('retention_days', retention_days)
     
     stack_names_for_flash = [os.path.basename(path) for path in selected_stack_paths]
 
@@ -879,6 +877,8 @@ def start_archive_route():
             master_name = master_name.replace(ch, '_')
 
     # Start archive job and group files under the provided master_name
+    # Retention is managed in Settings; manual backup form does not change it
+    retention_days = None
     thread = threading.Thread(
         target=backup.run_archive_job,
         args=(selected_stack_paths, retention_days, CONTAINER_BACKUP_DIR, master_name, master_description, master_name, False),
