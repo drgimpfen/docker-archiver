@@ -1,126 +1,42 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-md-6 col-lg-4">
-        <div class="card login-card">
-            <div class="card-body">
-                <h2 class="card-title text-center">Login</h2>
-                
-                {% with messages = get_flashed_messages(with_categories=true) %}
-                    {% if messages %}
-                        {% for category, message in messages %}
-                            {% if category == 'error' %}
-                                <div class="alert alert-danger" role="alert">
-                                    {{ message }}
-                                </div>
-                            {% endif %}
-                        {% endfor %}
-                    {% endif %}
-                {% endwith %}
+<div class="container">
+  <div class="row">
+    <div class="col s12 m8 l6 offset-m2 offset-l3">
+      <div class="card login-card">
+        <div class="card-content">
+          <span class="card-title center">Login</span>
 
-                <form method="post">
-                    <div class="mb-3">
-                        <label for="username" class="form-label">Username</label>
-                        <input type="text" class="form-control" id="username" name="username" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="password" class="form-label">Password</label>
-                        <input type="password" class="form-control" id="password" name="password" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary w-100 mb-3">Login with Password</button>
-                </form>
-                
-                <!-- Passkey login disabled while feature is temporarily turned off -->
+          {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+              {% for category, message in messages %}
+                {% if category == 'error' %}
+                  <div class="card-panel red darken-2 white-text">{{ message }}</div>
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          {% endwith %}
+
+          <form method="post">
+            <div class="row">
+              <div class="input-field col s12">
+                <input id="username" name="username" type="text" class="validate" required>
+                <label for="username">Username</label>
+              </div>
+              <div class="input-field col s12">
+                <input id="password" name="password" type="password" class="validate" required>
+                <label for="password">Password</label>
+              </div>
+              <div class="col s12">
+                <button type="submit" class="btn waves-effect waves-light btn-large col s12">Login</button>
+              </div>
             </div>
+          </form>
+
         </div>
+      </div>
     </div>
+  </div>
 </div>
-
-<script>
-    // Helper functions to handle Base64URL encoding/decoding
-    function bufferToBase64URL(buffer) {
-        const str = String.fromCharCode.apply(null, new Uint8Array(buffer));
-        return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-    }
-
-    function base64URLToBuffer(base64url) {
-        const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
-        const padLength = (4 - (base64.length % 4)) % 4;
-        const padded = base64.padEnd(base64.length + padLength, '=');
-        const binary = atob(padded);
-        const buffer = new ArrayBuffer(binary.length);
-        const bytes = new Uint8Array(buffer);
-        for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i);
-        }
-        return buffer;
-    }
-
-    document.getElementById('passkey-login-btn').addEventListener('click', async () => {
-        const errorElem = document.getElementById('passkey-error');
-        errorElem.textContent = '';
-        
-        // 1. Get options from the server for a discoverable credential (no username)
-        const resp = await fetch('/webauthn/generate-authentication-options', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({}) // Empty body
-        });
-
-        if (!resp.ok) {
-            errorElem.textContent = 'Could not get passkey options from server.';
-            return;
-        }
-
-        const options = await resp.json();
-        
-        // Prepare options for the WebAuthn API
-        options.challenge = base64URLToBuffer(options.challenge);
-        if (options.allowCredentials) {
-            options.allowCredentials.forEach(cred => {
-                cred.id = base64URLToBuffer(cred.id);
-            });
-        }
-
-        // 2. Call navigator.credentials.get()
-        let credential;
-        try {
-            credential = await navigator.credentials.get({ publicKey: options });
-        } catch (err) {
-            errorElem.textContent = 'Passkey login cancelled or failed. ' + err;
-            return;
-        }
-
-        // 3. Send the credential to the server for verification
-        const verificationBody = {
-            id: credential.id,
-            rawId: bufferToBase64URL(credential.rawId),
-            response: {
-                authenticatorData: bufferToBase64URL(credential.response.authenticatorData),
-                clientDataJSON: bufferToBase64URL(credential.response.clientDataJSON),
-                signature: bufferToBase64URL(credential.response.signature),
-                userHandle: credential.response.userHandle ? bufferToBase64URL(credential.response.userHandle) : null,
-            },
-            type: credential.type,
-        };
-
-        const verificationResp = await fetch('/webauthn/verify-authentication', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(verificationBody),
-        });
-
-        const verificationResult = await verificationResp.json();
-
-        if (verificationResult && verificationResult.verified) {
-            // Redirect on successful login
-            window.location.href = "{{ url_for('index') }}";
-        } else {
-            errorElem.textContent = 'Failed to verify passkey on server.';
-        }
-    });
-</script>
 {% endblock %}
