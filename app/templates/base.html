@@ -12,47 +12,37 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body data-server-theme="{{ user_theme or '' }}">
-    <nav class="navbar navbar-expand-lg">
-        <div class="container-fluid">
-            <a class="navbar-brand d-flex align-items-center" href="{{ url_for('index') }}">
-                <img src="{{ url_for('static', filename='assets/docker-archiver-logo.png') }}" alt="Docker Archiver logo" class="header-logo"/>
-                <span>Docker Archiver</span>
+    <nav>
+        <div class="nav-wrapper container">
+            <a class="brand-logo" href="{{ url_for('index') }}" style="display:flex;align-items:center;">
+                <img src="{{ url_for('static', filename='assets/docker-archiver-logo.png') }}" alt="Docker Archiver logo" class="header-logo" style="height:28px;margin-right:10px;"/>
+                <span style="line-height:28px;">Docker Archiver</span>
             </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                {% if session.user_id %}
-                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('index') }}">Dashboard</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('history') }}">History</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('schedules_route') }}">Schedules</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('archives_list') }}">Archives</a>
-                    </li>
-                </ul>
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item d-flex align-items-center me-2">
-                        <button id="theme-toggle" class="btn btn-sm" title="Toggle dark mode">🌙</button>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('profile_route') }}">Profile</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('settings_route') }}">Settings</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('logout_route') }}">Logout</a>
-                    </li>
-                </ul>
-                {% endif %}
-            </div>
+            <a href="#" data-target="mobile-nav" class="sidenav-trigger"><i class="material-icons">menu</i></a>
+            {% if session.user_id %}
+            <ul id="nav-mobile" class="right hide-on-med-and-down">
+                <li><a href="{{ url_for('index') }}">Dashboard</a></li>
+                <li><a href="{{ url_for('history') }}">History</a></li>
+                <li><a href="{{ url_for('schedules_route') }}">Schedules</a></li>
+                <li><a href="{{ url_for('archives_list') }}">Archives</a></li>
+                <li><a id="theme-toggle" class="btn-flat" title="Toggle dark mode">🌙</a></li>
+                <li><a href="{{ url_for('profile_route') }}">Profile</a></li>
+                <li><a href="{{ url_for('settings_route') }}">Settings</a></li>
+                <li><a href="{{ url_for('logout_route') }}">Logout</a></li>
+            </ul>
+            <!-- Mobile sidenav -->
+            <ul class="sidenav" id="mobile-nav">
+                <li><div class="user-view"><a href="#">Docker Archiver</a></div></li>
+                <li><a href="{{ url_for('index') }}">Dashboard</a></li>
+                <li><a href="{{ url_for('history') }}">History</a></li>
+                <li><a href="{{ url_for('schedules_route') }}">Schedules</a></li>
+                <li><a href="{{ url_for('archives_list') }}">Archives</a></li>
+                <li><a id="theme-toggle-mobile" href="#">Toggle Theme</a></li>
+                <li><a href="{{ url_for('profile_route') }}">Profile</a></li>
+                <li><a href="{{ url_for('settings_route') }}">Settings</a></li>
+                <li><a href="{{ url_for('logout_route') }}">Logout</a></li>
+            </ul>
+            {% endif %}
         </div>
     </nav>
 
@@ -123,38 +113,36 @@
                 isDark = false; // default to light
             }
 
-            const nav = document.querySelector('nav.navbar');
+            const nav = document.querySelector('nav');
+            const toggleMobile = document.getElementById('theme-toggle-mobile');
             const setTheme = (dark) => {
-                if(dark) {
+                if (dark) {
                     document.body.classList.add('dark-mode');
-                    // navbar classes for dark
-                    nav.classList.remove('navbar-light','bg-light');
-                    nav.classList.add('navbar-dark');
-                    // ensure background blends with CSS vars
-                    nav.style.backgroundColor = 'var(--card-bg)';
-                    toggle.classList.remove('btn-outline-secondary');
-                    toggle.classList.add('btn-outline-light');
-                    toggle.textContent = '☀️';
+                    if (nav) nav.style.backgroundColor = 'var(--card-bg)';
+                    if (toggle) toggle.textContent = '☀️';
+                    if (toggleMobile) toggleMobile.textContent = 'Light Theme';
                 } else {
                     document.body.classList.remove('dark-mode');
-                    nav.classList.remove('navbar-dark');
-                    nav.classList.add('navbar-light','bg-light');
-                    nav.style.backgroundColor = '';
-                    toggle.classList.remove('btn-outline-light');
-                    toggle.classList.add('btn-outline-secondary');
-                    toggle.textContent = '🌙';
+                    if (nav) nav.style.backgroundColor = '';
+                    if (toggle) toggle.textContent = '🌙';
+                    if (toggleMobile) toggleMobile.textContent = 'Dark Theme';
                 }
             };
 
             setTheme(isDark);
 
-            if(toggle){
-                toggle.addEventListener('click', function(){
+            const bindToggle = (el) => {
+                if (!el) return;
+                el.addEventListener('click', function(e){
+                    e.preventDefault();
                     const nowDark = !document.body.classList.contains('dark-mode');
                     setTheme(nowDark);
                     localStorage.setItem('theme', nowDark ? 'dark' : 'light');
                 });
-            }
+            };
+
+            bindToggle(toggle);
+            bindToggle(toggleMobile);
         })();
     </script>
 </body>
