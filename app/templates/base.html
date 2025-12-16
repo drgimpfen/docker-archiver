@@ -44,7 +44,7 @@
     </aside>
     {% endif %}
 
-    <main class="app-main container mt-4">
+    <main class="app-main container-fluid mt-4">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}

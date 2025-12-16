@@ -257,13 +257,14 @@ select { color: var(--md-on-surface) !important; }
 .app-main { margin-left: 0; }
 
 /* Apply main offset only when sidebar is present */
-body.has-sidebar .app-main { margin-left: 240px; }
+/* Shift main content to the right when sidebar exists and use remaining width */
+body.has-sidebar .app-main { margin-left: 240px; width: calc(100% - 240px); padding-right: 1rem; }
 
 /* Small screens: sidebar hidden by default, toggled via .sidebar-open on body */
 @media (max-width: 991px) {
     .app-sidebar { left: -260px; transition: left .22s ease; }
     body.sidebar-open .app-sidebar { left: 0; }
-    body.has-sidebar .app-main { margin-left: 0; padding: 1rem; }
+    body.has-sidebar .app-main { margin-left: 0; padding: 1rem; width: 100%; }
 }
 
 /* Header social icons */
