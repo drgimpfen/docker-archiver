@@ -7,6 +7,7 @@ import psycopg2
 from psycopg2.extras import DictCursor
 try:
     import apprise
+    import html as _html
 except Exception:
     apprise = None
 
@@ -57,6 +58,21 @@ def _get_setting(key):
         conn.close()
 
 
+def _set_setting(key, value):
+    """Set or update a setting in the DB settings table."""
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = %s;", (key, value, value))
+            conn.commit()
+        conn.close()
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 def send_apprise_notification(title, body, job_id=None):
     """Send a notification via Apprise if configured. Safe to call when Apprise is not installed."""
     if apprise is None:
@@ -83,7 +99,39 @@ def send_apprise_notification(title, body, job_id=None):
             except Exception as e:
                 if job_id:
                     log_to_db(job_id, f"Apprise: failed to add URL {u}: {e}")
-        a.notify(title=title, body=body)
+        # For mailto URLs, ensure CRLF line endings for better mail client compatibility
+        body_to_send = body or ''
+        try:
+            if any(u.lower().startswith('mailto') for u in url_list):
+                body_to_send = body_to_send.replace('\n', '\r\n')
+        except Exception:
+            body_to_send = body_to_send
+
+        # Build an HTML-safe <pre> version for HTML-capable notifiers
+        try:
+            html_body = '<pre style="white-space:pre-wrap;font-family:monospace;">' + _html.escape(body or '') + '</pre>'
+        except Exception:
+            html_body = '<pre>' + (body or '') + '</pre>'
+
+        # Try sending with HTML body format if Apprise exposes a NotifyFormat enum
+        sent = False
+        try:
+            if hasattr(apprise, 'common') and hasattr(apprise.common, 'NotifyFormat'):
+                nf = apprise.common.NotifyFormat.HTML
+                # Prefer sending the HTML-wrapped body when requesting HTML body format
+                a.notify(title=title, body=html_body, body_format=nf)
+                sent = True
+        except Exception:
+            sent = False
+
+        # Fallback: append HTML <pre> block to plain body so services that render HTML will show it
+        if not sent:
+            try:
+                a.notify(title=title, body=body_to_send + '\n\n' + html_body)
+                sent = True
+            except Exception:
+                # Last resort: send plain text
+                a.notify(title=title, body=body_to_send)
         if job_id:
             log_to_db(job_id, f"Notification sent: {title}")
     except Exception as e:
@@ -306,13 +354,12 @@ def run_archive_job(selected_stack_paths, retention_days, archive_dir, master_na
             except Exception:
                 pass
 
-    # After all stacks are processed, run cleanup
+    # After all stacks are processed, finish master job (cleanup is handled by dedicated cleanup job)
     try:
-        deleted_count, freed_space = cleanup_local_archives(archive_dir, retention_days, master_job_id)
         log_to_db(master_job_id, 'Archiving process finished.')
         status = 'Success'
     except Exception as e:
-        log_to_db(master_job_id, f'Cleanup process failed: {e}')
+        log_to_db(master_job_id, f'Archiving finish logging failed: {e}')
         status = 'Failed'
 
     # Mark master job as complete
@@ -352,19 +399,7 @@ def run_archive_job(selected_stack_paths, retention_days, archive_dir, master_na
         except Exception:
             summary_lines.append(f"Backup Content Size ({archive_dir}): unavailable")
         summary_lines.append('----------------------------------------------------------------')
-        summary_lines.append('\n')
-        # retention cleanup
-        try:
-            cleanup_msg = f"RETENTION CLEANUP (Older than {retention_days} days):\n----------------------------------------------------------------"
-            if deleted_count == 0:
-                cleanup_msg += '\nNo files older than {0} days were deleted.'.format(retention_days)
-            else:
-                cleanup_msg += f"\nDeleted {deleted_count} files, freeing {format_bytes(freed_space)}."
-            cleanup_msg += '\n----------------------------------------------------------------'
-        except Exception:
-            cleanup_msg = 'Retention cleanup: unavailable'
-
-        summary = '\n'.join(summary_lines) + '\n\n' + cleanup_msg
+        summary = '\n'.join(summary_lines)
 
         # fetch master log
         master_log = get_job_log(master_job_id) or ''
@@ -425,5 +460,155 @@ def get_job_name(job_id):
     finally:
         try:
             conn.close()
+        except Exception:
+            pass
+
+
+def _delete_old_files_in_dir(target_dir, retention_days, master_job_id):
+    """Delete .tar files in target_dir older than retention_days.
+    Returns (deleted_count, freed_bytes, deleted_files_list).
+    `deleted_files_list` is a list of tuples: (relative_path, size_bytes).
+    """
+    deleted_count = 0
+    freed_space = 0
+    deleted_files = []
+    if not os.path.isdir(target_dir):
+        log_to_db(master_job_id, f"Archive directory not found for cleanup: {target_dir}")
+        return deleted_count, freed_space, deleted_files
+
+    for fname in os.listdir(target_dir):
+        if not fname.endswith('.tar'):
+            continue
+        fpath = os.path.join(target_dir, fname)
+        try:
+            mtime = os.path.getmtime(fpath)
+        except Exception:
+            continue
+        try:
+            if (datetime.now() - datetime.fromtimestamp(mtime)).days > int(retention_days):
+                try:
+                    size = os.path.getsize(fpath)
+                except Exception:
+                    size = 0
+                try:
+                    os.remove(fpath)
+                    rel = os.path.relpath(fpath, start=target_dir)
+                    log_to_db(master_job_id, f"Deleted old archive: {fpath} ({format_bytes(size)})")
+                    deleted_count += 1
+                    freed_space += size
+                    deleted_files.append((fpath, size))
+                except OSError as e:
+                    log_to_db(master_job_id, f"Error deleting file {fpath}: {e}")
+        except Exception:
+            continue
+
+    return deleted_count, freed_space, deleted_files
+
+
+def run_cleanup_job(archive_dir, master_name=None, master_description=None, schedule_id=None):
+    """Run cleanup across all configured schedules, applying each schedule's retention to its stacks.
+
+    This creates a master job entry and logs per-stack cleanup actions. It sends a final summary notification.
+    """
+    master_label = master_name or 'Cleanup Job'
+    # Acquire lock: prevent concurrent cleanup runs
+    try:
+        if str(_get_setting('cleanup_in_progress')).lower() == 'true':
+            # log and exit
+            # create a transient master job to record the refused attempt
+            conn = get_db_connection()
+            with conn.cursor(cursor_factory=DictCursor) as cur:
+                cur.execute(
+                    "INSERT INTO archive_jobs (stack_name, start_time, status, log) VALUES (%s, %s, %s, %s) RETURNING id;",
+                    (master_label + ' (refused)', datetime.now(), 'Failed', 'Cleanup already in progress; refused to start.\n')
+                )
+                conn.commit()
+            conn.close()
+            return
+        # mark in-progress
+        _set_setting('cleanup_in_progress', 'true')
+    except Exception:
+        # if lock operations fail, proceed but log a warning (best-effort)
+        pass
+    conn = get_db_connection()
+    with conn.cursor(cursor_factory=DictCursor) as cur:
+        cur.execute(
+            "INSERT INTO archive_jobs (stack_name, start_time, status, log) VALUES (%s, %s, %s, %s) RETURNING id;",
+            (master_label, datetime.now(), 'Running', 'Starting cleanup across configured schedules...\n')
+        )
+        master_job_id = cur.fetchone()['id']
+        conn.commit()
+    conn.close()
+
+    total_deleted = 0
+    total_freed = 0
+    per_schedule_summary = []
+
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=DictCursor) as cur:
+            if schedule_id:
+                cur.execute("SELECT id, name, stack_paths, retention_days FROM schedules WHERE id = %s AND enabled = true;", (schedule_id,))
+            else:
+                cur.execute("SELECT id, name, stack_paths, retention_days FROM schedules WHERE enabled = true;")
+            schedules = cur.fetchall()
+        conn.close()
+    except Exception as e:
+        log_to_db(master_job_id, f"Failed to load schedules for cleanup: {e}")
+        schedules = []
+
+    for s in schedules:
+        try:
+            s_name = s.get('name') or f"schedule_{s.get('id')}"
+            retention = s.get('retention_days') or 28
+            paths = [p for p in (s.get('stack_paths') or '').split('\n') if p.strip()]
+            schedule_deleted = 0
+            schedule_freed = 0
+            for sp in paths:
+                stack_name = os.path.basename(sp)
+                target_dir = os.path.join(archive_dir, stack_name)
+                dcount, dfreed, dfiles = _delete_old_files_in_dir(target_dir, retention, master_job_id)
+                schedule_deleted += dcount
+                schedule_freed += dfreed
+                # attach file details for this schedule
+                if dfiles:
+                    if 'files' not in locals():
+                        files = {}
+                    files.setdefault(s_name, []).extend(dfiles)
+            total_deleted += schedule_deleted
+            total_freed += schedule_freed
+            per_schedule_summary.append((s_name, schedule_deleted, schedule_freed))
+        except Exception as e:
+            log_to_db(master_job_id, f"Cleanup error for schedule {s.get('name')}: {e}")
+
+    # finalize master job
+    log_to_db(master_job_id, f"Cleanup finished. Deleted {total_deleted} files, freeing {format_bytes(total_freed)}.")
+    conn = get_db_connection()
+    with conn.cursor() as cur:
+        cur.execute("UPDATE archive_jobs SET status = %s, end_time = %s WHERE id = %s;", ('Success', datetime.now(), master_job_id))
+        conn.commit()
+    conn.close()
+
+    # Build notification body
+    try:
+        desc_block = f"DESCRIPTION: {master_description}\n\n" if master_description else ''
+        lines = [f"CLEANUP JOB: {master_label}", '----------------------------------------------------------------']
+        # per-schedule summaries
+        for sname, dcount, dfreed in per_schedule_summary:
+            lines.append(f"{sname}: Deleted {dcount} files, Freed {format_bytes(dfreed)}")
+            # include per-file listing if present
+            if 'files' in locals() and files.get(sname):
+                for fpath, fsize in files.get(sname):
+                    lines.append(f"    - {fpath} ({format_bytes(fsize)})")
+        lines.append('----------------------------------------------------------------')
+        lines.append(f"TOTAL: Deleted {total_deleted} files, Freed {format_bytes(total_freed)}")
+        body = desc_block + '\n'.join(lines)
+        send_apprise_notification(title=f"Cleanup run completed — {master_label}", body=body, job_id=master_job_id)
+    except Exception:
+        pass
+    finally:
+        # release lock
+        try:
+            _set_setting('cleanup_in_progress', 'false')
         except Exception:
             pass

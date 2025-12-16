@@ -131,6 +131,8 @@ def init_db():
         """)
         # Add optional description column to schedules
         cur.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS description TEXT;")
+        # Add a type column to schedules so a schedule can be 'backup' or 'cleanup'
+        cur.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS type VARCHAR(20) DEFAULT 'backup';")
         # Set default retention if not present
         cur.execute("INSERT INTO settings (key, value) VALUES ('retention_days', '28') ON CONFLICT (key) DO NOTHING;")
         conn.commit()
@@ -187,7 +189,8 @@ def _job_runner(schedule_id):
         if not s or not s.get('enabled'):
             return
 
-        stack_paths = [p for p in (s['stack_paths'] or '').split('\n') if p.strip()]
+        schedule_type = (s.get('type') or 'backup').lower()
+        stack_paths = [p for p in (s.get('stack_paths') or '').split('\n') if p.strip()]
         retention = s.get('retention_days') or 28
 
         # update last_run
@@ -198,10 +201,14 @@ def _job_runner(schedule_id):
             conn.commit()
         conn.close()
 
-        # pass schedule name and description to backup as master_name/master_description
+        # pass schedule name and description to backup/cleanup as master_name/master_description
         master_name = s.get('name')
         master_description = s.get('description') if s.get('description') else None
-        threading.Thread(target=backup.run_archive_job, args=(stack_paths, retention, CONTAINER_BACKUP_DIR, master_name, master_description), daemon=True).start()
+        if schedule_type == 'cleanup':
+            # For cleanup schedules, run cleanup for this schedule only
+            threading.Thread(target=backup.run_cleanup_job, args=(CONTAINER_BACKUP_DIR, master_name, master_description, schedule_id), daemon=True).start()
+        else:
+            threading.Thread(target=backup.run_archive_job, args=(stack_paths, retention, CONTAINER_BACKUP_DIR, master_name, master_description), daemon=True).start()
     except Exception as e:
         print(f"[scheduler] job_runner error for schedule {schedule_id}: {e}")
 
@@ -236,8 +243,17 @@ def _load_and_schedule_all(scheduler):
             cur.execute("SELECT * FROM schedules WHERE enabled = true;")
             rows = cur.fetchall()
         conn.close()
+        cleanup_scheduled = False
         for s in rows:
-            _schedule_db_job(scheduler, s)
+            try:
+                if (s.get('type') or 'backup').lower() == 'cleanup':
+                    if cleanup_scheduled:
+                        # skip any additional cleanup schedules
+                        continue
+                    cleanup_scheduled = True
+                _schedule_db_job(scheduler, s)
+            except Exception:
+                continue
     except Exception as e:
         print(f"[scheduler] load failed: {e}")
 
@@ -890,6 +906,26 @@ def start_archive_route():
     return redirect(url_for('index'))
 
 
+@app.route('/cleanup', methods=['POST'])
+def start_cleanup_route():
+    """Starts a global cleanup process in background applying retention of all enabled schedules."""
+    # Prevent starting if a cleanup is already in progress
+    try:
+        if str(backup._get_setting('cleanup_in_progress')).lower() == 'true':
+            flash('A cleanup is already running. Please wait for it to finish.', 'warning')
+            return redirect(url_for('index'))
+    except Exception:
+        # If check fails, fall through and attempt start (best-effort)
+        pass
+
+    master_name = 'Manual Cleanup'
+    master_description = request.form.get('description')
+    thread = threading.Thread(target=backup.run_cleanup_job, args=(CONTAINER_BACKUP_DIR, master_name, master_description), daemon=True)
+    thread.start()
+    flash('Cleanup process started in the background.', 'info')
+    return redirect(url_for('index'))
+
+
 @app.route('/history')
 def history():
     """Shows the full backup history."""
@@ -994,12 +1030,28 @@ def create_schedule_route():
     description = request.form.get('description')
     stacks = request.form.getlist('stacks')
     retention_days = int(request.form.get('retention_days') or 28)
+    schedule_type = request.form.get('type') or 'backup'
     stack_text = '\n'.join(stacks)
+    # Prevent creating more than one cleanup schedule
+    if schedule_type == 'cleanup':
+        try:
+            conn_check = get_db_connection()
+            with conn_check.cursor() as cur_check:
+                cur_check.execute("SELECT COUNT(1) FROM schedules WHERE type = 'cleanup';")
+                existing = cur_check.fetchone()[0]
+            conn_check.close()
+            if existing and existing > 0:
+                flash('A cleanup schedule already exists; only one cleanup schedule is allowed.', 'danger')
+                return redirect(url_for('schedules_route'))
+        except Exception:
+            # If check fails, be conservative and block creation
+            flash('Could not verify existing cleanup schedules; not creating a second cleanup schedule.', 'danger')
+            return redirect(url_for('schedules_route'))
     conn = get_db_connection()
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO schedules (name, time, stack_paths, retention_days, enabled, description) VALUES (%s, %s, %s, %s, %s, %s);",
-            (name, time_val, stack_text, retention_days, True, description)
+            "INSERT INTO schedules (name, time, stack_paths, retention_days, enabled, description, type) VALUES (%s, %s, %s, %s, %s, %s, %s);",
+            (name, time_val, stack_text, retention_days, True, description, schedule_type)
         )
         conn.commit()
     conn.close()
@@ -1049,15 +1101,31 @@ def edit_schedule_route(schedule_id):
         name = request.form.get('name')
         time_val = request.form.get('time')
         description = request.form.get('description')
+        schedule_type = request.form.get('type') or 'backup'
         stacks = request.form.getlist('stacks')
         retention_days = int(request.form.get('retention_days') or 28)
         enabled = True if request.form.get('enabled') == 'true' else False
 
         stack_text = '\n'.join(stacks)
+        # If switching this schedule to type 'cleanup', ensure no other cleanup schedule exists
+        if schedule_type == 'cleanup':
+            try:
+                conn_check = get_db_connection()
+                with conn_check.cursor() as cur_check:
+                    cur_check.execute("SELECT id FROM schedules WHERE type = 'cleanup' AND id != %s;", (schedule_id,))
+                    other = cur_check.fetchone()
+                conn_check.close()
+                if other:
+                    flash('Another cleanup schedule already exists; cannot convert this schedule to cleanup.', 'danger')
+                    return redirect(url_for('schedules_route'))
+            except Exception:
+                flash('Could not verify existing cleanup schedules; not updating to cleanup.', 'danger')
+                return redirect(url_for('schedules_route'))
+
         conn = get_db_connection()
         with conn.cursor() as cur:
-            cur.execute("UPDATE schedules SET name=%s, time=%s, stack_paths=%s, retention_days=%s, enabled=%s, description=%s WHERE id=%s;",
-                        (name, time_val, stack_text, retention_days, enabled, description, schedule_id))
+            cur.execute("UPDATE schedules SET name=%s, time=%s, stack_paths=%s, retention_days=%s, enabled=%s, description=%s, type=%s WHERE id=%s;",
+                        (name, time_val, stack_text, retention_days, enabled, description, schedule_type, schedule_id))
             conn.commit()
         conn.close()
         # update scheduler
@@ -1078,6 +1146,33 @@ def toggle_schedule_route(schedule_id):
     user_id = session.get('user_id')
     if not user_id:
         return redirect(url_for('login_route'))
+    # Read current schedule to determine desired state and type
+    conn = get_db_connection()
+    with conn.cursor(cursor_factory=DictCursor) as cur:
+        cur.execute("SELECT enabled, type FROM schedules WHERE id = %s;", (schedule_id,))
+        sch = cur.fetchone()
+    conn.close()
+    if not sch:
+        flash('Schedule not found.', 'danger')
+        return redirect(url_for('schedules_route'))
+
+    desired_enabled = not sch.get('enabled')
+    sch_type = (sch.get('type') or 'backup').lower()
+    # If enabling and this is a cleanup schedule, ensure no other cleanup schedule is enabled
+    if desired_enabled and sch_type == 'cleanup':
+        try:
+            conn_check = get_db_connection()
+            with conn_check.cursor() as cur_check:
+                cur_check.execute("SELECT COUNT(1) FROM schedules WHERE type = 'cleanup' AND enabled = true AND id != %s;", (schedule_id,))
+                cnt = cur_check.fetchone()[0]
+            conn_check.close()
+            if cnt and cnt > 0:
+                flash('Another enabled cleanup schedule exists; cannot enable this cleanup schedule.', 'danger')
+                return redirect(url_for('schedules_route'))
+        except Exception:
+            flash('Could not verify existing cleanup schedules; not toggling.', 'danger')
+            return redirect(url_for('schedules_route'))
+
     conn = get_db_connection()
     with conn.cursor() as cur:
         cur.execute("UPDATE schedules SET enabled = NOT enabled WHERE id = %s RETURNING enabled;", (schedule_id,))

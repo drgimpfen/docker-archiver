@@ -54,6 +54,14 @@
                         </thead>
                         <tbody>
                             {% for job in recent_jobs %}
+                            <div class="text-center mt-2">
+                                <form method="post" action="{{ url_for('start_cleanup_route') }}" onsubmit="return confirm('Start cleanup now? This will delete archives older than configured retentions.');">
+                                    <div class="input-group">
+                                        <input name="description" class="form-control form-control-sm" placeholder="Optional cleanup description" />
+                                        <button class="btn btn-outline-danger btn-sm">Run Cleanup</button>
+                                    </div>
+                                </form>
+                            </div>
                                 <tr>
                                     <td>{{ job.stack_name }}</td>
                                     <td>{{ job.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</td>

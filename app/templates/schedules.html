@@ -2,7 +2,7 @@
 
 {% block content %}
 <div class="row">
-    <div class="col-md-6">
+    <div class="col-md-5">
         <div class="card">
             <div class="card-body">
                 <h3>New Schedule</h3>
@@ -32,12 +32,46 @@
                         <label class="form-label">Retention days</label>
                         <input name="retention_days" class="form-control" value="28" />
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label">Schedule Type</label>
+                        <select name="type" class="form-select">
+                            <option value="backup" selected>Backup (archive stacks)</option>
+                            <option value="cleanup">Cleanup (delete old archives per schedule)</option>
+                        </select>
+                        <div class="form-text text-muted">Choose 'cleanup' to run retention-only for the selected stacks.</div>
+                    </div>
                     <button class="btn btn-primary">Create Schedule</button>
+                </form>
+                <hr />
+                <h5>Create Cleanup-only Schedule</h5>
+                <form method="post" action="{{ url_for('create_schedule_route') }}">
+                    <input type="hidden" name="type" value="cleanup" />
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input name="name" class="form-control" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Time</label>
+                        <input name="time" type="time" class="form-control" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Stacks (select from discovered)</label>
+                        <select name="stacks" class="form-select" multiple>
+                            {% for s in stacks %}
+                            <option value="{{ s.path }}">{{ s.name }} — {{ s.path }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Retention days</label>
+                        <input name="retention_days" class="form-control" value="28" />
+                    </div>
+                    <button class="btn btn-danger">Create Cleanup Schedule</button>
                 </form>
             </div>
         </div>
     </div>
-    <div class="col-md-6">
+    <div class="col-md-7">
         <div class="card">
             <div class="card-body">
                 <h3>Existing Schedules</h3>
@@ -50,6 +84,7 @@
                             <th>Time</th>
                             <th style="min-width:220px">Stacks</th>
                             <th>Retention</th>
+                            <th>Type</th>
                             <th>Enabled</th>
                             <th></th>
                         </tr>
@@ -66,6 +101,7 @@
                             <td class="text-muted">{{ sch.time }}</td>
                             <td class="schedule-stack-path">{{ sch.stack_paths.replace('\n','<br>')|safe }}</td>
                             <td>{{ sch.retention_days }}</td>
+                            <td>{{ sch.type if sch.type else 'backup' }}</td>
                             <td>{{ 'Yes' if sch.enabled else 'No' }}</td>
                             <td>
                                 <div class="d-flex gap-2">
