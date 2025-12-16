@@ -1,4 +1,5 @@
-![Docker Archiver logo](assets/docker-archiver-logo.png)
+
+<img width="798" height="326" alt="docker-archiver-logo" src="https://github.com/user-attachments/assets/7e2528c1-0037-4bf2-b69a-92891d0aaece" />
 
 # Docker-Archiver
 
