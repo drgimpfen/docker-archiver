@@ -34,6 +34,8 @@
     --text: #212529;
     --muted: #6c757d;
     --card-bg: #ffffff;
+    --panel-bg: #f8f9fa;
+    --surface: #ffffff;
     --border: #dee2e6;
     --log-bg: #f8f9fa;
     --table-hover: rgba(0,0,0,0.04);
@@ -42,10 +44,12 @@
 .dark-mode {
     --bg: #0b1220;
     --text: #e6eef6;
-    --muted: #94a3b8;
-    --card-bg: #0f1419;
-    --border: #1f2830;
-    --log-bg: #0b0f13;
+    --muted: #9aa8bb;
+    --card-bg: #0f1720;
+    --panel-bg: #0c1319;
+    --surface: #0b1015;
+    --border: #1e2933;
+    --log-bg: #071014;
     --table-hover: rgba(255,255,255,0.03);
     background-color: var(--bg);
     color: var(--text);
@@ -100,14 +104,14 @@ body {
 
 /* Forms */
 .dark-mode .form-control, .dark-mode input.form-control, .dark-mode textarea.form-control {
-    background-color: #0b1114 !important;
+    background-color: var(--panel-bg) !important;
     color: var(--text) !important;
-    border: 1px solid #22272b !important;
+    border: 1px solid var(--border) !important;
 }
 
 /* Tables */
 .dark-mode .table thead th {
-    background-color: rgba(255,255,255,0.03) !important;
+    background-color: rgba(255,255,255,0.02) !important;
     color: var(--text) !important;
     border-bottom: 1px solid var(--border) !important;
 }
@@ -117,8 +121,8 @@ body {
 
 /* Improve checkbox contrast */
 .dark-mode .form-check-input {
-    background-color: #0b1114 !important;
-    border: 1px solid #2a3236 !important;
+    background-color: var(--surface) !important;
+    border: 1px solid var(--border) !important;
 }
 
 /* Slightly soften link hover */
