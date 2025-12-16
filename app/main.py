@@ -117,18 +117,18 @@ def init_db():
         """)
         # Add theme column to users for storing user theme preference (dark/light)
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS theme VARCHAR(20) DEFAULT 'dark';")
-            # Schedules table for automated backups
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS schedules (
-                    id SERIAL PRIMARY KEY,
-                    name VARCHAR(255) NOT NULL,
-                    time VARCHAR(10) NOT NULL, -- HH:MM in 24h
-                    stack_paths TEXT NOT NULL, -- newline-separated list of paths
-                    retention_days INTEGER DEFAULT 28,
-                    enabled BOOLEAN DEFAULT TRUE,
-                    last_run TIMESTAMP
-                );
-            """)
+        # Schedules table for automated backups
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS schedules (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                time VARCHAR(10) NOT NULL, -- HH:MM in 24h
+                stack_paths TEXT NOT NULL, -- newline-separated list of paths
+                retention_days INTEGER DEFAULT 28,
+                enabled BOOLEAN DEFAULT TRUE,
+                last_run TIMESTAMP
+            );
+        """)
         # Set default retention if not present
         cur.execute("INSERT INTO settings (key, value) VALUES ('retention_days', '28') ON CONFLICT (key) DO NOTHING;")
         conn.commit()
