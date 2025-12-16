@@ -235,6 +235,39 @@ select { color: var(--md-on-surface) !important; }
 
 .nav-link { color: inherit !important; }
 
+/* Sidebar styles for vertical navigation */
+.app-sidebar {
+    position: fixed;
+    top: 56px; /* below top bar */
+    left: 0;
+    height: calc(100vh - 56px);
+    width: 220px;
+    padding: 1rem 12px;
+    background-color: var(--card-bg);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    z-index: 1030;
+}
+.app-sidebar .nav-link { color: var(--text) !important; padding: 8px 12px; }
+.app-sidebar .nav-link:hover { background: rgba(0,0,0,0.04); border-radius: 6px; }
+.app-sidebar .sidebar-bottom { position: absolute; bottom: 16px; left: 12px; }
+.sidebar-icon { height: 22px; width: auto; opacity: 0.95; }
+
+/* Main content shifted to the right to make space for the sidebar on large screens */
+.app-main { margin-left: 240px; }
+
+/* Small screens: sidebar hidden by default, toggled via .sidebar-open on body */
+@media (max-width: 991px) {
+    .app-sidebar { left: -260px; transition: left .22s ease; }
+    body.sidebar-open .app-sidebar { left: 0; }
+    .app-main { margin-left: 0; padding: 1rem; }
+}
+
+/* Header social icons */
+.header-social-icon { height: 20px; width: auto; margin-left: 8px; opacity: 0.95; }
+
+
+
 /* Buttons: prefer bootstrap defaults, but tweak dark-mode accents */
 .dark-mode .btn-primary {
     background-color: var(--accent) !important;

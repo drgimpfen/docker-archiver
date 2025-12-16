@@ -9,34 +9,42 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body data-server-theme="{{ user_theme or '' }}">
-    <nav class="navbar navbar-expand-lg" aria-label="Main navigation">
-        <div class="container">
+    <nav class="navbar navbar-dark bg-transparent border-bottom" aria-label="Top bar">
+        <div class="container-fluid d-flex align-items-center">
+            <button id="sidebar-toggle" class="btn btn-outline-secondary me-3 d-lg-none" aria-label="Toggle menu">☰</button>
             <a class="navbar-brand d-flex align-items-center" href="{{ url_for('index') }}">
                 <img src="{{ url_for('static', filename='assets/docker-archiver-logo.png') }}" alt="Docker Archiver logo" class="header-logo" style="height:28px;margin-right:10px;"/>
-                <span>Docker Archiver</span>
             </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            {% if session.user_id %}
-            <div class="collapse navbar-collapse" id="navbarSupportedContent">
-                <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}">Dashboard</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('backup_route') }}">Backup</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('history') }}">History</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('schedules_route') }}">Schedules</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('archives_list') }}">Archives</a></li>
-                    <li class="nav-item"><a id="theme-toggle" class="nav-link" title="Toggle dark mode">🌙</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('profile_route') }}">Profile</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('settings_route') }}">Settings</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('logout_route') }}">Logout</a></li>
-                </ul>
+            <div class="ms-auto d-none d-lg-flex align-items-center">
+                <a href="https://github.com/drgimpfen/Docker-Archiver/" target="_blank" rel="noopener" class="px-2">
+                    <img src="{{ url_for('static', filename='assets/github-mark-white.png') }}" alt="GitHub" class="header-social-icon" />
+                </a>
+                <a href="https://discord.gg/Tq84tczrR2" target="_blank" rel="noopener" class="px-2">
+                    <img src="{{ url_for('static', filename='assets/Discord-Symbol-White.png') }}" alt="Discord" class="header-social-icon" />
+                </a>
+                <a id="theme-toggle" class="nav-link px-2" title="Toggle dark mode">🌙</a>
+                <a class="nav-link px-2" href="{{ url_for('profile_route') }}">Profile</a>
+                <a class="nav-link px-2" href="{{ url_for('settings_route') }}">Settings</a>
+                <a class="nav-link px-2" href="{{ url_for('logout_route') }}">Logout</a>
             </div>
-            {% endif %}
         </div>
     </nav>
 
-    <main class="container mt-4">
+    {% if session.user_id %}
+    <aside class="app-sidebar" id="app-sidebar">
+        <ul class="nav flex-column">
+            <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}">Dashboard</a></li>
+            <li class="nav-item"><a class="nav-link" href="{{ url_for('backup_route') }}">Backup</a></li>
+            <li class="nav-item"><a class="nav-link" href="{{ url_for('history') }}">History</a></li>
+            <li class="nav-item"><a class="nav-link" href="{{ url_for('schedules_route') }}">Schedules</a></li>
+            <li class="nav-item"><a class="nav-link" href="{{ url_for('archives_list') }}">Archives</a></li>
+        </ul>
+
+        <!-- sidebar-bottom removed; social icons moved to header -->
+    </aside>
+    {% endif %}
+
+    <main class="app-main container mt-4">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
@@ -53,24 +61,7 @@
 
     <footer class="footer mt-4 py-3">
         <div class="container text-center">
-            <small class="text-muted">
-                Version 0.1.0 &nbsp;—
-                <a href="https://github.com/drgimpfen/Docker-Archiver/" target="_blank" rel="noopener" class="footer-link ms-2">
-                    <img src="{{ url_for('static', filename='assets/github-mark.png') }}" alt="GitHub" class="footer-icon icon-light"/>
-                    <img src="{{ url_for('static', filename='assets/github-mark-white.png') }}" alt="GitHub" class="footer-icon icon-dark"/>
-                    <span class="visually-hidden">GitHub</span>
-                </a>
-                <a href="https://discord.gg/Tq84tczrR2" target="_blank" rel="noopener" class="footer-link ms-3">
-                    <img src="{{ url_for('static', filename='assets/Discord-Symbol-Black.png') }}" alt="Discord" class="footer-icon icon-light"/>
-                    <img src="{{ url_for('static', filename='assets/Discord-Symbol-White.png') }}" alt="Discord" class="footer-icon icon-dark"/>
-                    <span class="visually-hidden">Discord</span>
-                </a>
-                {% if app_base_url and session.user_id %}
-                <div class="d-inline-block ms-3 text-truncate" style="max-width:240px;vertical-align:middle;">
-                    <small class="text-muted">Base URL: <a href="{{ app_base_url }}" class="link-secondary">{{ app_base_url }}</a></small>
-                </div>
-                {% endif %}
-            </small>
+            <small class="text-muted">Version 0.1.0</small>
         </div>
     </footer>
 
@@ -123,6 +114,17 @@
 
             bindToggle(toggle);
             bindToggle(toggleMobile);
+        })();
+    </script>
+    <script>
+        // Sidebar toggle for small screens
+        (function(){
+            const btn = document.getElementById('sidebar-toggle');
+            const body = document.body;
+            btn && btn.addEventListener('click', function(e){
+                e.preventDefault();
+                body.classList.toggle('sidebar-open');
+            });
         })();
     </script>
 </body>

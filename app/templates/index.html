@@ -36,23 +36,8 @@
                         <p class="text-center text-muted">No backup jobs have been run yet.</p>
                     {% endif %}
                 </div>
-                <div class="card-action center">
-                    <a href="{{ url_for('history') }}" class="btn btn-outline-secondary btn-sm">View Full History</a>
-                </div>
-                <div class="card-action">
-                    {% if cleanup_in_progress %}
-                        <div class="input-group">
-                            <input class="form-control form-control-sm" placeholder="Cleanup running..." disabled />
-                            <button class="btn btn-outline-secondary btn-sm" disabled>Cleanup Running</button>
-                        </div>
-                    {% else %}
-                        <form method="post" action="{{ url_for('start_cleanup_route') }}" onsubmit="return confirm('Start cleanup now? This will delete archives older than configured retentions.');">
-                            <div class="input-group">
-                                <input name="description" class="form-control form-control-sm" placeholder="Optional cleanup description" value="{{ default_cleanup_description }}" />
-                                <button class="btn btn-outline-danger btn-sm">Run Cleanup</button>
-                            </div>
-                        </form>
-                    {% endif %}
+                <div class="card-action text-center">
+                    <a href="{{ url_for('history') }}" class="btn btn-outline-secondary btn-sm mx-auto">View Full History</a>
                 </div>
             </div>
         </div>
