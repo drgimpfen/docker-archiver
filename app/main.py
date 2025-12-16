@@ -1016,61 +1016,49 @@ def format_bytes(size):
 def scan_archives():
     """Scans the archive directory and returns a structured dictionary with extended info."""
     result = {
-        'schedules': [],  # each: {name, stacks: {stack_name: {...}}}
-        'stacks': []      # legacy top-level stacks (each: {name, files, total_size_human, last_backup, count})
+        'scheduled': [],  # each: {name, stacks: {stack_name: {...}}}
+        'manual': []      # manual runs grouped by name (each: {name, stacks: {...}})
     }
 
     if not os.path.isdir(CONTAINER_BACKUP_DIR):
         return result
 
+    # load known schedule names from DB so we can distinguish scheduled vs manual runs
+    schedule_names = set()
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT name FROM schedules;")
+            rows = cur.fetchall()
+            for r in rows:
+                try:
+                    schedule_names.add(str(r[0]))
+                except Exception:
+                    continue
+        conn.close()
+    except Exception:
+        schedule_names = set()
+
     for top in sorted(os.listdir(CONTAINER_BACKUP_DIR)):
         top_path = os.path.join(CONTAINER_BACKUP_DIR, top)
         if not os.path.isdir(top_path):
             continue
-
-        # Check if this top-level directory contains stack subdirectories (schedule grouping)
+        # Check if this top-level directory contains stack subdirectories
         sub_entries = [e for e in os.listdir(top_path) if os.path.isdir(os.path.join(top_path, e))]
-        if sub_entries:
-            # Treat as schedule grouping
-            sched = {'name': top, 'stacks': {}}
-            for stack_name in sorted(sub_entries):
-                stack_dir = os.path.join(top_path, stack_name)
-                archive_files = []
-                total_size_bytes = 0
-                last_backup_timestamp = 0
-                for filename in sorted(os.listdir(stack_dir), reverse=True):
-                    if filename.endswith('.tar'):
-                        file_path = os.path.join(stack_dir, filename)
-                        try:
-                            stat_info = os.stat(file_path)
-                            archive_files.append({
-                                'name': filename,
-                                'size': stat_info.st_size,
-                                'created_at': datetime.fromtimestamp(stat_info.st_mtime)
-                            })
-                            total_size_bytes += stat_info.st_size
-                            if stat_info.st_mtime > last_backup_timestamp:
-                                last_backup_timestamp = stat_info.st_mtime
-                        except OSError:
-                            continue
-                if archive_files:
-                    sched['stacks'][stack_name] = {
-                        'count': len(archive_files),
-                        'total_size_bytes': total_size_bytes,
-                        'total_size_human': format_bytes(total_size_bytes),
-                        'last_backup': datetime.fromtimestamp(last_backup_timestamp) if last_backup_timestamp else None,
-                        'files': archive_files
-                    }
-            if sched['stacks']:
-                result['schedules'].append(sched)
-        else:
-            # Legacy: top-level stacks containing tar files directly
+        if not sub_entries:
+            # Unexpected structure (no subdirs) — skip
+            continue
+
+        # Build stacks info for this top-level group
+        group = {'name': top, 'stacks': {}}
+        for stack_name in sorted(sub_entries):
+            stack_dir = os.path.join(top_path, stack_name)
             archive_files = []
             total_size_bytes = 0
             last_backup_timestamp = 0
-            for filename in sorted(os.listdir(top_path), reverse=True):
+            for filename in sorted(os.listdir(stack_dir), reverse=True):
                 if filename.endswith('.tar'):
-                    file_path = os.path.join(top_path, filename)
+                    file_path = os.path.join(stack_dir, filename)
                     try:
                         stat_info = os.stat(file_path)
                         archive_files.append({
@@ -1084,14 +1072,67 @@ def scan_archives():
                     except OSError:
                         continue
             if archive_files:
-                result['stacks'].append({
-                    'name': top,
+                group['stacks'][stack_name] = {
                     'count': len(archive_files),
                     'total_size_bytes': total_size_bytes,
                     'total_size_human': format_bytes(total_size_bytes),
                     'last_backup': datetime.fromtimestamp(last_backup_timestamp) if last_backup_timestamp else None,
                     'files': archive_files
-                })
+                }
+
+        if not group['stacks']:
+            continue
+
+        # Compute group's latest timestamp for default-open selection
+        group_max_ts = 0
+        for s_info in group['stacks'].values():
+            try:
+                if s_info.get('last_backup'):
+                    ts = s_info['last_backup'].timestamp()
+                    if ts > group_max_ts:
+                        group_max_ts = ts
+            except Exception:
+                continue
+        group['__last_ts'] = group_max_ts
+
+        # Decide whether this top-level group is a scheduled run or a manual run
+        try:
+            if top in schedule_names:
+                result['scheduled'].append(group)
+            else:
+                result['manual'].append(group)
+        except Exception:
+            result['manual'].append(group)
+
+    # Determine which group (scheduled/manual) to open by default: choose the group with the newest timestamp
+    try:
+        best_kind = None
+        best_idx = None
+        best_ts = 0
+        # scheduled
+        for i, g in enumerate(result.get('scheduled', [])):
+            try:
+                if g.get('__last_ts', 0) > best_ts:
+                    best_ts = g.get('__last_ts', 0)
+                    best_kind = 'scheduled'
+                    best_idx = i
+            except Exception:
+                continue
+        # manual
+        for i, g in enumerate(result.get('manual', [])):
+            try:
+                if g.get('__last_ts', 0) > best_ts:
+                    best_ts = g.get('__last_ts', 0)
+                    best_kind = 'manual'
+                    best_idx = i
+            except Exception:
+                continue
+        if best_kind is not None:
+            result['default_open'] = {'kind': best_kind, 'index': best_idx}
+        else:
+            result['default_open'] = None
+    except Exception:
+        result['default_open'] = None
 
     return result
 
@@ -1103,20 +1144,7 @@ def archives_list():
     return render_template('archives.html', archives=all_archives)
 
 
-@app.route('/migrate_archives', methods=['POST'])
-def migrate_archives_route():
-    user_id = session.get('user_id')
-    if not user_id:
-        return redirect(url_for('login_route'))
-
-    description = request.form.get('migration_description')
-    # run migration in background
-    try:
-        threading.Thread(target=lambda: backup.migrate_top_level_archives(CONTAINER_BACKUP_DIR, description), daemon=True).start()
-        flash('Archive migration started in background. Check history for details.', 'info')
-    except Exception as e:
-        flash(f'Failed to start migration: {e}', 'danger')
-    return redirect(url_for('archives_list'))
+# Migration of top-level archives removed — no longer applicable
 
 
 @app.route('/schedules', methods=['GET', 'POST'])

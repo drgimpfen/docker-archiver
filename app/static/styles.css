@@ -139,6 +139,12 @@ body {
 .footer .footer-link:hover { color: var(--text); }
 .footer .footer-icon { width: 16px; height: 16px; vertical-align: text-bottom; margin-right: 6px; }
 
+/* Footer icons: show light/dark variants depending on theme */
+.footer-link img.footer-icon { width: 16px; height: 16px; vertical-align: text-bottom; margin-right: 6px; }
+.footer-link img.icon-dark { display: none; }
+.dark-mode .footer-link img.icon-dark { display: inline-block; }
+.dark-mode .footer-link img.icon-light { display: none; }
+
 /* Schedules page tweaks */
 .schedule-stack-path { max-width: 420px; white-space: normal; word-break: break-word; }
 .card .table { background-color: transparent !important; }
