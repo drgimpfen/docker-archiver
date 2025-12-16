@@ -2,6 +2,63 @@
 
 {% block content %}
 <div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <h3>Existing Schedules</h3>
+                {% if schedules %}
+                <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Name</th>
+                            <th>Time</th>
+                            <th style="min-width:220px">Stacks</th>
+                            <th>Retention</th>
+                            <th>Type</th>
+                            <th>Enabled</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for sch in schedules %}
+                        <tr>
+                            <td class="fw-semibold text-wrap">
+                                {{ sch.name }}
+                                {% if sch.description %}
+                                <div class="text-muted small mt-1">{{ sch.description }}</div>
+                                {% endif %}
+                            </td>
+                            <td class="text-muted">{{ sch.time }}</td>
+                            <td class="schedule-stack-path">{{ sch.stack_paths.replace('\n','<br>')|safe }}</td>
+                            <td>{{ sch.retention_days }}</td>
+                            <td>{{ sch.type if sch.type else 'backup' }}</td>
+                            <td>{{ 'Yes' if sch.enabled else 'No' }}</td>
+                            <td>
+                                <div class="d-flex gap-2">
+                                    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('edit_schedule_route', schedule_id=sch.id) }}">Edit</a>
+                                    <form method="post" action="{{ url_for('delete_schedule_route', schedule_id=sch.id) }}" onsubmit="return confirm('Delete schedule?');">
+                                        <button class="btn btn-sm btn-danger">Delete</button>
+                                    </form>
+                                    <form method="post" action="{{ url_for('toggle_schedule_route', schedule_id=sch.id) }}">
+                                        <button class="btn btn-sm btn-{{ 'warning' if sch.enabled else 'success' }}">{{ 'Disable' if sch.enabled else 'Enable' }}</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                </div>
+                {% else %}
+                <div class="text-muted">No schedules configured.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
     <div class="col-md-8">
         <div class="card">
             <div class="card-body">
@@ -72,58 +129,7 @@
         </div>
     </div>
     <div class="col-md-4">
-        <div class="card">
-            <div class="card-body">
-                <h3>Existing Schedules</h3>
-                {% if schedules %}
-                <div class="table-responsive">
-                <table class="table table-sm align-middle mb-0">
-                    <thead class="table-light">
-                        <tr>
-                            <th>Name</th>
-                            <th>Time</th>
-                            <th style="min-width:220px">Stacks</th>
-                            <th>Retention</th>
-                            <th>Type</th>
-                            <th>Enabled</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for sch in schedules %}
-                        <tr>
-                            <td class="fw-semibold text-wrap">
-                                {{ sch.name }}
-                                {% if sch.description %}
-                                <div class="text-muted small mt-1">{{ sch.description }}</div>
-                                {% endif %}
-                            </td>
-                            <td class="text-muted">{{ sch.time }}</td>
-                            <td class="schedule-stack-path">{{ sch.stack_paths.replace('\n','<br>')|safe }}</td>
-                            <td>{{ sch.retention_days }}</td>
-                            <td>{{ sch.type if sch.type else 'backup' }}</td>
-                            <td>{{ 'Yes' if sch.enabled else 'No' }}</td>
-                            <td>
-                                <div class="d-flex gap-2">
-                                    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('edit_schedule_route', schedule_id=sch.id) }}">Edit</a>
-                                    <form method="post" action="{{ url_for('delete_schedule_route', schedule_id=sch.id) }}" onsubmit="return confirm('Delete schedule?');">
-                                        <button class="btn btn-sm btn-danger">Delete</button>
-                                    </form>
-                                    <form method="post" action="{{ url_for('toggle_schedule_route', schedule_id=sch.id) }}">
-                                        <button class="btn btn-sm btn-{{ 'warning' if sch.enabled else 'success' }}">{{ 'Disable' if sch.enabled else 'Enable' }}</button>
-                                    </form>
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-                </div>
-                {% else %}
-                <div class="text-muted">No schedules configured.</div>
-                {% endif %}
-            </div>
-        </div>
+        <!-- reserved for future controls or help text -->
     </div>
 </div>
 {% endblock %}
