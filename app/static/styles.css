@@ -40,14 +40,51 @@
     --log-bg: #f8f9fa;
     --table-hover: rgba(0,0,0,0.04);
     --accent: #5db6ff; /* lighter accent */
+
+    /* Material tokens */
+    --md-primary: var(--accent);
+    --md-on-primary: #ffffff;
+    --md-surface: var(--surface);
+    --md-on-surface: var(--text);
+    --md-background: var(--bg);
+    --md-card: var(--card-bg);
+    --md-border: var(--border);
 }
 
 /* Wider container for dashboard to make main cards larger on desktop */
 .wide-container{
-    max-width: 1400px;
+    max-width: 1600px;
     width: 100%;
     margin: 0 auto;
     padding: 0 16px;
+}
+
+/* Ensure input text is readable in dark mode and Materialize inputs */
+.input-field input,
+.input-field textarea,
+.input-field select,
+.card .input-field input,
+.card .input-field textarea{
+    color: var(--text) !important;
+    background: transparent !important;
+}
+.input-field input::placeholder,
+.input-field textarea::placeholder{
+    color: rgba(255,255,255,0.45) !important;
+}
+.input-field input:focus,
+.input-field textarea:focus{
+    color: var(--text) !important;
+}
+
+/* Checkbox label color */
+.stack-list span{
+    color: var(--text) !important;
+}
+
+/* Make buttons and chips stand out slightly more on wide layouts */
+.card-action .btn{
+    min-width: 140px;
 }
 
 /* Dark mode overrides applied when body has .dark-mode */
@@ -77,6 +114,27 @@ body {
     transition: background-color 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
     box-shadow: 0 4px 12px rgba(0,0,0,0.55);
 }
+
+/* Materialize component theming using our variables */
+.btn, .waves-effect .btn {
+    background-color: var(--md-primary) !important;
+    color: var(--md-on-primary) !important;
+}
+.chip {
+    background-color: rgba(0,0,0,0.06);
+    color: var(--md-on-surface);
+}
+.dark-mode .chip { background-color: rgba(255,255,255,0.06) !important; }
+.sidenav, .sidenav .user-view, .sidenav a { background-color: var(--md-card) !important; color: var(--md-on-surface) !important; }
+.modal { background-color: var(--md-surface) !important; color: var(--md-on-surface) !important; }
+.collection, .collection-item { background-color: var(--md-card) !important; color: var(--md-on-surface) !important; border-color: var(--md-border) !important; }
+.input-field label { color: rgba(0,0,0,0.6); }
+.dark-mode .input-field label { color: rgba(255,255,255,0.75) !important; }
+.input-field .prefix { color: var(--muted) !important; }
+
+/* Ensure switches, selects and form controls follow theme */
+.switch label input[type=checkbox]:checked + .lever { background-color: var(--md-primary) !important; }
+select { color: var(--md-on-surface) !important; }
 
 /* Stronger visual treatment for login card to improve contrast */
 .login-card {

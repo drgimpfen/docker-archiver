@@ -23,7 +23,7 @@ except Exception as e:
 import backup
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
 
 # --- Configuration ---
 DATABASE_URL = os.environ.get('DATABASE_URL')
