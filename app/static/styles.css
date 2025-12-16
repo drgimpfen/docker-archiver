@@ -211,6 +211,16 @@ body {
     color: #fff !important;
 }
 
+/* Ensure primary action buttons in tables (Download) are readable */
+.list-card .table .btn-primary,
+.archive-card .table .btn-primary,
+.card .table .btn-primary {
+    background-color: var(--accent) !important;
+    border-color: rgba(0,0,0,0.2) !important;
+    color: #ffffff !important;
+}
+.list-card .table .btn-primary:focus, .archive-card .table .btn-primary:focus { box-shadow: 0 0 0 0.15rem rgba(93,182,255,0.15) !important; }
+
 /* Make table cells slightly more compact and readable */
 .table td, .table th { padding: 0.55rem 0.75rem !important; }
 
