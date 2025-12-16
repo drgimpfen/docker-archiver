@@ -127,3 +127,9 @@ body {
 
 /* Slightly soften link hover */
 .dark-mode a.nav-link:hover { opacity: 0.9 !important; }
+
+/* Footer styles */
+.footer { border-top: 1px solid var(--border); }
+.footer .footer-link { color: var(--muted); text-decoration: none; }
+.footer .footer-link:hover { color: var(--text); }
+.footer .footer-icon { width: 16px; height: 16px; vertical-align: text-bottom; margin-right: 6px; }
