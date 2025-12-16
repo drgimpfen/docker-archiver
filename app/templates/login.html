@@ -2,35 +2,33 @@
 
 {% block content %}
 <div class="container">
-  <div class="row">
-    <div class="col s12 m8 l6 offset-m2 offset-l3">
+  <div class="row justify-content-center">
+    <div class="col-12 col-md-6">
       <div class="card login-card">
-        <div class="card-content">
-          <span class="card-title center">Login</span>
+        <div class="card-body">
+          <h2 class="card-title text-center">Login</h2>
 
           {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
               {% for category, message in messages %}
                 {% if category == 'error' %}
-                  <div class="card-panel red darken-2 white-text">{{ message }}</div>
+                  <div class="alert alert-danger">{{ message }}</div>
                 {% endif %}
               {% endfor %}
             {% endif %}
           {% endwith %}
 
           <form method="post">
-            <div class="row">
-              <div class="input-field col s12">
-                <input id="username" name="username" type="text" class="validate" required>
-                <label for="username">Username</label>
-              </div>
-              <div class="input-field col s12">
-                <input id="password" name="password" type="password" class="validate" required>
-                <label for="password">Password</label>
-              </div>
-              <div class="col s12">
-                <button type="submit" class="btn waves-effect waves-light btn-large col s12">Login</button>
-              </div>
+            <div class="mb-3">
+              <label for="username" class="form-label">Username</label>
+              <input id="username" name="username" type="text" class="form-control" required>
+            </div>
+            <div class="mb-3">
+              <label for="password" class="form-label">Password</label>
+              <input id="password" name="password" type="password" class="form-control" required>
+            </div>
+            <div class="d-grid">
+              <button type="submit" class="btn btn-primary btn-lg">Login</button>
             </div>
           </form>
 

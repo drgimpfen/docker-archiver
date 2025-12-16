@@ -1,62 +1,60 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="wide-container">
+<div class="container">
     <div class="row">
         <!-- Archive Control Column -->
-        <div class="col s12 m8">
+        <div class="col-md-6">
+            <h2>Start New Archive</h2>
             <div class="card archive-card">
-                <div class="card-content">
-                    <span class="card-title">Start New Archive</span>
+                <div class="card-body">
                     <form action="{{ url_for('start_archive_route') }}" method="post">
-                        <div class="input-field">
-                            <label><strong>Select Stacks</strong></label>
+                        <div class="mb-3">
+                            <label class="form-label"><strong>Select Stacks</strong></label>
                             {% if stacks %}
                                 <div class="stack-list">
                                     {% for stack in stacks %}
-                                        <p>
-                                            <label>
-                                                <input type="checkbox" name="stacks" value="{{ stack.path }}" id="stack-{{ loop.index }}" />
-                                                <span>{{ stack.name }}</span>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" name="stacks" value="{{ stack.path }}" id="stack-{{ loop.index }}">
+                                            <label class="form-check-label" for="stack-{{ loop.index }}">
+                                                {{ stack.name }}
                                             </label>
-                                        </p>
+                                        </div>
                                     {% endfor %}
                                 </div>
                             {% else %}
-                                <p class="grey-text text-lighten-1">No Docker Compose stacks found in configured directories.</p>
+                                <p class="text-muted">No Docker Compose stacks found in configured directories.</p>
                             {% endif %}
                         </div>
 
-                        <div class="input-field">
-                            <input id="retention_days" name="retention_days" type="number" value="{{ retention_days or 28 }}" min="1">
-                            <label for="retention_days">Retention (Days)</label>
+                        <div class="mb-3">
+                            <label for="retention_days" class="form-label"><strong>Retention (Days)</strong></label>
+                            <input type="number" class="form-control" id="retention_days" name="retention_days" value="{{ retention_days or 28 }}" min="1">
                         </div>
 
-                        <div class="input-field">
-                            <input id="manual_name" name="manual_name" type="text" placeholder="Optional name for this run (used to group archives)">
-                            <label for="manual_name">Manual Run Name (optional)</label>
+                        <div class="mb-3">
+                            <label for="manual_name" class="form-label"><strong>Manual Run Name (optional)</strong></label>
+                            <input type="text" class="form-control" id="manual_name" name="manual_name" placeholder="Optional name for this run (used to group archives)">
                         </div>
 
-                        <div class="input-field">
-                            <input id="manual_description" name="manual_description" type="text" placeholder="Optional description shown in notifications">
-                            <label for="manual_description">Manual Run Description (optional)</label>
+                        <div class="mb-3">
+                            <label for="manual_description" class="form-label"><strong>Manual Run Description (optional)</strong></label>
+                            <input type="text" class="form-control" id="manual_description" name="manual_description" placeholder="Optional description shown in notifications">
                         </div>
 
-                        <div class="card-action">
-                            <button type="submit" class="btn waves-effect waves-light full-width">Start Archiving</button>
-                        </div>
+                        <button type="submit" class="btn btn-primary w-100">Start Archiving</button>
                     </form>
                 </div>
             </div>
         </div>
 
         <!-- Recent Jobs Column -->
-        <div class="col s12 m4">
-            <div class="card list-card">
-                <div class="card-content">
-                    <span class="card-title">Recent Activity</span>
+        <div class="col-md-6">
+            <h2>Recent Activity</h2>
+            <div class="card">
+                <div class="card-body">
                     {% if recent_jobs %}
-                        <table class="highlight responsive-table">
+                        <table class="table table-striped">
                             <thead>
                                 <tr>
                                     <th>Stack</th>
@@ -71,15 +69,13 @@
                                         <td>{{ job.stack_name }}</td>
                                         <td>{{ job.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</td>
                                         <td>
-                                            {% if job.status == 'Success' %}
-                                                <div class="chip green lighten-1 white-text">{{ job.status }}</div>
-                                            {% elif job.status == 'Failed' %}
-                                                <div class="chip red white-text">{{ job.status }}</div>
-                                            {% elif job.status == 'Running' %}
-                                                <div class="chip blue white-text">{{ job.status }}</div>
-                                            {% else %}
-                                                <div class="chip grey white-text">{{ job.status }}</div>
-                                            {% endif %}
+                                            <span class="badge 
+                                                {% if job.status == 'Success' %} bg-success
+                                                {% elif job.status == 'Failed' %} bg-danger
+                                                {% elif job.status == 'Running' %} bg-info
+                                                {% else %} bg-secondary {% endif %}">
+                                                {{ job.status }}
+                                            </span>
                                         </td>
                                         <td>{{ (job.duration_seconds ~ 's') if job.duration_seconds is not none else 'N/A' }}</td>
                                     </tr>
@@ -87,33 +83,26 @@
                             </tbody>
                         </table>
                     {% else %}
-                        <p class="grey-text text-lighten-1 center">No backup jobs have been run yet.</p>
+                        <p class="text-center text-muted">No backup jobs have been run yet.</p>
                     {% endif %}
-                </div>
-                <div class="card-action center">
-                    <a href="{{ url_for('history') }}" class="btn teal">View Full History</a>
-                </div>
-                <div class="card-action">
-                    {% if cleanup_in_progress %}
-                        <div class="input-field">
-                            <input disabled value="Cleanup running..." />
-                            <button class="btn grey" disabled>Cleanup Running</button>
-                        </div>
-                    {% else %}
-                        <form method="post" action="{{ url_for('start_cleanup_route') }}" onsubmit="return confirm('Start cleanup now? This will delete archives older than configured retentions.');">
-                            <div class="row valign-wrapper">
-                                <div class="col s8">
-                                    <div class="input-field">
-                                        <input id="cleanup_desc" name="description" type="text" value="{{ default_cleanup_description }}">
-                                        <label for="cleanup_desc">Optional cleanup description</label>
-                                    </div>
-                                </div>
-                                <div class="col s4">
-                                    <button class="btn red right">Run Cleanup</button>
-                                </div>
+                    <div class="text-center mt-3">
+                        <a href="{{ url_for('history') }}" class="btn btn-outline-secondary btn-sm">View Full History</a>
+                    </div>
+                    <div class="text-center mt-2">
+                        {% if cleanup_in_progress %}
+                            <div class="input-group">
+                                <input class="form-control form-control-sm" placeholder="Cleanup running..." disabled />
+                                <button class="btn btn-outline-secondary btn-sm" disabled>Cleanup Running</button>
                             </div>
-                        </form>
-                    {% endif %}
+                        {% else %}
+                            <form method="post" action="{{ url_for('start_cleanup_route') }}" onsubmit="return confirm('Start cleanup now? This will delete archives older than configured retentions.');">
+                                <div class="input-group">
+                                    <input name="description" class="form-control form-control-sm" placeholder="Optional cleanup description" value="{{ default_cleanup_description }}" />
+                                    <button class="btn btn-outline-danger btn-sm">Run Cleanup</button>
+                                </div>
+                            </form>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
         </div>
