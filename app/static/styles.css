@@ -82,6 +82,10 @@
     color: var(--text) !important;
 }
 
+/* Stack badge styling */
+.stack-badges { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.stack-badge { padding: 0.35rem 0.6rem; font-size: 0.82rem; border-radius: 999px; display: inline-block; }
+
 /* Make buttons and chips stand out slightly more on wide layouts */
 .card-action .btn{
     min-width: 140px;

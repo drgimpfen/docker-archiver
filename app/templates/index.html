@@ -26,11 +26,11 @@
                                         <td>{{ job.job_name }}</td>
                                         <td>
                                             {% if job.stacks %}
-                                                <ul class="mb-0 ps-3">
-                                                {% for s in job.stacks %}
-                                                    <li>{{ s }}</li>
-                                                {% endfor %}
-                                                </ul>
+                                                <div class="stack-badges">
+                                                    {% for s in job.stacks %}
+                                                        <span class="badge stack-badge" style="background-color: {{ s.color }}; color: {{ s.text_color }}">{{ s.name }}</span>
+                                                    {% endfor %}
+                                                </div>
                                             {% else %}
                                                 <span class="text-muted">(no stacks)</span>
                                             {% endif %}

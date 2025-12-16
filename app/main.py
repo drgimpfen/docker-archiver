@@ -101,6 +101,14 @@ def init_db():
                 value VARCHAR(255) NOT NULL
             );
         """)
+        # Table for persisted stack metadata (name + assigned color)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS stacks (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(255) UNIQUE NOT NULL,
+                color VARCHAR(16) NOT NULL
+            );
+        """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
@@ -319,6 +327,76 @@ def format_duration(seconds):
         return f"{mins}:{secs:02d}"
     except Exception:
         return None
+
+
+def _hsl_to_hex(h, s, l):
+    """Convert HSL (0-360,0-1,0-1) to HEX color."""
+    c = (1 - abs(2 * l - 1)) * s
+    hp = h / 60.0
+    x = c * (1 - abs((hp % 2) - 1))
+    r1, g1, b1 = 0, 0, 0
+    if 0 <= hp < 1:
+        r1, g1, b1 = c, x, 0
+    elif 1 <= hp < 2:
+        r1, g1, b1 = x, c, 0
+    elif 2 <= hp < 3:
+        r1, g1, b1 = 0, c, x
+    elif 3 <= hp < 4:
+        r1, g1, b1 = 0, x, c
+    elif 4 <= hp < 5:
+        r1, g1, b1 = x, 0, c
+    else:
+        r1, g1, b1 = c, 0, x
+    m = l - c / 2
+    r, g, b = int((r1 + m) * 255), int((g1 + m) * 255), int((b1 + m) * 255)
+    return '#{0:02x}{1:02x}{2:02x}'.format(r, g, b)
+
+
+def _generate_color_for_name(name: str) -> str:
+    """Deterministically generate a pleasant color from a name using its hash."""
+    try:
+        h = abs(hash(name)) % 360
+    except Exception:
+        h = 200
+    s = 0.55
+    l = 0.45
+    return _hsl_to_hex(h, s, l)
+
+
+def _text_color_for_bg(hex_color: str) -> str:
+    """Return '#000' or '#fff' for readable contrast against given hex background."""
+    try:
+        hex_color = hex_color.lstrip('#')
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+        # relative luminance
+        lum = (0.2126 * (r/255.0) + 0.7152 * (g/255.0) + 0.0722 * (b/255.0))
+        return '#000000' if lum > 0.6 else '#ffffff'
+    except Exception:
+        return '#ffffff'
+
+
+def get_or_create_stack_color(stack_name: str):
+    """Get persisted color for a stack or create an entry with a generated color."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=DictCursor) as cur:
+            cur.execute("SELECT color FROM stacks WHERE name = %s;", (stack_name,))
+            row = cur.fetchone()
+            if row and row.get('color'):
+                return row.get('color')
+            # generate deterministic color and persist
+            color = _generate_color_for_name(stack_name)
+            try:
+                cur.execute("INSERT INTO stacks (name, color) VALUES (%s, %s) ON CONFLICT (name) DO UPDATE SET color = stacks.color;", (stack_name, color))
+                conn.commit()
+            except Exception:
+                # ignore DB insert error and just return color
+                pass
+            return color
+    finally:
+        conn.close()
 
 
 def _ordinal(n: int) -> str:
@@ -854,7 +932,13 @@ def index():
                 # fetch child stack rows for this master
                 cur.execute("SELECT stack_name FROM archive_jobs WHERE master_id = %s ORDER BY start_time ASC;", (m.get('id'),))
                 children = cur.fetchall()
-                stacks = [c.get('stack_name') for c in children] if children else []
+                stacks = []
+                if children:
+                    for c in children:
+                        sname = c.get('stack_name')
+                        color = get_or_create_stack_color(sname)
+                        text_color = _text_color_for_bg(color)
+                        stacks.append({'name': sname, 'color': color, 'text_color': text_color})
                 # format start time in long form and duration human readable
                 start_time = m.get('start_time')
                 start_time_str = format_start_time_ordinal(start_time) if start_time else None
