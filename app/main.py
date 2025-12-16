@@ -793,144 +793,16 @@ def profile_change_password_route():
 # --- Passkey Routes ---
 @app.route('/webauthn/generate-registration-options', methods=['POST'])
 def generate_registration_options_route():
-    user_id = session['user_id']
-    conn = get_db_connection()
-    with conn.cursor(cursor_factory=DictCursor) as cur:
-        cur.execute("SELECT * FROM users WHERE id = %s;", (user_id,))
-        user = cur.fetchone()
-    conn.close()
-
-    if not user:
-        return jsonify({"error": "User not found"}), 404
+    return jsonify({"error": "Passkey / WebAuthn registration is temporarily disabled."}), 501
     
-    user_passkeys = get_user_passkeys(user_id)
-
-    options = generate_registration_options(
-        rp_id=RP_ID,
-        rp_name=RP_NAME,
-        user_id=str(user['id']).encode('utf-8'),
-        user_name=user['username'],
-        exclude_credentials=[
-            RegistrationCredential(id=key['credential_id']) for key in user_passkeys
-        ],
-    )
-
-    session['webauthn_registration_challenge'] = base64.b64encode(options.challenge).decode('utf-8')
-    return jsonify(_serialize_webauthn_obj(options))
-
-@app.route('/webauthn/verify-registration', methods=['POST'])
-def verify_registration_route():
-    user_id = session['user_id']
-    challenge = base64.b64decode(session.pop('webauthn_registration_challenge', None))
-    
-    if not user_id or not challenge:
-        return jsonify({"error": "Missing session data"}), 400
-
-    body = request.get_json()
-    
-    try:
-        credential = RegistrationCredential.parse_raw(body)
-        
-        verification = verify_registration_response(
-            credential=credential,
-            expected_challenge=challenge,
-            expected_origin=ORIGIN,
-            expected_rp_id=RP_ID,
-            require_user_verification=True,
-        )
-    except Exception as e:
-        return jsonify({"error": f"Registration failed: {e}"}), 400
-
-    conn = get_db_connection()
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO passkeys (user_id, credential_id, public_key, sign_count, transports)
-            VALUES (%s, %s, %s, %s, %s);
-            """,
-            (
-                user_id,
-                verification.credential_id,
-                verification.credential_public_key,
-                verification.sign_count,
-                ",".join(credential.response.transports or []),
-            )
-        )
-        conn.commit()
-    conn.close()
-
-    return jsonify({"verified": True})
 
 @app.route('/webauthn/generate-authentication-options', methods=['POST'])
 def generate_authentication_options_route():
-    username = request.get_json().get('username')
-    if not username:
-        # Discoverable credentials don't require a username upfront
-        options = generate_authentication_options(rp_id=RP_ID)
-        session['webauthn_authentication_challenge'] = base64.b64encode(options.challenge).decode('utf-8')
-        return jsonify(_serialize_webauthn_obj(options))
-
-    user = get_user(username)
-    if not user:
-        return jsonify({"error": "User not found"}), 404
-        
-    user_passkeys = get_user_passkeys(user['id'])
-    if not user_passkeys:
-        return jsonify({"error": "No passkeys registered for this user"}), 404
-
-    options = generate_authentication_options(
-        rp_id=RP_ID,
-        allow_credentials=[
-            {"id": key['credential_id'], "type": "public-key"} for key in user_passkeys
-        ],
-    )
-
-    session['webauthn_authentication_challenge'] = base64.b64encode(options.challenge).decode('utf-8')
-    return jsonify(_serialize_webauthn_obj(options))
+    return jsonify({"error": "Passkey / WebAuthn authentication is temporarily disabled."}), 501
 
 @app.route('/webauthn/verify-authentication', methods=['POST'])
 def verify_authentication_route():
-    challenge = base64.b64decode(session.pop('webauthn_authentication_challenge', None))
-    if not challenge:
-        return jsonify({"error": "Missing session data"}), 400
-
-    body = request.get_json()
-    credential = AuthenticationCredential.parse_raw(body)
-    
-    credential_id = credential.raw_id
-
-    conn = get_db_connection()
-    with conn.cursor(cursor_factory=DictCursor) as cur:
-        cur.execute("SELECT * FROM passkeys WHERE credential_id = %s;", (credential_id,))
-        db_passkey = cur.fetchone()
-
-    if not db_passkey:
-        return jsonify({"error": "Passkey not found"}), 404
-
-    try:
-        verification = verify_authentication_response(
-            credential=credential,
-            expected_challenge=challenge,
-            expected_origin=ORIGIN,
-            expected_rp_id=RP_ID,
-            credential_public_key=db_passkey['public_key'],
-            credential_current_sign_count=db_passkey['sign_count'],
-            require_user_verification=True,
-        )
-    except Exception as e:
-        return jsonify({"error": f"Authentication failed: {e}"}), 400
-
-    # Update sign count to prevent replay attacks
-    with conn.cursor() as cur:
-        cur.execute(
-            "UPDATE passkeys SET sign_count = %s WHERE id = %s;",
-            (verification.new_sign_count, db_passkey['id'])
-        )
-        conn.commit()
-    conn.close()
-
-    session['user_id'] = db_passkey['user_id']
-    return jsonify({"verified": True})
+    return jsonify({"error": "Passkey / WebAuthn authentication is temporarily disabled."}), 501
 
 @app.route('/webauthn/delete-passkey/<int:passkey_id>', methods=['POST'])
 def delete_passkey_route(passkey_id):
@@ -938,21 +810,7 @@ def delete_passkey_route(passkey_id):
     user_id = session.get('user_id')
     if not user_id:
         return redirect(url_for('login_route'))
-
-    conn = get_db_connection()
-    with conn.cursor(cursor_factory=DictCursor) as cur:
-        # Ensure the passkey belongs to the logged-in user before deleting
-        cur.execute("SELECT id FROM passkeys WHERE id = %s AND user_id = %s;", (passkey_id, user_id))
-        passkey_to_delete = cur.fetchone()
-
-        if passkey_to_delete:
-            cur.execute("DELETE FROM passkeys WHERE id = %s;", (passkey_id,))
-            conn.commit()
-            flash('Passkey deleted successfully.', 'success')
-        else:
-            flash('Passkey not found or you do not have permission to delete it.', 'danger')
-    
-    conn.close()
+    flash('Passkey functionality is disabled. Deletion is not available.', 'warning')
     return redirect(url_for('profile_route'))
 
 
