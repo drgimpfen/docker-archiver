@@ -89,14 +89,10 @@ def log_retention_to_db(job_id, message):
             conn.close()
         except Exception:
             pass
-    # mirror into unified jobs table when available
+    # mirror into unified jobs table when available via jobs helper
     try:
-        cj = get_db_connection()
-        with cj.cursor() as c2:
-            c2.execute("UPDATE jobs SET log = COALESCE(log,'') || %s WHERE legacy_retention_id = %s;",
-                       (f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}\n", job_id))
-            cj.commit()
-        cj.close()
+        import jobs
+        jobs.append_log_by_legacy_retention(job_id, message)
     except Exception:
         pass
 
@@ -167,8 +163,9 @@ def run_retention_now(archive_dir, archive_description=None, job_type='manual'):
         try:
             cj = get_db_connection()
             with cj.cursor() as c2:
-                c2.execute("INSERT INTO jobs (legacy_retention_id, job_type, start_time, status, description, log) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id;",
-                           (retention_job_id, 'retention', datetime.now(), 'Running', archive_description, 'Starting retention run across archive folders...\n'))
+                # mirror into unified jobs table
+                import jobs
+                jobs.create_job_for_retention(retention_job_id, None, 'retention', datetime.now(), 'Running', archive_description, 'Starting retention run across archive folders...\n')
                 cj.commit()
             cj.close()
         except Exception:
@@ -261,8 +258,9 @@ def run_retention_for_archives(created_archives, archive_dir, archive_job_id, ar
     try:
         cj = get_db_connection()
         with cj.cursor() as c2:
-            c2.execute("INSERT INTO jobs (legacy_retention_id, parent_id, job_type, start_time, status, description, log) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id;",
-                       (retention_job_id, parent_jobs_id, 'retention', r_start, 'Running', archive_description, 'Automatic retention started by archive run\n'))
+            # Mirror retention job to unified jobs table, linking to parent jobs id when available
+            import jobs
+            jobs.create_job_for_retention(retention_job_id, parent_jobs_id, 'retention', r_start, 'Running', archive_description, 'Automatic retention started by archive run\n')
             cj.commit()
         cj.close()
     except Exception:

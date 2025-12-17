@@ -7,6 +7,7 @@ import psycopg2
 from psycopg2.extras import DictCursor
 import retention
 from db import get_db_connection
+import jobs
 try:
     import apprise
     import html as _html
@@ -43,10 +44,14 @@ def log_to_db(job_id, message):
         conn.commit()
     try:
         # Also mirror logs to unified jobs table if present
-        with get_db_connection().cursor() as cur2:
-            cur2.execute("UPDATE jobs SET log = COALESCE(log,'') || %s WHERE legacy_archive_id = %s;",
-                         (f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}\n", job_id))
-            cur2.connection.commit()
+        try:
+            jobs.append_log_by_legacy_archive(job_id, message)
+        except Exception:
+            # fallback: best-effort direct update
+            with get_db_connection().cursor() as cur2:
+                cur2.execute("UPDATE jobs SET log = COALESCE(log,'') || %s WHERE legacy_archive_id = %s;",
+                             (f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}\n", job_id))
+                cur2.connection.commit()
     except Exception:
         pass
     conn.close()
@@ -342,16 +347,7 @@ def run_archive_job(selected_stack_paths, retention_days, archive_dir, archive_d
 
     # Mirror a top-level entry into unified `jobs` table (legacy mapping)
     try:
-        connj = get_db_connection()
-        with connj.cursor() as cj:
-            cj.execute(
-                "INSERT INTO jobs (legacy_archive_id, job_type, start_time, status, description, log) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id;",
-                (archive_job_id, 'archive_master', datetime.now(), 'Running', archive_description, 'Starting archiving process...\n')
-            )
-            jres = cj.fetchone()
-            jobs_master_id = jres[0] if jres else None
-            connj.commit()
-        connj.close()
+        jobs_master_id = jobs.create_job_for_archive_master(archive_job_id, 'archive_master', datetime.now(), 'Running', archive_description, 'Starting archiving process...\n')
     except Exception:
         jobs_master_id = None
 
@@ -377,15 +373,7 @@ def run_archive_job(selected_stack_paths, retention_days, archive_dir, archive_d
         conn.close()
         # mirror per-stack entry into unified jobs table linking to master jobs entry
         try:
-            connj = get_db_connection()
-            with connj.cursor() as cj:
-                cj.execute(
-                    "INSERT INTO jobs (parent_id, legacy_archive_id, job_type, stack_name, start_time, status, log) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id;",
-                    (jobs_master_id, job_id, 'archive_stack', stack_name, start_time, 'Running', f"Starting archive for stack: {stack_name}\n")
-                )
-                per_j = cj.fetchone()
-                connj.commit()
-            connj.close()
+            jobs.create_job_for_archive_stack(jobs_master_id, job_id, 'archive_stack', stack_name, start_time, 'Running', f"Starting archive for stack: {stack_name}\n")
         except Exception:
             pass
 
@@ -425,16 +413,15 @@ def run_archive_job(selected_stack_paths, retention_days, archive_dir, archive_d
                 )
                 conn.commit()
             conn.close()
-            # mirror update to unified jobs table if present
+            # mirror update to unified jobs table if present via jobs helper
             try:
-                cj = get_db_connection()
-                with cj.cursor() as c2:
-                    c2.execute(
-                        "UPDATE jobs SET status=%s, end_time=%s, duration_seconds=%s, archive_path=%s, archive_size_bytes=%s, log = COALESCE(log,'') || %s WHERE legacy_archive_id = %s;",
-                        ('Success', end_time, max(1, int(duration)), archive_path, archive_size, f"Archive completed: {archive_path} ({format_bytes(archive_size)})\n", job_id)
-                    )
-                    cj.commit()
-                cj.close()
+                jobs.update_job_by_legacy_archive(job_id,
+                                                  status='Success',
+                                                  end_time=end_time,
+                                                  duration_seconds=max(1, int(duration)),
+                                                  archive_path=archive_path,
+                                                  archive_size_bytes=archive_size,
+                                                  log=f"Archive completed: {archive_path} ({format_bytes(archive_size)})\n")
             except Exception:
                 pass
             # 5. Optionally create unpacked snapshot directory and update `latest` pointer when requested
@@ -491,12 +478,7 @@ def run_archive_job(selected_stack_paths, retention_days, archive_dir, archive_d
                 conn.commit()
             conn.close()
             try:
-                cj = get_db_connection()
-                with cj.cursor() as c2:
-                    c2.execute("UPDATE jobs SET status=%s, end_time=%s, duration_seconds=%s WHERE legacy_archive_id = %s;",
-                               ('Failed', end_time, int(duration), job_id))
-                    cj.commit()
-                cj.close()
+                jobs.update_job_by_legacy_archive(job_id, status='Failed', end_time=end_time, duration_seconds=int(duration))
             except Exception:
                 pass
             # Attempt to restart the stack even on failure
@@ -552,20 +534,23 @@ def run_archive_job(selected_stack_paths, retention_days, archive_dir, archive_d
         else:
             duration_seconds = None
 
-        with cj.cursor() as c2:
-            # update jobs row(s) that mirror this archive master
+        # update jobs row(s) that mirror this archive master via helper
+        try:
             if duration_seconds is not None:
-                c2.execute(
-                    "UPDATE jobs SET status=%s, end_time=%s, duration_seconds=%s, archive_size_bytes=%s, log = COALESCE(log,'') || %s WHERE legacy_archive_id = %s;",
-                    (status, end_time, duration_seconds, total_new, f"Master finished. Total new archives size: {format_bytes(total_new)}\n", archive_job_id)
-                )
+                jobs.update_job_by_legacy_archive(archive_job_id,
+                                                  status=status,
+                                                  end_time=end_time,
+                                                  duration_seconds=duration_seconds,
+                                                  archive_size_bytes=total_new,
+                                                  log=f"Master finished. Total new archives size: {format_bytes(total_new)}\n")
             else:
-                c2.execute(
-                    "UPDATE jobs SET status=%s, end_time=%s, archive_size_bytes=%s, log = COALESCE(log,'') || %s WHERE legacy_archive_id = %s;",
-                    (status, end_time, total_new, f"Master finished. Total new archives size: {format_bytes(total_new)}\n", archive_job_id)
-                )
-            cj.commit()
-        cj.close()
+                jobs.update_job_by_legacy_archive(archive_job_id,
+                                                  status=status,
+                                                  end_time=end_time,
+                                                  archive_size_bytes=total_new,
+                                                  log=f"Master finished. Total new archives size: {format_bytes(total_new)}\n")
+        except Exception:
+            pass
     except Exception:
         pass
 
