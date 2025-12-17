@@ -421,7 +421,7 @@ def run_archive_job(selected_stack_paths, retention_days, archive_dir, archive_d
                     SET status = 'Success', end_time = %s, duration_seconds = %s, archive_path = %s, archive_size_bytes = %s, log = log || %s
                     WHERE id = %s;
                     """,
-                    (end_time, int(duration), archive_path, archive_size, f"Archive completed: {archive_path} ({format_bytes(archive_size)})", job_id)
+                    (end_time, max(1, int(duration)), archive_path, archive_size, f"Archive completed: {archive_path} ({format_bytes(archive_size)})", job_id)
                 )
                 conn.commit()
             conn.close()
@@ -431,7 +431,7 @@ def run_archive_job(selected_stack_paths, retention_days, archive_dir, archive_d
                 with cj.cursor() as c2:
                     c2.execute(
                         "UPDATE jobs SET status=%s, end_time=%s, duration_seconds=%s, archive_path=%s, archive_size_bytes=%s, log = COALESCE(log,'') || %s WHERE legacy_archive_id = %s;",
-                        ('Success', end_time, int(duration), archive_path, archive_size, f"Archive completed: {archive_path} ({format_bytes(archive_size)})\n", job_id)
+                        ('Success', end_time, max(1, int(duration)), archive_path, archive_size, f"Archive completed: {archive_path} ({format_bytes(archive_size)})\n", job_id)
                     )
                     cj.commit()
                 cj.close()
@@ -548,7 +548,7 @@ def run_archive_job(selected_stack_paths, retention_days, archive_dir, archive_d
             if row and 'start_time' in row:
                 start_time = row['start_time']
         if start_time:
-            duration_seconds = int((end_time - start_time).total_seconds())
+            duration_seconds = max(1, int((end_time - start_time).total_seconds()))
         else:
             duration_seconds = None
 
