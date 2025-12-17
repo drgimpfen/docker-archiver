@@ -1,4 +1,4 @@
-<img width="400" alt="image" src="https://github.com/user-attachments/assets/b21d95c0-3e01-4e9b-8652-9f14cf934ecc" />
+<img width="798" height="313" alt="Logo Komplett_white" src="https://github.com/user-attachments/assets/2012d571-6ef9-4b83-8c63-94fb97bcd6da" />
 
 # Docker-Archiver
 
