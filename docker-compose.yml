@@ -9,9 +9,13 @@ services:
       - /opt/dockge:/local/dockge
       - /var/backups/docker:/archives
     environment:
-      - DATABASE_URL=postgresql://user:password@db:5432/docker_archiver
-      - TZ=Europe/Berlin
-      - SECRET_KEY=change_this_secret_key
+      DATABASE_URL: "postgresql://user:password@db:5432/docker_archiver"
+      TZ: "Europe/Berlin"
+      SECRET_KEY: "change_this_secret_key"
+      DB_CONNECT_TIMEOUT: "5"
+      DB_INIT_ATTEMPTS: "6"
+      APPRISE_ENABLED: "false"
+      APPRISE_URLS: ""
     depends_on:
       - db
 

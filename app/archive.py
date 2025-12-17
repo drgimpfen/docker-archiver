@@ -1,10 +1,24 @@
-"""
-DEPRECATED: moved to `app/archive.py`.
+import subprocess
+import os
+import sys
+import shutil
+from datetime import datetime
+import psycopg2
+from psycopg2.extras import DictCursor
+try:
+    import apprise
+    import html as _html
+except Exception:
+    apprise = None
 
-This file remains as a placeholder for compatibility. Use `app.archive` instead.
-"""
+# --- HELPER FUNCTIONS ---
 
-raise ImportError("Deprecated module 'app.backup' removed; import 'app.archive' instead.")
+def get_db_connection():
+    """Establishes a connection to the database using environment variables."""
+    database_url = os.environ.get('DATABASE_URL')
+    if not database_url:
+        raise ValueError("DATABASE_URL environment variable is not set.")
+    return psycopg2.connect(database_url)
 
 def format_bytes(size_bytes):
     """Converts bytes to human-readable format."""
@@ -469,12 +483,12 @@ def run_archive_job(selected_stack_paths, retention_days, archive_dir, archive_n
         summary_lines.append('DISK USAGE CHECK (on /):')
         summary_lines.append('----------------------------------------------------------------')
         summary_lines.append(disk_line)
-        # backup dir size
+        # archive dir size
         try:
             backup_size = get_dir_size(archive_dir)
-            summary_lines.append(f"Backup Content Size ({archive_dir}): {format_bytes(backup_size)}")
+            summary_lines.append(f"Archive Content Size ({archive_dir}): {format_bytes(backup_size)}")
         except Exception:
-            summary_lines.append(f"Backup Content Size ({archive_dir}): unavailable")
+            summary_lines.append(f"Archive Content Size ({archive_dir}): unavailable")
         summary_lines.append('----------------------------------------------------------------')
         summary = '\n'.join(summary_lines)
 

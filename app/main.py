@@ -21,7 +21,7 @@ except Exception as e:
         "Current import error: " + str(e)
     )
 
-import backup
+import archive
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
@@ -29,7 +29,7 @@ app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
 # --- Configuration ---
 DATABASE_URL = os.environ.get('DATABASE_URL')
 LOCAL_STACKS_PATH = '/local'
-CONTAINER_BACKUP_DIR = '/archives'  # Internal backup path inside the container
+CONTAINER_ARCHIVE_DIR = '/archives'  # Internal archive path inside the container
 
 # WebAuthn Configuration
 RP_ID = 'localhost'  # Relying Party ID - should be your domain in production
@@ -151,8 +151,8 @@ def init_db():
         """)
         # Add optional description column to schedules
         cur.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS description TEXT;")
-        # Add a type column to schedules so a schedule can be 'backup' or 'cleanup'
-        cur.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS type VARCHAR(20) DEFAULT 'backup';")
+        # Add a type column to schedules so a schedule can be 'archive' or 'cleanup'
+        cur.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS type VARCHAR(20) DEFAULT 'archive';")
         # Add store_unpacked flag to schedules (do we keep unpacked directory snapshots)
         cur.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS store_unpacked BOOLEAN DEFAULT FALSE;")
         # Set default retention if not present
@@ -203,7 +203,7 @@ import threading as _threading
 
 
 def _job_runner(schedule_id):
-    """Wrapper that loads schedule by id, updates last_run and triggers backup."""
+    """Wrapper that loads schedule by id, updates last_run and triggers archive."""
     try:
         conn = get_db_connection()
         with conn.cursor(cursor_factory=DictCursor) as cur:
@@ -214,7 +214,7 @@ def _job_runner(schedule_id):
         if not s or not s.get('enabled'):
             return
 
-        schedule_type = (s.get('type') or 'backup').lower()
+        schedule_type = (s.get('type') or 'archive').lower()
         stack_paths = [p for p in (s.get('stack_paths') or '').split('\n') if p.strip()]
         retention = s.get('retention_days') or 28
 
@@ -226,16 +226,16 @@ def _job_runner(schedule_id):
             conn.commit()
         conn.close()
 
-        # pass schedule name and description to backup/cleanup as archive_name/archive_description
+        # pass schedule name and description to archive/cleanup as archive_name/archive_description
         archive_name = s.get('name')
         archive_description = s.get('description') if s.get('description') else None
         if schedule_type == 'cleanup':
             # For cleanup schedules, run cleanup for this schedule only
-            threading.Thread(target=backup.run_cleanup_job, args=(CONTAINER_BACKUP_DIR, archive_name, archive_description, schedule_id), daemon=True).start()
+            threading.Thread(target=archive.run_cleanup_job, args=(CONTAINER_ARCHIVE_DIR, archive_name, archive_description, schedule_id), daemon=True).start()
         else:
             store_unpacked_flag = bool(s.get('store_unpacked'))
             # Pass schedule name as schedule_label so archives are grouped under /archives/<schedule_name>/
-            threading.Thread(target=backup.run_archive_job, args=(stack_paths, retention, CONTAINER_BACKUP_DIR, archive_name, archive_description, archive_name, store_unpacked_flag, 'scheduled'), daemon=True).start()
+            threading.Thread(target=archive.run_archive_job, args=(stack_paths, retention, CONTAINER_ARCHIVE_DIR, archive_name, archive_description, archive_name, store_unpacked_flag, 'scheduled'), daemon=True).start()
     except Exception as e:
         print(f"[scheduler] job_runner error for schedule {schedule_id}: {e}")
 
@@ -273,7 +273,7 @@ def _load_and_schedule_all(scheduler):
         cleanup_scheduled = False
         for s in rows:
             try:
-                if (s.get('type') or 'backup').lower() == 'cleanup':
+                if (s.get('type') or 'archive').lower() == 'cleanup':
                     if cleanup_scheduled:
                         # skip any additional cleanup schedules
                         continue
@@ -1086,11 +1086,11 @@ def start_archive_route():
             archive_name = archive_name.replace(ch, '_')
 
     # Start archive job and group files under the provided archive_name
-    # Retention is managed in Settings; manual backup form does not change it
+    # Retention is managed in Settings; manual archive form does not change it
     retention_days = None
     thread = threading.Thread(
-        target=backup.run_archive_job,
-        args=(selected_stack_paths, retention_days, CONTAINER_BACKUP_DIR, archive_name, archive_description, archive_name, False, 'manual'),
+        target=archive.run_archive_job,
+        args=(selected_stack_paths, retention_days, CONTAINER_ARCHIVE_DIR, archive_name, archive_description, archive_name, False, 'manual'),
         daemon=True
     )
     thread.start()
@@ -1099,11 +1099,11 @@ def start_archive_route():
     return redirect(url_for('index'))
 
 
-@app.route('/backup')
-def backup_route():
-    """Renders the manual backup page."""
+@app.route('/archive')
+def archive_route():
+    """Renders the manual archive (create) page."""
     stacks = discover_stacks()
-    return render_template('backup.html', stacks=stacks)
+    return render_template('archive.html', stacks=stacks)
 
 
 @app.route('/cleanup', methods=['POST'])
@@ -1111,7 +1111,7 @@ def start_cleanup_route():
     """Starts a global cleanup process in background applying retention of all enabled schedules."""
     # Prevent starting if a cleanup is already in progress
     try:
-        if str(backup._get_setting('cleanup_in_progress')).lower() == 'true':
+        if str(archive._get_setting('cleanup_in_progress')).lower() == 'true':
             flash('A cleanup is already running. Please wait for it to finish.', 'warning')
             return redirect(url_for('index'))
     except Exception:
@@ -1120,7 +1120,7 @@ def start_cleanup_route():
 
     archive_name = 'Manual Cleanup'
     archive_description = request.form.get('description')
-    thread = threading.Thread(target=backup.run_cleanup_job, args=(CONTAINER_BACKUP_DIR, archive_name, archive_description), daemon=True)
+    thread = threading.Thread(target=archive.run_cleanup_job, args=(CONTAINER_ARCHIVE_DIR, archive_name, archive_description), daemon=True)
     thread.start()
     flash('Cleanup process started in the background.', 'info')
     return redirect(url_for('index'))
@@ -1128,7 +1128,7 @@ def start_cleanup_route():
 
 @app.route('/history')
 def history():
-    """Shows the full backup history."""
+    """Shows the full archive history."""
     conn = get_db_connection()
     with conn.cursor(cursor_factory=DictCursor) as cur:
         # Only show top-level archive runs in history (per-stack details are internal)
@@ -1202,7 +1202,7 @@ def scan_archives():
         'manual': []      # manual runs grouped by name (each: {name, stacks: {...}})
     }
 
-    if not os.path.isdir(CONTAINER_BACKUP_DIR):
+    if not os.path.isdir(CONTAINER_ARCHIVE_DIR):
         return result
 
     # load known schedule names from DB so we can distinguish scheduled vs manual runs
@@ -1221,8 +1221,8 @@ def scan_archives():
     except Exception:
         schedule_names = set()
 
-    for top in sorted(os.listdir(CONTAINER_BACKUP_DIR)):
-        top_path = os.path.join(CONTAINER_BACKUP_DIR, top)
+    for top in sorted(os.listdir(CONTAINER_ARCHIVE_DIR)):
+        top_path = os.path.join(CONTAINER_ARCHIVE_DIR, top)
         if not os.path.isdir(top_path):
             continue
         # Check if this top-level directory contains stack subdirectories
@@ -1419,7 +1419,7 @@ def create_schedule_route():
     description = request.form.get('description')
     stacks = request.form.getlist('stacks')
     retention_days = int(request.form.get('retention_days') or 28)
-    schedule_type = request.form.get('type') or 'backup'
+    schedule_type = request.form.get('type') or 'archive'
     store_unpacked = True if request.form.get('store_unpacked') == 'on' else False
     stack_text = '\n'.join(stacks)
     # Prevent creating more than one cleanup schedule
@@ -1491,7 +1491,7 @@ def edit_schedule_route(schedule_id):
         name = request.form.get('name')
         time_val = request.form.get('time')
         description = request.form.get('description')
-        schedule_type = request.form.get('type') or 'backup'
+        schedule_type = request.form.get('type') or 'archive'
         store_unpacked = True if request.form.get('store_unpacked') == 'on' else False
         stacks = request.form.getlist('stacks')
         retention_days = int(request.form.get('retention_days') or 28)
@@ -1548,7 +1548,7 @@ def toggle_schedule_route(schedule_id):
         return redirect(url_for('schedules_route'))
 
     desired_enabled = not sch.get('enabled')
-    sch_type = (sch.get('type') or 'backup').lower()
+    sch_type = (sch.get('type') or 'archive').lower()
     # If enabling and this is a cleanup schedule, ensure no other cleanup schedule is enabled
     if desired_enabled and sch_type == 'cleanup':
         try:
@@ -1608,10 +1608,10 @@ def delete_schedule_route(schedule_id):
 def download_archive(stack_name, archive_filename):
     """Provides a download for a specific archive file."""
     # Construct the directory path for the given stack
-    stack_archive_dir = os.path.join(os.path.abspath(CONTAINER_BACKUP_DIR), stack_name)
+    stack_archive_dir = os.path.join(os.path.abspath(CONTAINER_ARCHIVE_DIR), stack_name)
     
     # Ensure the directory exists and is inside the main archive directory
-    if not os.path.isdir(stack_archive_dir) or not stack_archive_dir.startswith(os.path.abspath(CONTAINER_BACKUP_DIR)):
+    if not os.path.isdir(stack_archive_dir) or not stack_archive_dir.startswith(os.path.abspath(CONTAINER_ARCHIVE_DIR)):
         flash('Archive directory not found.', 'danger')
         return redirect(url_for('archives_list'))
 
@@ -1626,10 +1626,10 @@ def download_archive(stack_name, archive_filename):
 def delete_archive(stack_name, archive_filename):
     """Deletes a specific archive file."""
     # Construct the full path to the archive file
-    file_path = os.path.join(CONTAINER_BACKUP_DIR, stack_name, archive_filename)
+    file_path = os.path.join(CONTAINER_ARCHIVE_DIR, stack_name, archive_filename)
     
-    # Security check: Ensure the path is within the backup directory
-    if not os.path.abspath(file_path).startswith(os.path.abspath(CONTAINER_BACKUP_DIR)):
+    # Security check: Ensure the path is within the archive directory
+    if not os.path.abspath(file_path).startswith(os.path.abspath(CONTAINER_ARCHIVE_DIR)):
         flash('Invalid path specified.', 'danger')
         return redirect(url_for('archives_list'))
 

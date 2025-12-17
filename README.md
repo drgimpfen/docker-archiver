@@ -18,7 +18,7 @@
 
 **Important Files**
 - **App entry & routes:** [app/main.py](app/main.py)
-- **Archiving logic:** [app/backup.py](app/backup.py)
+- **Archiving logic:** [app/archive.py](app/archive.py)
 - **Dockerfile:** [Dockerfile](Dockerfile)
 - **Docker Compose:** [docker-compose.yml](docker-compose.yml)
 - **Python requirements:** [requirements.txt](requirements.txt)
@@ -34,7 +34,7 @@ docker-compose up -d --build
 - The default `docker-compose.yml` binds:
 	- host Docker socket (`/var/run/docker.sock`) into the container
 	- host stack directories under `/opt/stacks` or `/opt/dockge` into `/local` inside the container
-	- backup directory `/var/backups/docker` (host) mounted to `/archives` (container) to persist archives
+	- archive directory `/var/backups/docker` (host) mounted to `/archives` (container) to persist archives
 
 **Local development (without Docker)**
 - Ensure `DATABASE_URL` is set to a running Postgres instance, then install dependencies and run:
@@ -56,46 +56,44 @@ gunicorn --bind 0.0.0.0:5000 main:app
 Docker Archiver
 ---------------
 
-A small web app to stop/start Docker Compose stacks, create archives of stack directories, keep history, schedule backups, and send notifications via Apprise.
+A small web app to stop/start Docker Compose stacks, create archives of stack directories, keep history, schedule archives, and send notifications via Apprise.
 
-Features
---------
-- Discover local Docker Compose stacks and archive them as .tar files
-- Safe exclusion: the app avoids listing itself; you can force exclusion using a compose label (see below)
-- Scheduler (APScheduler) with timezone support (set via `TZ` env)
-**Project Overview**
-**Description:** Docker-Archiver is a small Flask web application that helps you archive Docker Compose stacks. It stops a stack, creates a TAR archive of the stack directory, restarts the stack, and stores archive metadata and job logs in a PostgreSQL database.
+Docker-Archiver — concise
+=========================
 
-**Key Features**
-- **Web UI:** Dashboard for discovering local stacks, starting archives, and viewing recent or full history.
-- **Archive stacks:** Stops a Docker Compose stack, creates a .tar archive of the stack directory, then restarts the stack.
-- **Background jobs & logging:** Archiving runs in background threads; each job is recorded in the `archive_jobs` table with logs appended during the process.
-- **Archive storage:** Archives are stored inside the container at `/archives` (mounted to a host path via Docker volumes in `docker-compose.yml`).
-- **Retention cleanup:** Configurable retention (default 28 days) removes old `.tar` archives.
-- **User management:** Initial setup for the first admin user, profile edit, and password change via the web UI.
-- **Passkeys (WebAuthn):** Register and authenticate using passkeys (WebAuthn) in addition to password login.
-- **Download & delete archives:** UI endpoints to download or delete specific archive files.
-- **Postgres-backed settings:** Stores settings, users, passkeys and job metadata in Postgres.
+Small Flask app to create, schedule and track archives of named "stacks" (folders).
 
-**Important Files**
-- **App entry & routes:** [app/main.py](app/main.py)
-- **Archiving logic:** [app/backup.py](app/backup.py)
-- **Dockerfile:** [Dockerfile](Dockerfile)
-- **Docker Compose:** [docker-compose.yml](docker-compose.yml)
-- **Python requirements:** [requirements.txt](requirements.txt)
-- **Templates:** [app/static/templates](app/static/templates)
+Quick start
+-----------
 
-**Installation (Recommended: Docker)**
-- Start with Docker Compose (recommended):
+1. Copy `.env.example` to `.env` and set `DATABASE_URL` (and `SECRET_KEY` for production).
+2. Build and run with Docker Compose:
 
 ```bash
-docker-compose up -d --build
+docker-compose build
+docker-compose up -d
 ```
 
-- The default `docker-compose.yml` binds:
-	- host Docker socket (`/var/run/docker.sock`) into the container
-	- host stack directories under `/opt/stacks` or `/opt/dockge` into `/local` inside the container
-	- backup directory `/var/backups/docker` (host) mounted to `/archives` (container) to persist archives
+3. Open `http://localhost:5000`, complete initial setup and use "Create archive" to run manual archives.
+
+What matters in `.env`
+----------------------
+
+- `DATABASE_URL`: required PostgreSQL connection string.
+- `SECRET_KEY`: set for production (session/CSRF security).
+- `TZ`, `APPRISE_*`, DB tuning vars: optional (see `.env.example`).
+
+Notes
+-----
+
+- Stack storage is provided via container mounts; `.env.example` no longer contains local path defaults.
+- App settings (App Base URL, notifications) are editable in the web UI.
+
+Code
+----
+
+See the `app/` folder for the Flask app and templates.
+	- archive directory `/var/backups/docker` (host) mounted to `/archives` (container) to persist archives
 
 **Local development (without Docker)**
 - Ensure `DATABASE_URL` is set to a running Postgres instance, then install dependencies and run:
@@ -117,7 +115,7 @@ gunicorn --bind 0.0.0.0:5000 main:app
 Docker Archiver
 ---------------
 
-A small web app to stop/start Docker Compose stacks, create archives of stack directories, keep history, schedule backups, and send notifications via Apprise.
+A small web app to stop/start Docker Compose stacks, create archives of stack directories, keep history, schedule archives, and send notifications via Apprise.
 
 Features
 --------
@@ -177,7 +175,7 @@ Mounts & security
 -----------------
 
 - The app needs access to the Docker socket to stop/start stacks: mount `/var/run/docker.sock` into the container.
-- The backup archive directory inside the container is `/archives` (mount a host path to persist archives).
+- The archive directory inside the container is `/archives` (mount a host path to persist archives).
 - Warning: mounting the Docker socket grants powerful privileges — run only in trusted environments.
 
 Configuration highlights
@@ -202,16 +200,16 @@ Service-level example:
 
 ```yaml
 services:
-	myservice:
-		labels:
-			- "docker-archiver.exclude=true"
+    myservice:
+        labels:
+            - "docker-archiver.exclude=true"
 ```
 
 Top-level example:
 
 ```yaml
 labels:
-	docker-archiver.exclude: "true"
+    docker-archiver.exclude: "true"
 ```
 
 Supported keys: `docker-archiver.exclude`, `archiver.exclude`, `docker_archiver.exclude`. Values `true`, `1`, `yes`, `on` are recognized.

@@ -1,4 +1,4 @@
-/* Custom Styles for Docker Backup Manager */
+/* Custom Styles for Docker Archiver */
 
 /* Makes the list of stacks scrollable if it's too long */
 .stack-list {
@@ -285,7 +285,7 @@ body.has-sidebar .app-main { margin-left: 240px; width: calc(100% - 240px); padd
 /* Header social icons */
 .header-social-icon { height: 20px; width: auto; margin-left: 8px; opacity: 0.95; }
 
-/* Recent activity card: centered 80% width to match Backup page */
+/* Recent activity card: centered 80% width to match Archive page */
 .recent-card { width: 80%; max-width: none; margin: 0 auto 1.5rem; padding: 0 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.55); border-radius: 8px; }
 
 /* Ensure recent card text/table is readable in dark mode */
@@ -415,7 +415,7 @@ body.has-sidebar .app-main { margin-left: 240px; width: calc(100% - 240px); padd
     color: #ffffff !important;
 }
 
-/* Wide centered card (80% width) used on Backup page */
+/* Wide centered card (80% width) used on Archive page */
 .wide-card-80 { width: 80%; max-width: none; margin: 0 auto 1.5rem; padding: 0 12px; }
 .wide-card-80 .card { box-shadow: 0 4px 12px rgba(0,0,0,0.55); border-radius: 8px; }
 .wide-card-80 .card-header { background-color: var(--card-bg); border-bottom: 1px solid var(--border); color: var(--text); }

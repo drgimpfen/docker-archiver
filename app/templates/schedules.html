@@ -32,7 +32,7 @@
                             <td class="text-muted">{{ sch.time }}</td>
                             <td class="schedule-stack-path">{{ sch.stack_paths.replace('\n','<br>')|safe }}</td>
                             <td>{{ sch.retention_days }}</td>
-                            <td>{{ sch.type if sch.type else 'backup' }}</td>
+                            <td>{{ sch.type if sch.type else 'archive' }}</td>
                             <td>{{ 'Yes' if sch.enabled else 'No' }}</td>
                             <td>
                                 <div class="d-flex gap-2">
@@ -92,7 +92,7 @@
                     <div class="mb-3">
                         <label class="form-label">Schedule Type</label>
                         <select name="type" class="form-select">
-                            <option value="backup" selected>Backup (archive stacks)</option>
+                            <option value="archive" selected>Archive (archive stacks)</option>
                             <option value="cleanup">Cleanup (delete old archives per schedule)</option>
                         </select>
                         <div class="form-text text-muted">Choose 'cleanup' to run retention-only for the selected stacks.</div>
