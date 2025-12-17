@@ -230,7 +230,8 @@ initialize_app()
 
 
 # --- Scheduler (moved to app/scheduler.py) ---
-from app import scheduler
+# Import scheduler as a local module (avoid package import when running main:app)
+import scheduler
 
 # start APScheduler in background
 try:
