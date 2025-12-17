@@ -3,7 +3,8 @@ import psycopg2
 from psycopg2.extras import DictCursor
 import threading
 import time
-from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, session, jsonify
+from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, send_from_directory, session, jsonify
+from jinja2 import TemplateNotFound
 from datetime import datetime
 from urllib.parse import urlparse
 import subprocess
@@ -97,10 +98,10 @@ def init_db():
         cur.execute("ALTER TABLE archive_jobs ADD COLUMN IF NOT EXISTS job_id INTEGER;")
         cur.execute("ALTER TABLE archive_jobs ALTER COLUMN job_id SET DEFAULT nextval('job_counter');")
         cur.execute("ALTER TABLE archive_jobs ADD COLUMN IF NOT EXISTS job_type VARCHAR(50) DEFAULT 'manual';")
-        # Mark master jobs explicitly so UI can show only masters when desired
-        cur.execute("ALTER TABLE archive_jobs ADD COLUMN IF NOT EXISTS is_master BOOLEAN DEFAULT FALSE;")
-        # Add master_id to link per-stack jobs to their master run
-        cur.execute("ALTER TABLE archive_jobs ADD COLUMN IF NOT EXISTS master_id INTEGER;")
+        # Mark archive (group) jobs explicitly so UI can show only top-level archives when desired
+        cur.execute("ALTER TABLE archive_jobs ADD COLUMN IF NOT EXISTS is_archive BOOLEAN DEFAULT FALSE;")
+        # Add archive_id to link per-stack jobs to their archive run
+        cur.execute("ALTER TABLE archive_jobs ADD COLUMN IF NOT EXISTS archive_id INTEGER;")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 key VARCHAR(100) PRIMARY KEY,
@@ -225,16 +226,16 @@ def _job_runner(schedule_id):
             conn.commit()
         conn.close()
 
-        # pass schedule name and description to backup/cleanup as master_name/master_description
-        master_name = s.get('name')
-        master_description = s.get('description') if s.get('description') else None
+        # pass schedule name and description to backup/cleanup as archive_name/archive_description
+        archive_name = s.get('name')
+        archive_description = s.get('description') if s.get('description') else None
         if schedule_type == 'cleanup':
             # For cleanup schedules, run cleanup for this schedule only
-            threading.Thread(target=backup.run_cleanup_job, args=(CONTAINER_BACKUP_DIR, master_name, master_description, schedule_id), daemon=True).start()
+            threading.Thread(target=backup.run_cleanup_job, args=(CONTAINER_BACKUP_DIR, archive_name, archive_description, schedule_id), daemon=True).start()
         else:
             store_unpacked_flag = bool(s.get('store_unpacked'))
             # Pass schedule name as schedule_label so archives are grouped under /archives/<schedule_name>/
-            threading.Thread(target=backup.run_archive_job, args=(stack_paths, retention, CONTAINER_BACKUP_DIR, master_name, master_description, master_name, store_unpacked_flag, 'scheduled'), daemon=True).start()
+            threading.Thread(target=backup.run_archive_job, args=(stack_paths, retention, CONTAINER_BACKUP_DIR, archive_name, archive_description, archive_name, store_unpacked_flag, 'scheduled'), daemon=True).start()
     except Exception as e:
         print(f"[scheduler] job_runner error for schedule {schedule_id}: {e}")
 
@@ -678,7 +679,28 @@ def setup_route():
         flash('Admin user created successfully! You are now logged in.', 'success')
         return redirect(url_for('index'))
         
-    return render_template('setup_initial_user.html')
+        # render setup template if present; otherwise show a safe fallback so app won't error on missing file
+        try:
+                return render_template('setup_initial_user.html')
+        except TemplateNotFound:
+                # Simple fallback page allowing initial setup without the template file
+                fallback_html = '''
+                <!doctype html>
+                <html><head><meta charset="utf-8"><title>Initial Setup</title></head>
+                <body style="font-family:Arial,Helvetica,sans-serif;margin:24px;">
+                    <h2>Initial Setup</h2>
+                    <p>The setup template is missing from the container. You can still create the first admin user using the form below.</p>
+                    <form method="post">
+                        <label>Username:<br><input name="username" required></label><br><br>
+                        <label>Password:<br><input name="password" type="password" required></label><br><br>
+                        <label>Email (optional):<br><input name="email" type="email"></label><br><br>
+                        <label>Display name (optional):<br><input name="display_name"></label><br><br>
+                        <button type="submit">Create Admin User</button>
+                    </form>
+                    <p style="margin-top:16px;color:#666">Tip: For development, mount the local <code>app/</code> folder into the container or copy the missing template into the container.</p>
+                </body></html>
+                '''
+                return render_template_string(fallback_html)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login_route():
@@ -931,33 +953,41 @@ def index():
     recent_jobs = []
     try:
         with conn.cursor(cursor_factory=DictCursor) as cur:
-            # Get last 10 master jobs only
-            cur.execute("SELECT * FROM archive_jobs WHERE is_master = true ORDER BY start_time DESC LIMIT 10;")
+            # Get last 10 top-level archive runs only
+            cur.execute("SELECT * FROM archive_jobs WHERE is_archive = true ORDER BY start_time DESC LIMIT 10;")
             masters = cur.fetchall()
             for m in masters:
-                # fetch child stack rows for this master
-                cur.execute("SELECT stack_name FROM archive_jobs WHERE master_id = %s ORDER BY start_time ASC;", (m.get('id'),))
+                # fetch child stack rows for this archive (include sizes)
+                cur.execute("SELECT stack_name, archive_size_bytes, duration_seconds FROM archive_jobs WHERE archive_id = %s ORDER BY start_time ASC;", (m.get('id'),))
                 children = cur.fetchall()
                 stacks = []
+                total_size_bytes = 0
                 if children:
                     for c in children:
                         sname = c.get('stack_name')
                         color = get_or_create_stack_color(sname)
                         text_color = _text_color_for_bg(color)
                         stacks.append({'name': sname, 'color': color, 'text_color': text_color})
+                        try:
+                            sz = int(c.get('archive_size_bytes')) if c.get('archive_size_bytes') is not None else 0
+                            total_size_bytes += sz
+                        except Exception:
+                            pass
                 # format start time in long form and duration human readable
                 start_time = m.get('start_time')
                 start_time_str = format_start_time_ordinal(start_time) if start_time else None
                 duration_human = format_duration(m.get('duration_seconds')) if m.get('duration_seconds') is not None else 'N/A'
                 recent_jobs.append({
                     'id': m.get('id'),
-                    'job_seq': m.get('job_id'),
-                    'job_type': m.get('job_type') or 'manual',
-                    'job_name': m.get('stack_name'),
+                    'archive_seq': m.get('job_id'),
+                    'type': (m.get('job_type') or 'manual'),
+                    'name': m.get('stack_name'),
                     'stacks': stacks,
                     'status': m.get('status'),
-                    'start_time': start_time,
-                    'start_time_str': start_time_str,
+                    'started': start_time,
+                    'started_str': start_time_str,
+                    'size_bytes': total_size_bytes,
+                    'size_human': format_bytes(total_size_bytes) if total_size_bytes else 'N/A',
                     'duration_human': duration_human,
                 })
     finally:
@@ -999,30 +1029,30 @@ def start_archive_route():
     
     stack_names_for_flash = [os.path.basename(path) for path in selected_stack_paths]
 
-    # Build master name and optional manual label/description
-    master_name = request.form.get('manual_name')
-    master_description = request.form.get('manual_description')
-    if not master_name or not master_name.strip():
+    # Build archive name and optional manual label/description
+    archive_name = request.form.get('manual_name')
+    archive_description = request.form.get('manual_description')
+    if not archive_name or not archive_name.strip():
         # fallback to automatic name containing stacks
         ts_label = datetime.now().strftime('%Y%m%d_%H%M%S')
-        master_name = f"manual_run_{ts_label}"
+        archive_name = f"manual_run_{ts_label}"
     else:
         # sanitize name for filesystem use
-        master_name = master_name.strip()
+        archive_name = archive_name.strip()
         for ch in (' ', ':', '/', '\\', ',', '"', "'"):
-            master_name = master_name.replace(ch, '_')
+            archive_name = archive_name.replace(ch, '_')
 
-    # Start archive job and group files under the provided master_name
+    # Start archive job and group files under the provided archive_name
     # Retention is managed in Settings; manual backup form does not change it
     retention_days = None
     thread = threading.Thread(
         target=backup.run_archive_job,
-        args=(selected_stack_paths, retention_days, CONTAINER_BACKUP_DIR, master_name, master_description, master_name, False, 'manual'),
+        args=(selected_stack_paths, retention_days, CONTAINER_BACKUP_DIR, archive_name, archive_description, archive_name, False, 'manual'),
         daemon=True
     )
     thread.start()
 
-    flash(f"Archiving process started in the background for: {', '.join(stack_names_for_flash)} (group: {master_name})", 'info')
+    flash(f"Archiving process started in the background for: {', '.join(stack_names_for_flash)} (group: {archive_name})", 'info')
     return redirect(url_for('index'))
 
 
@@ -1045,9 +1075,9 @@ def start_cleanup_route():
         # If check fails, fall through and attempt start (best-effort)
         pass
 
-    master_name = 'Manual Cleanup'
-    master_description = request.form.get('description')
-    thread = threading.Thread(target=backup.run_cleanup_job, args=(CONTAINER_BACKUP_DIR, master_name, master_description), daemon=True)
+    archive_name = 'Manual Cleanup'
+    archive_description = request.form.get('description')
+    thread = threading.Thread(target=backup.run_cleanup_job, args=(CONTAINER_BACKUP_DIR, archive_name, archive_description), daemon=True)
     thread.start()
     flash('Cleanup process started in the background.', 'info')
     return redirect(url_for('index'))
@@ -1058,22 +1088,22 @@ def history():
     """Shows the full backup history."""
     conn = get_db_connection()
     with conn.cursor(cursor_factory=DictCursor) as cur:
-        # Only show master jobs in history (per-stack details are internal)
-        cur.execute("SELECT * FROM archive_jobs WHERE is_master = true ORDER BY start_time DESC;")
+        # Only show top-level archive runs in history (per-stack details are internal)
+        cur.execute("SELECT * FROM archive_jobs WHERE is_archive = true ORDER BY start_time DESC;")
         all_jobs = cur.fetchall()
     conn.close()
     return render_template('history.html', jobs=all_jobs)
 
 
-@app.route('/history/master_children/<int:master_id>')
-def master_children(master_id):
-    """Returns JSON array of per-stack jobs belonging to a master job."""
+@app.route('/history/archive_children/<int:archive_id>')
+def archive_children(archive_id):
+    """Returns JSON array of per-stack jobs belonging to a top-level archive run."""
     try:
         conn = get_db_connection()
         with conn.cursor(cursor_factory=DictCursor) as cur:
             cur.execute(
-                "SELECT id, stack_name, start_time, end_time, duration_seconds, status, archive_size_bytes, archive_path, log FROM archive_jobs WHERE master_id = %s ORDER BY start_time ASC;",
-                (master_id,)
+                "SELECT id, stack_name, start_time, end_time, duration_seconds, status, archive_size_bytes, archive_path, log FROM archive_jobs WHERE archive_id = %s ORDER BY start_time ASC;",
+                (archive_id,)
             )
             rows = cur.fetchall()
         conn.close()
@@ -1233,18 +1263,18 @@ def scan_archives():
         try:
             conn = get_db_connection()
             with conn.cursor(cursor_factory=DictCursor) as cur:
-                # find latest master job for this group name
-                cur.execute("SELECT start_time, end_time, duration_seconds FROM archive_jobs WHERE is_master = true AND stack_name = %s ORDER BY start_time DESC LIMIT 1;", (top,))
-                master_row = cur.fetchone()
+                # find latest top-level archive run for this group name
+                cur.execute("SELECT start_time, end_time, duration_seconds FROM archive_jobs WHERE is_archive = true AND stack_name = %s ORDER BY start_time DESC LIMIT 1;", (top,))
+                archive_row = cur.fetchone()
             conn.close()
-            if master_row:
-                group['master_start'] = master_row.get('start_time')
-                group['master_end'] = master_row.get('end_time')
-                group['master_duration_seconds'] = master_row.get('duration_seconds')
+            if archive_row:
+                group['archive_start'] = archive_row.get('start_time')
+                group['archive_end'] = archive_row.get('end_time')
+                group['archive_duration_seconds'] = archive_row.get('duration_seconds')
             else:
-                group['master_start'] = None
-                group['master_end'] = None
-                group['master_duration_seconds'] = None
+                group['archive_start'] = None
+                group['archive_end'] = None
+                group['archive_duration_seconds'] = None
         except Exception:
             try:
                 conn.close()

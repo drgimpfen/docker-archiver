@@ -20,22 +20,22 @@
             </h2>
             <div id="schedCollapse-{{ loop.index }}" class="accordion-collapse collapse{% if _is_open %} show{% endif %}" aria-labelledby="schedHeading-{{ loop.index }}" data-bs-parent="#schedulesAccordion">
                 <div class="accordion-body">
-                    {% if sched.master_start or sched.total_size_human %}
+                    {% if sched.archive_start or sched.total_size_human %}
                     <div class="mb-2 small text-muted">
-                        {% if sched.master_start %}
-                            Start: {{ sched.master_start.strftime('%Y-%m-%d %H:%M:%S') }}
+                        {% if sched.archive_start %}
+                            Start: {{ sched.archive_start.strftime('%Y-%m-%d %H:%M:%S') }}
                         {% else %}
                             Start: N/A
                         {% endif %}
                         &nbsp;|&nbsp;
-                        {% if sched.master_end %}
-                            End: {{ sched.master_end.strftime('%Y-%m-%d %H:%M:%S') }}
+                        {% if sched.archive_end %}
+                            End: {{ sched.archive_end.strftime('%Y-%m-%d %H:%M:%S') }}
                         {% else %}
                             End: N/A
                         {% endif %}
                         &nbsp;|&nbsp;
-                        {% if sched.master_duration_seconds is not none %}
-                            Run: {{ sched.master_duration_seconds }}s
+                        {% if sched.archive_duration_seconds is not none %}
+                            Run: {{ sched.archive_duration_seconds }}s
                         {% else %}
                             Run: N/A
                         {% endif %}
@@ -103,22 +103,22 @@
             </h2>
             <div id="manualCollapse-{{ loop.index }}" class="accordion-collapse collapse{% if _is_open %} show{% endif %}" aria-labelledby="manualHeading-{{ loop.index }}" data-bs-parent="#manualAccordion">
                 <div class="accordion-body">
-                    {% if sched.master_start or sched.total_size_human %}
+                    {% if sched.archive_start or sched.total_size_human %}
                     <div class="mb-2 small text-muted">
-                        {% if sched.master_start %}
-                            Start: {{ sched.master_start.strftime('%Y-%m-%d %H:%M:%S') }}
+                        {% if sched.archive_start %}
+                            Start: {{ sched.archive_start.strftime('%Y-%m-%d %H:%M:%S') }}
                         {% else %}
                             Start: N/A
                         {% endif %}
                         &nbsp;|&nbsp;
-                        {% if sched.master_end %}
-                            End: {{ sched.master_end.strftime('%Y-%m-%d %H:%M:%S') }}
+                        {% if sched.archive_end %}
+                            End: {{ sched.archive_end.strftime('%Y-%m-%d %H:%M:%S') }}
                         {% else %}
                             End: N/A
                         {% endif %}
                         &nbsp;|&nbsp;
-                        {% if sched.master_duration_seconds is not none %}
-                            Run: {{ sched.master_duration_seconds }}s
+                        {% if sched.archive_duration_seconds is not none %}
+                            Run: {{ sched.archive_duration_seconds }}s
                         {% else %}
                             Run: N/A
                         {% endif %}

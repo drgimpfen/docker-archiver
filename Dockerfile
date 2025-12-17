@@ -24,9 +24,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY app/ .
+COPY wait_for_db.py /app/wait_for_db.py
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 # Expose port
 EXPOSE 5000
 
-# Run the application
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "main:app"]
+# Use entrypoint to wait for DB before starting Gunicorn; increase timeout to avoid worker timeouts
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--timeout", "120", "main:app"]

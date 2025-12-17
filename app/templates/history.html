@@ -45,7 +45,7 @@
                                     <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#logModal-{{ job.id }}">
                                         View Log
                                     </button>
-                                    <button class="btn btn-sm btn-outline-primary ms-2 btn-show-stacks" data-master-id="{{ job.id }}">Show Stacks</button>
+                                    <button class="btn btn-sm btn-outline-primary ms-2 btn-show-stacks" data-archive-id="{{ job.id }}">Show Stacks</button>
                                     <!-- Modal -->
                                     <div class="modal fade" id="logModal-{{ job.id }}" tabindex="-1" aria-labelledby="logModalLabel-{{ job.id }}" aria-hidden="true">
                                         <div class="modal-dialog modal-lg">
@@ -85,7 +85,7 @@
 document.addEventListener('DOMContentLoaded', function(){
     document.querySelectorAll('.btn-show-stacks').forEach(function(btn){
         btn.addEventListener('click', function(e){
-            var masterId = this.getAttribute('data-master-id');
+            var masterId = this.getAttribute('data-archive-id');
             var containerRow = document.getElementById('children-row-' + masterId);
             var container = document.getElementById('children-container-' + masterId);
             if (!containerRow) return;
@@ -93,7 +93,7 @@ document.addEventListener('DOMContentLoaded', function(){
             if (containerRow.style.display === 'none' || containerRow.style.display === ''){
                 // if not loaded yet, fetch
                 if (!container.dataset.loaded){
-                    fetch('/history/master_children/' + masterId)
+                    fetch('/history/archive_children/' + masterId)
                         .then(function(resp){ return resp.json(); })
                         .then(function(data){
                             if (data.error){

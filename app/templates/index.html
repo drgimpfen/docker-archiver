@@ -13,21 +13,19 @@
                         <table class="table table-striped">
                             <thead>
                                 <tr>
-                                    <th>Job ID</th>
-                                    <th>Job</th>
-                                    <th>Type</th>
+                                    <th>Archive ID</th>
                                     <th>Stacks</th>
+                                    <th>Started</th>
+                                    <th>Type</th>
                                     <th>Status</th>
-                                    <th>Start Time</th>
+                                    <th>Size</th>
                                     <th>Duration</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for job in recent_jobs %}
                                     <tr>
-                                        <td>{{ job.job_seq or '-' }}</td>
-                                        <td>{{ job.job_name }}</td>
-                                        <td>{{ job.job_type|capitalize }}</td>
+                                        <td>#{{ job.archive_seq or '-' }}</td>
                                         <td>
                                             {% if job.stacks %}
                                                 <div class="stack-badges">
@@ -39,12 +37,14 @@
                                                 <span class="text-muted">(no stacks)</span>
                                             {% endif %}
                                         </td>
+                                        <td>{{ job.started_str or 'N/A' }}</td>
+                                        <td>{{ job.type|capitalize }}</td>
                                         <td>
                                             <span class="badge {% if job.status == 'Success' %} bg-success {% elif job.status == 'Failed' %} bg-danger {% elif job.status == 'Running' %} bg-info {% else %} bg-secondary {% endif %}">
                                                 {{ job.status }}
                                             </span>
                                         </td>
-                                        <td>{{ job.start_time_str or 'N/A' }}</td>
+                                        <td>{{ job.size_human or 'N/A' }}</td>
                                         <td>{{ job.duration_human or 'N/A' }}</td>
                                     </tr>
                                 {% endfor %}
