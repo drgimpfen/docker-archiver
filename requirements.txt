@@ -1,9 +1,26 @@
-Flask
-psycopg2-binary
-gunicorn
-webauthn
-werkzeug
-APScheduler
-apprise
-PyYAML
-Pillow
+# Core web framework
+Flask==3.0.0
+Werkzeug==3.0.1
+Jinja2==3.1.2
+
+# Database
+psycopg2-binary==2.9.9
+
+# Password hashing
+bcrypt==4.1.2
+
+# Scheduler
+APScheduler==3.10.4
+
+# Notifications
+apprise==1.7.1
+
+# Docker client (for status checks)
+docker==7.0.0
+
+# WSGI server
+gunicorn==21.2.0
+
+# Utilities
+python-dateutil==2.8.2
+croniter==2.0.1

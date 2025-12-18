@@ -1,282 +1,263 @@
-<img width="798" height="313" alt="Logo Komplett_white" src="https://github.com/user-attachments/assets/2802d900-4e9a-4c38-83b7-8912243e3ab7" />
+# Docker Archiver
 
-# Docker-Archiver
+A modern, web-based solution for automated Docker stack backups with GFS (Grandfather-Father-Son) retention, scheduling, and notifications.
 
-**Project Overview**
-- **Description:** Docker-Archiver is a small Flask web application that helps you archive Docker Compose stacks. It stops a stack, creates a TAR archive of the stack directory, restarts the stack, and stores archive metadata and job logs in a PostgreSQL database.
+## Features
 
-**Key Features**
-- **Web UI:** Dashboard for discovering local stacks, starting archives, and viewing recent or full history.
-- **Archive stacks:** Stops a Docker Compose stack, creates a .tar archive of the stack directory, then restarts the stack.
-- **Background jobs & logging:** Archiving runs in background threads; each job is recorded in the `archive_jobs` table with logs appended during the process.
--- **Archive storage:** Archives are stored inside the container at `/archives` (mounted to a host path via Docker volumes in `docker-compose.yml`).
-- **Retention cleanup:** Configurable retention (default 28 days) removes old `.tar` archives.
-- **User management:** Initial setup for the first admin user, profile edit, and password change via the web UI.
-- **Passkeys (WebAuthn):** Register and authenticate using passkeys (WebAuthn) in addition to password login.
-- **Download & delete archives:** UI endpoints to download or delete specific archive files.
-- **Postgres-backed settings:** Stores settings, users, passkeys and job metadata in Postgres.
+- 🗂️ **Archive Management** - Create and manage multiple archive configurations
+- 📦 **Stack Discovery** - Automatically discovers Docker Compose stacks from mounted directories
+- ⏱️ **Flexible Scheduling** - Cron-based scheduling with maintenance mode support
+- 🔄 **GFS Retention** - Grandfather-Father-Son retention policy (keep X days/weeks/months/years)
+- 🎯 **Dry Run Mode** - Test archive operations without making changes
+- 📊 **Job History** - Detailed logs and metrics for all archive/retention runs
+- 🔔 **Notifications** - Apprise integration for multi-service notifications
+- 🌓 **Dark/Light Mode** - Modern Bootstrap UI with theme toggle
+- 🔐 **User Authentication** - Secure login system (role-based access coming soon)
+- 💾 **Multiple Formats** - Support for tar, tar.gz, tar.zst, or folder output
 
-**Important Files**
-- **App entry & routes:** [app/main.py](app/main.py)
-- **Archiving logic:** [app/archive.py](app/archive.py)
-- **Dockerfile:** [Dockerfile](Dockerfile)
-- **Docker Compose:** [docker-compose.yml](docker-compose.yml)
-- **Python requirements:** [requirements.txt](requirements.txt)
-- **Templates:** [app/static/templates](app/static/templates)
+## Architecture
 
-**Installation (Recommended: Docker)**
-- Start with Docker Compose (recommended):
+### Phased Execution
 
-```bash
-docker-compose up -d --build
-```
+Each archive run follows a 4-phase process:
 
-- The default `docker-compose.yml` binds:
-	- host Docker socket (`/var/run/docker.sock`) into the container
-	- host stack directories under `/opt/stacks` or `/opt/dockge` into `/local` inside the container
-	- archive directory `/var/backups/docker` (host) mounted to `/archives` (container) to persist archives
+1. **Phase 0: Initialization** - Create necessary directories
+2. **Phase 1: Stack Processing** - For each stack:
+   - Check if running (via Docker API)
+   - Stop containers (if configured and running)
+   - Create archive (tar/tar.gz/tar.zst/folder)
+   - Restart containers (if they were running)
+3. **Phase 2: Retention** - Apply GFS retention rules and cleanup old archives
+4. **Phase 3: Finalization** - Calculate totals, send notifications, log disk usage
 
-**Local development (without Docker)**
-- Ensure `DATABASE_URL` is set to a running Postgres instance, then install dependencies and run:
+### Stack Discovery
 
-```bash
-pip install -r requirements.txt
-python -m app.main
-```
+The application scans `/local/*` directories (max 1 level deep) for Docker Compose files:
+- `compose.yml` / `compose.yaml`
+- `docker-compose.yml` / `docker-compose.yaml`
 
-or run with Gunicorn (as the Dockerfile does):
+Stacks without compose files are skipped and logged.
+
+## Quick Start
+
+### 1. Clone and Configure
 
 ```bash
-# install dependencies
-pip install -r requirements.txt
-# run with gunicorn
-gunicorn --bind 0.0.0.0:5000 main:app
+git clone https://github.com/yourusername/docker-archiver.git
+cd docker-archiver
+cp .env.example .env
 ```
-"""
-Docker Archiver
----------------
 
-A small web app to stop/start Docker Compose stacks, create archives of stack directories, keep history, schedule archives, and send notifications via Apprise.
+Edit `.env` and set:
+- `DB_PASSWORD` - PostgreSQL password
+- `SECRET_KEY` - Flask session secret
+- `ARCHIVE_DIR` - Where to store archives
+- `STACKS_DIR_1` - Path to your Docker stacks
 
-Docker-Archiver — concise
-=========================
-
-Small Flask app to create, schedule and track archives of named "stacks" (folders).
-
-Quick start
------------
-
-1. Copy `.env.example` to `.env` and set `DATABASE_URL` (and `SECRET_KEY` for production).
-2. Build and run with Docker Compose:
+### 2. Start Services
 
 ```bash
-docker-compose build
-docker-compose up -d
+docker compose up -d
 ```
 
-3. Open `http://localhost:5000`, complete initial setup and use "Create archive" to run manual archives.
+The application will be available at http://localhost:8080
 
-What matters in `.env`
-----------------------
+### 3. Initial Setup
 
-- `DATABASE_URL`: required PostgreSQL connection string.
-- `SECRET_KEY`: set for production (session/CSRF security).
-- `TZ`, `APPRISE_*`, DB tuning vars: optional (see `.env.example`).
+On first visit, you'll be prompted to create an admin account.
 
-Notes
------
+### 4. Configure Archives
 
-- Stack storage is provided via container mounts; `.env.example` no longer contains local path defaults.
-- App settings (App Base URL, notifications) are editable in the web UI.
+1. Go to **Archives** → **Create Archive**
+2. Select stacks to backup
+3. Configure schedule (cron expression)
+4. Set retention policy (GFS: days/weeks/months/years)
+5. Choose output format
+6. Save and run manually or wait for schedule
 
-Code
-----
+## Volume Mounts
 
-See the `app/` folder for the Flask app and templates.
-	- archive directory `/var/backups/docker` (host) mounted to `/archives` (container) to persist archives
-
-**Local development (without Docker)**
-- Ensure `DATABASE_URL` is set to a running Postgres instance, then install dependencies and run:
-
-```bash
-pip install -r requirements.txt
-python -m app.main
-```
-
-or run with Gunicorn (as the Dockerfile does):
-
-```bash
-# install dependencies
-pip install -r requirements.txt
-# run with gunicorn
-gunicorn --bind 0.0.0.0:5000 main:app
-```
-
-Docker Archiver
----------------
-
-A small web app to stop/start Docker Compose stacks, create archives of stack directories, keep history, schedule archives, and send notifications via Apprise.
-
-Features
---------
-- Discover local Docker Compose stacks and archive them as .tar files
-- Safe exclusion: the app avoids listing itself; you can force exclusion using a compose label (see below)
-- Scheduler (APScheduler) with timezone support (set via `TZ` env)
-- Per-user theme preference (dark by default)
-- Apprise notifications for success/failure (configurable in Settings)
-- Postgres-backed job history and settings
-
-Quick start (local build — no Docker Hub required)
------------------------------------------------
-
-1. Clone the repo and enter the folder:
-
-```bash
-git clone <repo> && cd Docker-Archiver
-```
-
-2. Create an environment file (`.env`) and set required variables (example values):
-
-```ini
-DATABASE_URL=postgresql://user:password@db:5432/archiver
-TZ=UTC
-# SECRET_KEY can be set, or the app will generate a random one for local runs
-SECRET_KEY=replace_me
-```
-
-3. Build and run with Compose (builds image locally; nothing required on Docker Hub):
-
-```bash
-docker compose up -d --build
-```
-or if your system uses the legacy `docker-compose`:
-
-```bash
-docker-compose up -d --build
-```
-
-4. Open the UI at http://localhost:5000 and complete the initial admin setup.
-
-Run without Compose (optional)
-------------------------------
-
-Build locally and run a container directly:
-
-```bash
-docker build -t docker-archiver:local .
-docker run --rm -p 5000:5000 \
-	-v /var/backups/docker:/archives \
-	-v /var/run/docker.sock:/var/run/docker.sock \
-	--env-file .env \
-	docker-archiver:local
-```
-
-Mounts & security
------------------
-
-- The app needs access to the Docker socket to stop/start stacks: mount `/var/run/docker.sock` into the container.
-- The archive directory inside the container is `/archives` (mount a host path to persist archives).
-- Warning: mounting the Docker socket grants powerful privileges — run only in trusted environments.
-
-Configuration highlights
-----------------------
-
-- `TZ`: Set the timezone (e.g. `Europe/Berlin`) for scheduler behavior.
-- `DATABASE_URL`: PostgreSQL connection string.
-- `LOCAL_STACKS_PATH`: path scanned for stacks (defaults to `/local` inside container).
-
-Apprise notifications
----------------------
-
-- Configure notifications in the web UI: Settings → Apprise. Enter one Apprise URL per line and toggle `apprise_enabled`.
-- Documentation link is provided in Settings.
-
-Excluding stacks from discovery
-------------------------------
-
-To ensure a stack is never listed/archived, add this label to the service (or top-level labels) in the stack's compose file:
-
-Service-level example:
+### Required Mounts
 
 ```yaml
-services:
-    myservice:
-        labels:
-            - "docker-archiver.exclude=true"
+volumes:
+  # Docker socket (for container management)
+  - /var/run/docker.sock:/var/run/docker.sock
+  
+  # Archive output directory
+  - ./archives:/archives
+  
+  # Stack directories (adjust to your setup)
+  - /opt/stacks:/local/stacks
 ```
 
-Top-level example:
+### Multiple Stack Directories
+
+You can mount multiple directories:
 
 ```yaml
-labels:
-    docker-archiver.exclude: "true"
+volumes:
+  # ... other mounts ...
+  - /opt/stacks:/local/stacks        # Subdirectories scanned
+  - /opt/dockge:/local/dockge       # Single stack
+  - /srv/more-stacks:/local/more    # More subdirectories
 ```
 
-Supported keys: `docker-archiver.exclude`, `archiver.exclude`, `docker_archiver.exclude`. Values `true`, `1`, `yes`, `on` are recognized.
+The application will scan:
+- `/local/stacks/*` (each subdir is a stack)
+- `/local/dockge` (direct stack)
+- `/local/more/*` (each subdir is a stack)
 
-Scheduler & Schedules UI
-------------------------
+## Configuration
 
-- Create schedules via the Schedules page: name, time (HH:MM), select stacks, retention days, enabled/disabled.
-- The scheduler reads `TZ` for timezone-aware cron scheduling.
+### Environment Variables
 
-Notifications behavior
----------------------
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | auto | PostgreSQL connection string |
+| `SECRET_KEY` | required | Flask session secret |
+| `APP_PORT` | 8080 | Application port |
+| `ARCHIVE_DIR` | ./archives | Archive output directory |
 
-- The app sends Apprise notifications on per-stack success/failure and a master notification after a run completes when enabled.
+### Retention Policy
 
-Development & troubleshooting
-----------------------------
+**GFS (Grandfather-Father-Son)**:
+- **Keep Days**: Daily archives for last X days
+- **Keep Weeks**: One archive per week for last X weeks
+- **Keep Months**: One archive per month for last X months
+- **Keep Years**: One archive per year for last X years
 
-- Rebuild with dependencies if you change `requirements.txt`:
+**One Per Day Mode**: When enabled, keeps only the newest archive per day (useful for test runs).
+
+### Cron Expressions
+
+Format: `minute hour day month day_of_week`
+
+Examples:
+- `0 3 * * *` - Daily at 3:00 AM
+- `0 2 * * 0` - Weekly on Sunday at 2:00 AM
+- `0 4 1 * *` - Monthly on 1st at 4:00 AM
+- `*/30 * * * *` - Every 30 minutes
+
+## Notifications
+
+Docker Archiver uses [Apprise](https://github.com/caronc/apprise) for notifications.
+
+### Supported Services
+
+- Discord
+- Telegram
+- Email (SMTP)
+- Slack
+- Pushover
+- Gotify
+- And [100+ more](https://github.com/caronc/apprise#supported-notifications)
+
+### Setup
+
+1. Go to **Settings** → **Notifications**
+2. Add Apprise URLs (one per line):
+   ```
+   discord://webhook_id/webhook_token
+   telegram://bot_token/chat_id
+   mailto://user:password@gmail.com
+   ```
+3. Select which events to notify
+4. Save settings
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Dashboard |
+| `/login` | GET/POST | Login page |
+| `/setup` | GET/POST | Initial user setup |
+| `/archives` | GET | Archive management |
+| `/archives/create` | POST | Create archive config |
+| `/archives/<id>/run` | POST | Run archive job |
+| `/archives/<id>/dry-run` | POST | Run dry run |
+| `/history` | GET | Job history |
+| `/settings` | GET/POST | Settings page |
+| `/api/job/<id>` | GET | Job details (JSON) |
+| `/api/stacks` | GET | Discovered stacks (JSON) |
+| `/download/<token>` | GET | Download archive (no auth) |
+| `/health` | GET | Health check |
+
+## Development
+
+### Local Development
 
 ```bash
-docker compose build --no-cache
-docker compose up -d --build
+# Install dependencies
+pip install -r requirements.txt
+
+# Set environment
+export DATABASE_URL="postgresql://user:pass@localhost:5432/docker_archiver"
+export SECRET_KEY="dev-secret"
+
+# Initialize database
+python -c "from app.db import init_db; init_db()"
+
+# Run development server
+python app/main.py
 ```
 
-- View logs:
+### Project Structure
 
-```bash
-docker compose logs -f app
+```
+docker-archiver/
+├── app/
+│   ├── main.py           # Flask app & routes
+│   ├── db.py             # Database schema & connection
+│   ├── auth.py           # User authentication
+│   ├── executor.py       # Archive execution engine
+│   ├── retention.py      # GFS retention logic
+│   ├── stacks.py         # Stack discovery
+│   ├── scheduler.py      # APScheduler integration
+│   ├── downloads.py      # Download token system
+│   ├── notifications.py  # Apprise notifications
+│   ├── templates/        # Jinja2 templates
+│   └── static/           # CSS/JS assets
+├── docker-compose.yml    # Docker setup
+├── Dockerfile            # App container
+├── requirements.txt      # Python dependencies
+└── entrypoint.sh         # Startup script
 ```
 
-DB migration note
------------------
+## Database Schema
 
-The app attempts to create and alter tables on startup (safe `IF NOT EXISTS`). You can run the following manually if needed:
+- **users** - User accounts
+- **archives** - Archive configurations
+- **jobs** - Archive/retention job records
+- **job_stack_metrics** - Per-stack metrics within jobs
+- **download_tokens** - Temporary download tokens (24h expiry)
+- **settings** - Application settings (key-value)
 
-```bash
-docker compose exec db psql -U <db_user> -d <db_name> -c "ALTER TABLE users ADD COLUMN IF NOT EXISTS theme VARCHAR(20) DEFAULT 'dark';"
-```
+## Roadmap
 
-Contributing
-------------
+- [ ] Role-based access control (Admin/User/View-only)
+- [ ] Email reports (scheduled summaries)
+- [ ] Archive encryption
+- [ ] Remote storage (S3, SFTP, etc.)
+- [ ] Archive verification/testing
+- [ ] Multi-language support
+- [ ] REST API with token authentication
+- [ ] Webhook triggers
 
-- Consider security when running with the Docker socket mounted.
-- If you want per-user Apprise configs instead of the current global setting, I can add that.
+## License
 
----
+MIT License - see [LICENSE](LICENSE) file for details
 
-If you want, I can also add an example `.env.example` file and a short troubleshooting section for common errors.
-```
+## Contributing
 
-DB migration note
------------------
+Contributions welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
 
-The app attempts to create and alter tables on startup (safe `IF NOT EXISTS`). You can run the following manually if needed:
+## Support
 
-```bash
-docker compose exec db psql -U <db_user> -d <db_name> -c "ALTER TABLE users ADD COLUMN IF NOT EXISTS theme VARCHAR(20) DEFAULT 'dark';"
-```
-
-Contributing
-------------
-
-- Consider security when running with the Docker socket mounted.
-- If you want per-user Apprise configs instead of the current global setting, I can add that.
-
----
-
-If you want, I can also add an example `.env.example` file and a short troubleshooting section for common errors.
-"""
+- 🐛 **Issues**: https://github.com/yourusername/docker-archiver/issues
+- 📚 **Documentation**: https://github.com/yourusername/docker-archiver/wiki
+- 💬 **Discussions**: https://github.com/yourusername/docker-archiver/discussions

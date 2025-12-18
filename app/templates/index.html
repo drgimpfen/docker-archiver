@@ -1,183 +1,401 @@
 {% extends "base.html" %}
 
-{% block content %}
-<div class="container-fluid mt-3">
-    <div class="row">
-        <div class="col-md-8">
-            <div class="card recent-card">
-                <div class="card-header">
-                    <h5 class="mb-0">Recent Activity</h5>
-                </div>
-                <div class="card-body">
-                    {% if recent_jobs %}
-                        <table class="table table-striped">
-                            <thead>
-                                <tr>
-                                    <th>Archive ID</th>
-                                    <th>Stacks</th>
-                                    <th>Started</th>
-                                    <th>Type</th>
-                                    <th>Status</th>
-                                    <th>Size</th>
-                                    <th>Duration</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for job in recent_jobs %}
-                                    <tr>
-                                        <td>#{{ job.archive_seq or '-' }}</td>
-                                        <td>
-                                            {% if job.stacks %}
-                                                <div class="stack-badges">
-                                                    {% for s in job.stacks %}
-                                                        <span class="badge stack-badge" style="background-color: {{ s.color }}; color: {{ s.text_color }}">{{ s.name }}</span>
-                                                    {% endfor %}
-                                                </div>
-                                            {% else %}
-                                                <span class="text-muted">(no stacks)</span>
-                                            {% endif %}
-                                        </td>
-                                        <td>{{ job.started_str or 'N/A' }}</td>
-                                        <td>{{ job.type|capitalize }}</td>
-                                        <td>
-                                            <span class="badge {% if job.status == 'Success' %} bg-success {% elif job.status == 'Failed' %} bg-danger {% elif job.status == 'Running' %} bg-info {% else %} bg-secondary {% endif %}">
-                                                {{ job.status }}
-                                            </span>
-                                        </td>
-                                        <td>{{ job.size_human or 'N/A' }}</td>
-                                        <td>{{ job.duration_human or 'N/A' }}</td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    {% else %}
-                        <p class="text-center text-muted">No archives have been created yet.</p>
-                    {% endif %}
+{% block title %}Dashboard - Docker Archiver{% endblock %}
 
+{% block content %}
+<!-- Maintenance Mode Banner -->
+{% if maintenance_mode %}
+<div class="alert alert-warning border-warning d-flex align-items-center mb-4" role="alert">
+    <i class="bi bi-exclamation-triangle-fill me-3 fs-4"></i>
+    <div>
+        <strong>Maintenance Mode Active</strong><br>
+        All scheduled archives are paused. Go to <a href="{{ url_for('settings') }}" class="alert-link">Settings</a> to disable.
+    </div>
+</div>
+{% endif %}
+
+<!-- System Info -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="bi bi-hdd-fill text-primary me-2"></i> Archive Storage
+                </h5>
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h3 class="mb-0">{{ format_bytes(disk.used) }}</h3>
+                        <small class="text-muted">Used</small>
+                    </div>
+                    <div class="text-end">
+                        <h3 class="mb-0">{{ format_bytes(disk.free) }}</h3>
+                        <small class="text-muted">Free</small>
+                    </div>
                 </div>
-                <div class="card-action text-center py-3">
-                    <a href="{{ url_for('history') }}" class="btn btn-outline-secondary btn-sm mx-auto">View Full History</a>
+                <div class="progress mt-3" style="height: 8px;">
+                    <div class="progress-bar {% if disk.percent > 90 %}bg-danger{% elif disk.percent > 75 %}bg-warning{% else %}bg-success{% endif %}" 
+                         role="progressbar" 
+                         style="width: {{ disk.percent }}%">
+                    </div>
                 </div>
+                <small class="text-muted">{{ "%.1f"|format(disk.percent) }}% used of {{ format_bytes(disk.total) }}</small>
             </div>
         </div>
-
-        <div class="col-md-4">
-            <div class="card">
-                <div class="card-header">
-                    <h6 class="mb-0">Retention</h6>
-                </div>
-                <div class="card-body">
-                    <div class="mb-3">
-                        <h6 class="mb-2">Recent Retention Runs</h6>
-                        {% if retention_runs %}
-                            <table class="table table-sm">
-                                <thead>
-                                    <tr>
-                                        <th>Trigger</th>
-                                        <th>Start</th>
-                                        <th>Status</th>
-                                        <th>Duration</th>
-                                        <th>Reclaimed</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for r in retention_runs %}
-                                        <tr data-retention-id="{{ r.id }}">
-                                            <td>{{ r.trigger }}</td>
-                                            <td>{{ r.start_str or 'N/A' }}</td>
-                                            <td>
-                                                <span class="badge {% if r.status == 'Success' %} bg-success {% elif r.status == 'Failed' %} bg-danger {% else %} bg-secondary {% endif %}">
-                                                    {{ r.status }}
-                                                </span>
-                                            </td>
-                                            <td>{{ r.duration_human or 'N/A' }}</td>
-                                            <td>{{ r.reclaimed_human or 'N/A' }}</td>
-                                            <td>
-                                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="showRetentionDetails({{ r.id }})">Details</button>
-                                            </td>
-                                        </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        {% else %}
-                            <p class="text-muted">No recent retention runs.</p>
-                        {% endif %}
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="bi bi-box-seam text-primary me-2"></i> Archives Overview
+                </h5>
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h3 class="mb-0">{{ archives|length }}</h3>
+                        <small class="text-muted">Configured</small>
                     </div>
-
-                    <form method="post" action="{{ url_for('start_retention_route') }}">
-                        <div class="mb-2">
-                            <label for="description" class="form-label">Description (optional)</label>
-                            <textarea id="description" name="description" class="form-control" rows="3">{{ default_cleanup_description }}</textarea>
-                        </div>
-                        <button type="submit" class="btn btn-primary" {% if cleanup_in_progress %} disabled {% endif %}>Run Retention Now</button>
-                        {% if cleanup_in_progress %}
-                            <small class="text-muted ms-2">A retention job is currently running.</small>
-                        {% else %}
-                            <small class="text-muted ms-2">Applies current retention settings to all stacks.</small>
-                        {% endif %}
-                    </form>
+                    <div>
+                        <h3 class="mb-0">{{ archives|selectattr('schedule_enabled')|list|length }}</h3>
+                        <small class="text-muted">Scheduled</small>
+                    </div>
+                    <div>
+                        <h3 class="mb-0">{{ recent_jobs|length }}</h3>
+                        <small class="text-muted">Recent Jobs</small>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 </div>
-                <!-- Retention Details Modal -->
-                <div class="modal fade" id="retentionModal" tabindex="-1" aria-hidden="true">
-                    <div class="modal-dialog modal-lg modal-dialog-scrollable">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title">Retention Details</h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                            </div>
-                            <div class="modal-body">
-                                <div id="retentionMeta" class="mb-3">
-                                    <div><strong>ID:</strong> <span id="r-id"></span></div>
-                                    <div><strong>Trigger:</strong> <span id="r-trigger"></span></div>
-                                    <div><strong>Start:</strong> <span id="r-start"></span></div>
-                                    <div><strong>End:</strong> <span id="r-end"></span></div>
-                                    <div><strong>Status:</strong> <span id="r-status"></span></div>
-                                    <div><strong>Duration:</strong> <span id="r-duration"></span></div>
-                                    <div><strong>Reclaimed:</strong> <span id="r-reclaimed"></span></div>
-                                    <div><strong>Description:</strong> <div id="r-desc"></div></div>
-                                </div>
 
-                                <h6>Deleted Files / Actions</h6>
-                                <pre id="r-log" style="background:#f8f9fa;padding:8px;border-radius:6px;max-height:320px;overflow:auto;white-space:pre-wrap;"></pre>
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+<!-- Archives -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4><i class="bi bi-box-seam me-2"></i> Archives</h4>
+    <a href="{{ url_for('archives') }}" class="btn btn-primary">
+        <i class="bi bi-plus-lg me-1"></i> New Archive
+    </a>
+</div>
+
+{% if archives %}
+<div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4 mb-4">
+    {% for archive in archives %}
+    <div class="col">
+        <div class="card archive-card h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <h5 class="card-title mb-0">
+                        {% if archive.schedule_enabled %}
+                        <i class="bi bi-clock text-primary" title="Scheduled"></i>
+                        {% else %}
+                        <i class="bi bi-hand-index text-muted" title="Manual"></i>
+                        {% endif %}
+                        {{ archive.name }}
+                    </h5>
+                    {% if archive.last_status %}
+                    <span class="badge {% if archive.last_status == 'success' %}bg-success{% elif archive.last_status == 'running' %}bg-info{% else %}bg-danger{% endif %}">
+                        {{ archive.last_status }}
+                    </span>
+                    {% endif %}
+                </div>
+                
+                <div class="mb-3">
+                    <small class="text-muted d-block">
+                        <i class="bi bi-stack me-1"></i> {{ archive.stacks|length }} stack(s)
+                    </small>
+                    <small class="text-muted d-block">
+                        <i class="bi bi-archive me-1"></i> {{ archive.job_count }} archive(s)
+                    </small>
+                    <small class="text-muted d-block">
+                        <i class="bi bi-hdd me-1"></i> {{ format_bytes(archive.total_size) }}
+                    </small>
+                </div>
+                
+                {% if archive.last_run %}
+                <div class="mb-2">
+                    <small class="text-muted">
+                        <strong>Last run:</strong> {{ archive.last_run.strftime('%Y-%m-%d %H:%M') }}
+                    </small>
+                </div>
+                {% endif %}
+                
+                {% if archive.next_run %}
+                <div class="mb-3">
+                    <small class="text-muted">
+                        <strong>Next run:</strong> {{ archive.next_run.strftime('%Y-%m-%d %H:%M') }}
+                    </small>
+                </div>
+                {% endif %}
+                
+                <div class="btn-group w-100" role="group">
+                    <button type="button" class="btn btn-sm btn-success" onclick="runArchive({{ archive.id }}, '{{ archive.name }}')">
+                        <i class="bi bi-play-fill"></i> Run
+                    </button>
+                    <button type="button" class="btn btn-sm btn-info" onclick="showDryRunModal({{ archive.id }}, '{{ archive.name }}')">
+                        <i class="bi bi-eye"></i> Dry Run
+                    </button>
+                    <a href="{{ url_for('archives') }}" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-pencil"></i> Edit
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle me-2"></i> No archives configured yet. <a href="{{ url_for('archives') }}" class="alert-link">Create your first archive</a>.
+</div>
+{% endif %}
+
+<!-- Recent Jobs -->
+<div class="d-flex justify-content-between align-items-center mb-3 mt-5">
+    <h4><i class="bi bi-clock-history me-2"></i> Recent Jobs</h4>
+    <a href="{{ url_for('history') }}" class="btn btn-outline-primary btn-sm">View All</a>
+</div>
+
+{% if recent_jobs %}
+<div class="table-responsive">
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Type</th>
+                <th>Archive</th>
+                <th>Status</th>
+                <th>Start Time</th>
+                <th>Duration</th>
+                <th>Size</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for job in recent_jobs %}
+            <tr onclick="showJobDetails({{ job.id }})" style="cursor: pointer;">
+                <td><strong>#{{ job.id }}</strong></td>
+                <td>
+                    {% if job.job_type == 'archive' %}
+                    <i class="bi bi-box-seam text-primary"></i> Archive
+                    {% else %}
+                    <i class="bi bi-trash text-warning"></i> Retention
+                    {% endif %}
+                    {% if job.is_dry_run %}
+                    <span class="badge bg-secondary">DRY RUN</span>
+                    {% endif %}
+                </td>
+                <td>{{ job.archive_name or 'N/A' }}</td>
+                <td>
+                    <span class="badge status-badge {% if job.status == 'success' %}bg-success{% elif job.status == 'running' %}bg-info{% else %}bg-danger{% endif %}">
+                        {{ job.status }}
+                    </span>
+                </td>
+                <td>{{ job.start_time.strftime('%Y-%m-%d %H:%M:%S') if job.start_time else 'N/A' }}</td>
+                <td>{{ format_duration(job.duration_seconds) }}</td>
+                <td>
+                    {% if job.job_type == 'archive' %}
+                    <span class="text-success">+{{ format_bytes(job.total_size_bytes) }}</span>
+                    {% elif job.reclaimed_bytes %}
+                    <span class="text-danger">-{{ format_bytes(job.reclaimed_bytes) }}</span>
+                    {% else %}
+                    N/A
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle me-2"></i> No jobs run yet.
+</div>
+{% endif %}
+
+<!-- Dry Run Modal -->
+<div class="modal fade" id="dryRunModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-eye me-2"></i> Dry Run: <span id="dryRunArchiveName"></span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="dryRunForm" method="POST">
+                <div class="modal-body">
+                    <p class="text-muted">Select what to simulate in this dry run:</p>
+                    
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="dryStopContainers" name="dry_stop_containers" checked>
+                        <label class="form-check-label" for="dryStopContainers">
+                            <strong>Stop/Start Containers</strong><br>
+                            <small class="text-muted">Simulate stopping and starting containers</small>
+                        </label>
+                    </div>
+                    
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="dryCreateArchive" name="dry_create_archive" checked>
+                        <label class="form-check-label" for="dryCreateArchive">
+                            <strong>Create Archive</strong><br>
+                            <small class="text-muted">Simulate archive creation</small>
+                        </label>
+                    </div>
+                    
+                    <div class="alert alert-warning" id="noStopWarning" style="display: none;">
+                        <i class="bi bi-exclamation-triangle me-2"></i>
+                        <strong>Warning:</strong> Creating archives without stopping containers may result in inconsistent backups.
+                    </div>
+                    
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="dryRunRetention" name="dry_run_retention" checked>
+                        <label class="form-check-label" for="dryRunRetention">
+                            <strong>Run Retention</strong><br>
+                            <small class="text-muted">Simulate retention cleanup</small>
+                        </label>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle me-2"></i>
+                        All actions will be simulated and logged. No actual changes will be made.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-play-fill me-1"></i> Start Dry Run
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Job Details Modal -->
+<div class="modal fade" id="jobDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Job Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="jobDetailsContent">
+                <div class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function runArchive(archiveId, archiveName) {
+    if (confirm(`Start archive job for "${archiveName}"?`)) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/archives/${archiveId}/run`;
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+function showDryRunModal(archiveId, archiveName) {
+    document.getElementById('dryRunArchiveName').textContent = archiveName;
+    document.getElementById('dryRunForm').action = `/archives/${archiveId}/dry-run`;
+    
+    const modal = new bootstrap.Modal(document.getElementById('dryRunModal'));
+    modal.show();
+    
+    // Show warning when archive creation is enabled but stopping is disabled
+    const stopCheckbox = document.getElementById('dryStopContainers');
+    const createCheckbox = document.getElementById('dryCreateArchive');
+    const warning = document.getElementById('noStopWarning');
+    
+    function updateWarning() {
+        if (createCheckbox.checked && !stopCheckbox.checked) {
+            warning.style.display = 'block';
+        } else {
+            warning.style.display = 'none';
+        }
+    }
+    
+    stopCheckbox.addEventListener('change', updateWarning);
+    createCheckbox.addEventListener('change', updateWarning);
+}
+
+async function showJobDetails(jobId) {
+    const modal = new bootstrap.Modal(document.getElementById('jobDetailsModal'));
+    const content = document.getElementById('jobDetailsContent');
+    
+    modal.show();
+    
+    try {
+        const response = await fetch(`/api/job/${jobId}`);
+        const data = await response.json();
+        
+        if (data.error) {
+            content.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+            return;
+        }
+        
+        const job = data.job;
+        const metrics = data.metrics;
+        
+        let html = `
+            <div class="mb-3">
+                <h6>Job #${job.id}</h6>
+                <p class="mb-1"><strong>Archive:</strong> ${job.archive_name || 'N/A'}</p>
+                <p class="mb-1"><strong>Type:</strong> ${job.job_type}</p>
+                <p class="mb-1"><strong>Status:</strong> <span class="badge bg-${job.status === 'success' ? 'success' : (job.status === 'running' ? 'info' : 'danger')}">${job.status}</span></p>
+                <p class="mb-1"><strong>Started:</strong> ${job.start_time}</p>
+                <p class="mb-1"><strong>Duration:</strong> ${job.duration_seconds}s</p>
+            </div>
+        `;
+        
+        if (metrics && metrics.length > 0) {
+            html += '<h6>Stack Metrics</h6><div class="accordion" id="stackMetrics">';
+            
+            metrics.forEach((metric, index) => {
+                const size_mb = (metric.archive_size_bytes / (1024 * 1024)).toFixed(1);
+                html += `
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button ${index > 0 ? 'collapsed' : ''}" type="button" 
+                                    data-bs-toggle="collapse" data-bs-target="#stack${index}">
+                                <span class="badge bg-${metric.status === 'success' ? 'success' : 'danger'} me-2">${metric.status}</span>
+                                ${metric.stack_name} - ${metric.duration_seconds}s - ${size_mb}MB
+                            </button>
+                        </h2>
+                        <div id="stack${index}" class="accordion-collapse collapse ${index === 0 ? 'show' : ''}" 
+                             data-bs-parent="#stackMetrics">
+                            <div class="accordion-body">
+                                <p><strong>Archive Path:</strong> ${metric.archive_path || 'N/A'}</p>
+                                <p><strong>Was Running:</strong> ${metric.was_running ? 'Yes' : 'No'}</p>
+                                ${metric.error ? `<div class="alert alert-danger">${metric.error}</div>` : ''}
                             </div>
                         </div>
                     </div>
-                </div>
-
-                <script>
-                function formatBytes(n){
-                    if(n===null||n===undefined) return 'N/A';
-                    var sizes=['B','KB','MB','GB','TB'];
-                    if(n===0) return '0 B';
-                    var i=Math.floor(Math.log(n)/Math.log(1024));
-                    return (n/Math.pow(1024,i)).toFixed(1)+' '+sizes[i];
-                }
-
-                function showRetentionDetails(id){
-                    fetch(`/retention/${id}`)
-                        .then(r=>r.json())
-                        .then(data=>{
-                            if(data.error){ alert(data.error); return; }
-                            document.getElementById('r-id').textContent = data.id;
-                            document.getElementById('r-trigger').textContent = data.job_type ? (data.job_type=='manual'?'Manual':'Automatic') : 'N/A';
-                            document.getElementById('r-start').textContent = data.start_time || 'N/A';
-                            document.getElementById('r-end').textContent = data.end_time || 'N/A';
-                            document.getElementById('r-status').textContent = data.status || 'N/A';
-                            document.getElementById('r-duration').textContent = data.duration_seconds ? new Date(data.duration_seconds*1000).toISOString().substr(11,8) : 'N/A';
-                            document.getElementById('r-reclaimed').textContent = data.reclaimed_bytes ? formatBytes(data.reclaimed_bytes) : 'N/A';
-                            document.getElementById('r-desc').textContent = data.description || '';
-                            document.getElementById('r-log').textContent = data.log || '';
-                            var modalEl = document.getElementById('retentionModal');
-                            var bsModal = new bootstrap.Modal(modalEl);
-                            bsModal.show();
-                        }).catch(e=>{ alert('Failed to fetch retention details: '+e); });
-                }
-                </script>
+                `;
+            });
+            
+            html += '</div>';
+        }
+        
+        if (job.log) {
+            html += `
+                <h6 class="mt-4">Log Output</h6>
+                <pre class="bg-dark text-light p-3 rounded" style="max-height: 300px; overflow-y: auto;">${job.log}</pre>
+            `;
+        }
+        
+        content.innerHTML = html;
+        
+    } catch (error) {
+        content.innerHTML = `<div class="alert alert-danger">Error loading job details: ${error}</div>`;
+    }
+}
+</script>
 {% endblock %}

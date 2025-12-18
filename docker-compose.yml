@@ -1,29 +1,58 @@
+version: '3.8'
+
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: docker-archiver-db
+    environment:
+      POSTGRES_DB: docker_archiver
+      POSTGRES_USER: archiver
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U archiver -d docker_archiver"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - archiver-net
+
   app:
     build: .
-    ports:
-      - "5000:5000"
+    container_name: docker-archiver-app
+    environment:
+      DATABASE_URL: postgresql://archiver:${DB_PASSWORD:-changeme123}@db:5432/docker_archiver
+      SECRET_KEY: ${SECRET_KEY:-change-this-secret-key-in-production}
+      FLASK_ENV: production
     volumes:
+      # Docker socket for container management
       - /var/run/docker.sock:/var/run/docker.sock
-      - /opt/stacks:/local/stacks
-      - /opt/dockge:/local/dockge
-      - /var/backups/docker:/archives
-    environment:
-      DATABASE_URL: "postgresql://user:password@db:5432/docker_archiver"
-      TZ: "Europe/Berlin"
-      SECRET_KEY: "change_this_secret_key"
-      DB_CONNECT_TIMEOUT: "5"
-      DB_INIT_ATTEMPTS: "6"
-      APPRISE_ENABLED: "false"
-      APPRISE_URLS: ""
+      # Archive output directory
+      - ${ARCHIVE_DIR:-./archives}:/archives
+      # Stack directories (examples - adjust to your setup)
+      - ${STACKS_DIR_1:-./stacks}:/local/stacks
+      # Add more stack directories as needed:
+      # - /opt/dockge:/local/dockge
+      # - /srv/more-stacks:/local/moreStacks
+    ports:
+      - "${APP_PORT:-8080}:8080"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - archiver-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  db:
-    image: postgres:13
-    volumes:
-      - ./postgres_data:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_USER=user
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=docker_archiver
+volumes:
+  postgres_data:
+
+networks:
+  archiver-net:
+    driver: bridge

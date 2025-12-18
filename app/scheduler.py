@@ -1,108 +1,129 @@
-import os
-from datetime import datetime
-import threading
+"""
+Scheduler for automatic archive jobs.
+"""
 from apscheduler.schedulers.background import BackgroundScheduler
-from zoneinfo import ZoneInfo
-
-from db import get_db_connection
-from psycopg2.extras import DictCursor
-import archive
-import retention
+from apscheduler.triggers.cron import CronTrigger
+from app.db import get_db
+from app.executor import ArchiveExecutor
+from app.notifications import get_setting
 
 
-def _job_runner(schedule_id):
-    try:
-        conn = get_db_connection()
-        with conn.cursor(cursor_factory=DictCursor) as cur:
-            cur.execute("SELECT * FROM schedules WHERE id = %s;", (schedule_id,))
-            s = cur.fetchone()
-        conn.close()
-
-        if not s or not s.get('enabled'):
-            return
-
-        schedule_type = (s.get('type') or 'archive').lower()
-        stack_paths = [p for p in (s.get('stack_paths') or '').split('\n') if p.strip()]
-        # Per-schedule retention removed; use global retention from settings instead
-        retention_val = None
-
-        # update last_run
-        now = datetime.now()
-        conn = get_db_connection()
-        with conn.cursor() as cur:
-            cur.execute("UPDATE schedules SET last_run = %s WHERE id = %s;", (now, schedule_id))
-            conn.commit()
-        conn.close()
-
-        archive_description = s.get('description') if s.get('description') else None
-        if schedule_type == 'cleanup':
-            threading.Thread(target=retention.run_retention_now, args=(os.environ.get('CONTAINER_ARCHIVE_DIR', '/archives'), archive_description, 'scheduled'), daemon=True).start()
-        else:
-            store_unpacked_flag = bool(s.get('store_unpacked'))
-            threading.Thread(target=archive.run_archive_job, args=(stack_paths, retention_val, os.environ.get('CONTAINER_ARCHIVE_DIR', '/archives'), archive_description, store_unpacked_flag, 'scheduled'), daemon=True).start()
-    except Exception as e:
-        print(f"[scheduler] job_runner error for schedule {schedule_id}: {e}")
+scheduler = None
 
 
-def schedule_db_job(scheduler, s):
-    try:
-        time_val = (s.get('time') or '00:00').strip()
-        hh, mm = (int(x) for x in time_val.split(':'))
-    except Exception:
-        return
-
-    job_id = f"schedule_{s['id']}"
-    try:
-        scheduler.add_job(
-            func=_job_runner,
-            trigger='cron',
-            hour=hh,
-            minute=mm,
-            args=(s['id'],),
-            id=job_id,
-            replace_existing=True,
-        )
-    except Exception as e:
-        print(f"[scheduler] failed to add job {job_id}: {e}")
-
-
-def _load_and_schedule_all(scheduler):
-    try:
-        conn = get_db_connection()
-        with conn.cursor(cursor_factory=DictCursor) as cur:
-            cur.execute("SELECT * FROM schedules WHERE enabled = true;")
-            rows = cur.fetchall()
-        conn.close()
-        cleanup_scheduled = False
-        for s in rows:
-            try:
-                if (s.get('type') or 'archive').lower() == 'cleanup':
-                    if cleanup_scheduled:
-                        continue
-                    cleanup_scheduled = True
-                schedule_db_job(scheduler, s)
-            except Exception:
-                continue
-    except Exception as e:
-        print(f"[scheduler] load failed: {e}")
-
-
-def start_scheduler():
-    tz_name = os.environ.get('TZ', 'UTC')
-    try:
-        tz = ZoneInfo(tz_name)
-    except Exception:
-        try:
-            tz = ZoneInfo('UTC')
-        except Exception:
-            tz = None
-
-    scheduler = BackgroundScheduler(timezone=tz)
-    try:
-        scheduler.start()
-    except Exception as e:
-        print(f"[scheduler] could not start: {e}")
-        return None
-
-    _load_and_schedule_all(scheduler)
+def init_scheduler():
+    """Initialize and start the scheduler."""
+    global scheduler
+    
+    if scheduler is not None:
+        return scheduler
+    
+    scheduler = BackgroundScheduler(daemon=True)
+    scheduler.start()
+    
+    # Load all scheduled archives
+    reload_schedules()
+    
+    # Add cleanup job for expired download tokens (runs daily)
+    from app.downloads import cleanup_expired_tokens
+    scheduler.add_job(
+        cleanup_expired_tokens,
+        'cron',
+        hour=2,
+        minute=0,
+        id='cleanup_tokens',
+        replace_existing=True
+    )
+    
+    print("[Scheduler] Initialized and started")
     return scheduler
+
+
+def reload_schedules():
+    """Reload all archive schedules from database."""
+    global scheduler
+    
+    if scheduler is None:
+        return
+    
+    # Check maintenance mode
+    maintenance_mode = get_setting('maintenance_mode', 'false').lower() == 'true'
+    
+    # Remove all archive jobs
+    for job in scheduler.get_jobs():
+        if job.id.startswith('archive_'):
+            scheduler.remove_job(job.id)
+    
+    if maintenance_mode:
+        print("[Scheduler] Maintenance mode enabled - no schedules loaded")
+        return
+    
+    # Load enabled archive schedules
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT * FROM archives 
+            WHERE schedule_enabled = true 
+            AND schedule_cron IS NOT NULL
+            AND schedule_cron != '';
+        """)
+        archives = cur.fetchall()
+    
+    for archive in archives:
+        try:
+            # Parse cron expression
+            # Format: minute hour day month day_of_week
+            cron_parts = archive['schedule_cron'].split()
+            if len(cron_parts) != 5:
+                print(f"[Scheduler] Invalid cron expression for archive {archive['name']}: {archive['schedule_cron']}")
+                continue
+            
+            trigger = CronTrigger(
+                minute=cron_parts[0],
+                hour=cron_parts[1],
+                day=cron_parts[2],
+                month=cron_parts[3],
+                day_of_week=cron_parts[4]
+            )
+            
+            scheduler.add_job(
+                run_scheduled_archive,
+                trigger,
+                args=[dict(archive)],
+                id=f"archive_{archive['id']}",
+                name=f"Archive: {archive['name']}",
+                replace_existing=True
+            )
+            
+            print(f"[Scheduler] Scheduled archive '{archive['name']}' with cron: {archive['schedule_cron']}")
+            
+        except Exception as e:
+            print(f"[Scheduler] Failed to schedule archive {archive['name']}: {e}")
+    
+    print(f"[Scheduler] Loaded {len(archives)} scheduled archive(s)")
+
+
+def run_scheduled_archive(archive_config):
+    """Run an archive job (called by scheduler)."""
+    print(f"[Scheduler] Starting scheduled archive: {archive_config['name']}")
+    
+    try:
+        executor = ArchiveExecutor(archive_config, is_dry_run=False)
+        executor.run(triggered_by='schedule')
+    except Exception as e:
+        print(f"[Scheduler] Archive failed: {e}")
+        from app.notifications import send_error_notification
+        send_error_notification(archive_config['name'], str(e))
+
+
+def get_next_run_time(archive_id):
+    """Get next run time for a scheduled archive."""
+    global scheduler
+    
+    if scheduler is None:
+        return None
+    
+    job = scheduler.get_job(f"archive_{archive_id}")
+    if job and job.next_run_time:
+        return job.next_run_time
+    return None

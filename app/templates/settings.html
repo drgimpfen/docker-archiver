@@ -1,58 +1,110 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
+
+{% block title %}Settings - Docker Archiver{% endblock %}
 
 {% block content %}
-<div class="card mx-auto" style="max-width:800px">
-  <div class="card-body">
-    <h2 class="card-title">Settings</h2>
-    <form method="post">
-      <div class="mb-3">
-        <label for="apprise_enabled" class="form-label">Notifications enabled</label>
-        <select class="form-select" id="apprise_enabled" name="apprise_enabled">
-          <option value="true" {% if apprise_enabled %}selected{% endif %}>Enabled</option>
-          <option value="false" {% if not apprise_enabled %}selected{% endif %}>Disabled</option>
-        </select>
-        <div class="form-text">Enable or disable sending notifications via Apprise.</div>
-      </div>
-
-      <div class="mb-3">
-        <label for="apprise_html" class="form-label">Use HTML in notifications</label>
-        <select class="form-select" id="apprise_html" name="apprise_html">
-          <option value="true" {% if apprise_html %}selected{% endif %}>Yes (default)</option>
-          <option value="false" {% if not apprise_html %}selected{% endif %}>No (plain text only)</option>
-        </select>
-        <div class="form-text">When enabled, notifications will include an HTML-formatted header/footer. If disabled, only plain text will be sent.</div>
-      </div>
-
-      <div class="mb-3">
-        <label for="apprise_urls" class="form-label">Apprise URL(s)</label>
-        <textarea class="form-control" id="apprise_urls" name="apprise_urls" rows="6" placeholder="e.g. mailto://user:pass@example.com\nhttps://api.pushover.net/1/messages.json?token=...">{{ apprise_urls or '' }}</textarea>
-        <div class="form-text">Enter one Apprise URL per line. See Apprise docs for service URLs.</div>
-        <div class="form-text mt-1">Apprise documentation: <a href="https://apprise.readthedocs.io/en/latest/" target="_blank" rel="noreferrer">https://apprise.readthedocs.io</a></div>
-        <div class="form-text mt-2">
-          <a class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" href="#appriseExamples" role="button" aria-expanded="false" aria-controls="appriseExamples">Show Apprise Examples</a>
-        </div>
-        <div class="collapse mt-2" id="appriseExamples">
-          <div class="card card-body">
-            <pre class="apprise-examples mb-0">Email (Gmail): mailto://user:app_password@gmail.com?smtp=smtp.gmail.com&mode=starttls
-Slack: slack://TokenA/TokenB/TokenC/
-Discord: discord://webhook_id/webhook_token
-Telegram: tgram://bot_token/chat_id
-Microsoft Teams: msteams://TokenA/TokenB/TokenC/
-Pushover: pover://user@token
-ntfy: ntfy://topic/
-Custom Webhook: json://hostname/path/to/endpoint</pre>
-          </div>
-        </div>
-      </div>
-
-      <div class="mb-3">
-        <label for="app_base_url" class="form-label">App Base URL</label>
-        <input type="text" class="form-control" id="app_base_url" name="app_base_url" value="{{ app_base_url or '' }}" placeholder="https://example.com" />
-        <div class="form-text">Optional. Used to generate absolute links in notifications (e.g., https://example.com). Configure here instead of environment variable.</div>
-      </div>
-
-      <button type="submit" class="btn btn-primary">Save Settings</button>
-    </form>
-  </div>
+<div class="mb-4">
+    <h2><i class="bi bi-gear me-2"></i> Settings</h2>
 </div>
+
+<form method="POST">
+    <!-- General Settings -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-globe me-2"></i> General</h5>
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <label for="baseUrl" class="form-label">Base URL</label>
+                <input type="url" class="form-control" id="baseUrl" name="base_url" 
+                       value="{{ settings.get('base_url', 'http://localhost:8080') }}">
+                <div class="form-text">Used for generating links in notifications</div>
+            </div>
+            
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" 
+                       id="maintenanceMode" name="maintenance_mode"
+                       {% if settings.get('maintenance_mode') == 'true' %}checked{% endif %}>
+                <label class="form-check-label" for="maintenanceMode">
+                    <strong>Maintenance Mode</strong><br>
+                    <small class="text-muted">Pauses all scheduled archives (shows banner on dashboard)</small>
+                </label>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Notification Settings -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-bell me-2"></i> Notifications</h5>
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <label for="appriseUrls" class="form-label">Apprise URLs</label>
+                <textarea class="form-control" id="appriseUrls" name="apprise_urls" 
+                          rows="5" placeholder="One URL per line&#10;discord://webhook_id/webhook_token&#10;telegram://bot_token/chat_id&#10;mailto://user:password@gmail.com">{{ settings.get('apprise_urls', '') }}</textarea>
+                <div class="form-text">
+                    Enter notification service URLs (one per line). See 
+                    <a href="https://github.com/caronc/apprise#supported-notifications" target="_blank">Apprise documentation</a> 
+                    for supported services.
+                </div>
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label">Notify on:</label>
+                
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="notifySuccess" name="notify_success"
+                           {% if settings.get('notify_on_success') == 'true' %}checked{% endif %}>
+                    <label class="form-check-label" for="notifySuccess">
+                        <i class="bi bi-check-circle text-success me-1"></i> Successful job completion
+                    </label>
+                </div>
+                
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="notifyError" name="notify_error"
+                           {% if settings.get('notify_on_error') == 'true' %}checked{% endif %}>
+                    <label class="form-check-label" for="notifyError">
+                        <i class="bi bi-x-circle text-danger me-1"></i> Job failures
+                    </label>
+                </div>
+            </div>
+            
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="testNotification()">
+                <i class="bi bi-send me-1"></i> Send Test Notification
+            </button>
+        </div>
+    </div>
+    
+    <!-- User Management (Placeholder) -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-people me-2"></i> Users</h5>
+        </div>
+        <div class="card-body">
+            <p class="text-muted mb-0">
+                <i class="bi bi-info-circle me-1"></i> 
+                User management and role-based access control will be available in a future update.
+            </p>
+        </div>
+    </div>
+    
+    <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check-lg me-1"></i> Save Settings
+        </button>
+        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+</form>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function testNotification() {
+    // This would trigger a test notification
+    alert('Test notification functionality not yet implemented.\nCheck your Apprise URLs are correct and save settings first.');
+    // TODO: Implement test notification API endpoint
+}
+</script>
 {% endblock %}

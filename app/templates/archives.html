@@ -1,212 +1,211 @@
 {% extends "base.html" %}
 
+{% block title %}Archives - Docker Archiver{% endblock %}
+
 {% block content %}
-<h2>Manage Archives</h2>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-box-seam me-2"></i> Archive Management</h2>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createArchiveModal">
+        <i class="bi bi-plus-lg me-1"></i> Create Archive
+    </button>
+</div>
 
-{% if archives.scheduled or archives.manual %}
-{% set _default = archives.default_open if archives.default_open is defined else None %}
-
-    {% if archives.scheduled %}
-    <h4>Scheduled Runs</h4>
-    <div class="accordion mb-4" id="schedulesAccordion">
-        {% for sched in archives.scheduled %}
-        <div class="accordion-item list-card">
-            {% set _is_open = _default and _default.kind == 'scheduled' and loop.index0 == _default.index %}
-            <h2 class="accordion-header" id="schedHeading-{{ loop.index }}">
-                <button class="accordion-button{% if not _is_open %} collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#schedCollapse-{{ loop.index }}" aria-expanded="{{ 'true' if _is_open else 'false' }}" aria-controls="schedCollapse-{{ loop.index }}">
-                    {{ sched.name }}
-                    <span class="badge bg-secondary ms-2">{{ sched.stacks|length }} stacks</span>
-                </button>
-            </h2>
-            <div id="schedCollapse-{{ loop.index }}" class="accordion-collapse collapse{% if _is_open %} show{% endif %}" aria-labelledby="schedHeading-{{ loop.index }}" data-bs-parent="#schedulesAccordion">
-                <div class="accordion-body">
-                    {% if sched.archive_start or sched.total_size_human %}
-                    <div class="mb-2 small text-muted">
-                        {% if sched.archive_start %}
-                            Start: {{ sched.archive_start.strftime('%Y-%m-%d %H:%M:%S') }}
+{% if archives %}
+<div class="table-responsive">
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Stacks</th>
+                <th>Schedule</th>
+                <th>Retention (D/W/M/Y)</th>
+                <th>Format</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for archive in archives %}
+            <tr>
+                <td>
+                    <strong>{{ archive.name }}</strong><br>
+                    <small class="text-muted">
+                        {% if archive.stop_containers %}
+                        <i class="bi bi-stop-circle text-danger" title="Stops containers"></i>
                         {% else %}
-                            Start: N/A
+                        <i class="bi bi-play-circle text-success" title="Keeps containers running"></i>
                         {% endif %}
-                        &nbsp;|&nbsp;
-                        {% if sched.archive_end %}
-                            End: {{ sched.archive_end.strftime('%Y-%m-%d %H:%M:%S') }}
-                        {% else %}
-                            End: N/A
-                        {% endif %}
-                        &nbsp;|&nbsp;
-                        {% if sched.archive_duration_seconds is not none %}
-                            Run: {{ sched.archive_duration_seconds }}s
-                        {% else %}
-                            Run: N/A
-                        {% endif %}
-                        &nbsp;|&nbsp; Total size: {{ sched.total_size_human }}
-                    </div>
+                    </small>
+                </td>
+                <td>
+                    {% for stack in archive.stacks[:3] %}
+                    <span class="badge bg-secondary">{{ stack }}</span>
+                    {% endfor %}
+                    {% if archive.stacks|length > 3 %}
+                    <span class="badge bg-secondary">+{{ archive.stacks|length - 3 }}</span>
                     {% endif %}
-                    <div class="table-responsive">
-                        <table class="table table-sm mb-0">
-                            <thead>
-                                <tr><th>Stack</th><th>Filename</th><th>Size</th><th>Date</th><th>Duration</th><th class="text-end">Actions</th></tr>
-                            </thead>
-                            <tbody>
-                                {% for stack_name, stack_info in sched.stacks.items() %}
-                                    {% for archive in stack_info.files %}
-                                    <tr>
-                                        <td>{{ stack_name }}</td>
-                                        <td>
-                                            {% if archive.job_id %}
-                                                <a href="#" class="archive-log-link" data-job-id="{{ archive.job_id }}">{{ archive.name }}</a>
-                                            {% else %}
-                                                {{ archive.name }}
-                                            {% endif %}
-                                        </td>
-                                        <td>{{ (archive.size / 1024 / 1024) | round(2) }} MB</td>
-                                        <td>{{ archive.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-                                        <td>
-                                            {% if archive.duration_human %}
-                                                {{ archive.duration_human }}
-                                            {% elif archive.duration_seconds is not none %}
-                                                {{ archive.duration_seconds }}s
-                                            {% else %}
-                                                N/A
-                                            {% endif %}
-                                        </td>
-                                        <td class="text-end">
-                                            <a href="{{ url_for('download_archive', stack_name=(sched.name + '/' + stack_name), archive_filename=archive.name) }}" class="btn btn-sm btn-primary">Download</a>
-                                            <form action="{{ url_for('delete_archive', stack_name=(sched.name + '/' + stack_name), archive_filename=archive.name) }}" method="post" class="d-inline">
-                                                <button type="submit" class="btn btn-sm btn-danger">Delete</button>
-                                            </form>
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-    {% endif %}
-
-    {% if archives.manual %}
-    <h4>Manual Runs</h4>
-    <div class="accordion" id="manualAccordion">
-        {% for sched in archives.manual %}
-        <div class="accordion-item list-card">
-            {% set _is_open = _default and _default.kind == 'manual' and loop.index0 == _default.index %}
-            <h2 class="accordion-header" id="manualHeading-{{ loop.index }}">
-                <button class="accordion-button{% if not _is_open %} collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#manualCollapse-{{ loop.index }}" aria-expanded="{{ 'true' if _is_open else 'false' }}" aria-controls="manualCollapse-{{ loop.index }}">
-                    {{ sched.name }}
-                    <span class="badge bg-secondary ms-2">{{ sched.stacks|length }} stacks</span>
-                </button>
-            </h2>
-            <div id="manualCollapse-{{ loop.index }}" class="accordion-collapse collapse{% if _is_open %} show{% endif %}" aria-labelledby="manualHeading-{{ loop.index }}" data-bs-parent="#manualAccordion">
-                <div class="accordion-body">
-                    {% if sched.archive_start or sched.total_size_human %}
-                    <div class="mb-2 small text-muted">
-                        {% if sched.archive_start %}
-                            Start: {{ sched.archive_start.strftime('%Y-%m-%d %H:%M:%S') }}
-                        {% else %}
-                            Start: N/A
-                        {% endif %}
-                        &nbsp;|&nbsp;
-                        {% if sched.archive_end %}
-                            End: {{ sched.archive_end.strftime('%Y-%m-%d %H:%M:%S') }}
-                        {% else %}
-                            End: N/A
-                        {% endif %}
-                        &nbsp;|&nbsp;
-                        {% if sched.archive_duration_seconds is not none %}
-                            Run: {{ sched.archive_duration_seconds }}s
-                        {% else %}
-                            Run: N/A
-                        {% endif %}
-                        &nbsp;|&nbsp; Total size: {{ sched.total_size_human }}
-                    </div>
+                </td>
+                <td>
+                    {% if archive.schedule_enabled %}
+                    <span class="badge bg-primary">
+                        <i class="bi bi-clock me-1"></i> {{ archive.schedule_cron }}
+                    </span>
+                    {% else %}
+                    <span class="badge bg-secondary">Manual</span>
                     {% endif %}
-                    <div class="table-responsive">
-                        <table class="table table-sm mb-0">
-                            <thead>
-                                <tr><th>Stack</th><th>Filename</th><th>Size</th><th>Date</th><th>Duration</th><th class="text-end">Actions</th></tr>
-                            </thead>
-                            <tbody>
-                                {% for stack_name, stack_info in sched.stacks.items() %}
-                                    {% for archive in stack_info.files %}
-                                    <tr>
-                                        <td>{{ stack_name }}</td>
-                                        <td>{{ archive.name }}</td>
-                                        <td>{{ (archive.size / 1024 / 1024) | round(2) }} MB</td>
-                                        <td>{{ archive.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-                                        <td>
-                                            {% if archive.duration_seconds is not none %}
-                                                {{ archive.duration_seconds }}s
-                                            {% else %}
-                                                N/A
-                                            {% endif %}
-                                        </td>
-                                        <td class="text-end">
-                                            <a href="{{ url_for('download_archive', stack_name=(sched.name + '/' + stack_name), archive_filename=archive.name) }}" class="btn btn-sm btn-primary">Download</a>
-                                            <form action="{{ url_for('delete_archive', stack_name=(sched.name + '/' + stack_name), archive_filename=archive.name) }}" method="post" class="d-inline">
-                                                <button type="submit" class="btn btn-sm btn-danger">Delete</button>
-                                            </form>
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-    {% endif %}
-
+                </td>
+                <td>
+                    <small>
+                        {{ archive.retention_keep_days }}/{{ archive.retention_keep_weeks }}/{{ archive.retention_keep_months }}/{{ archive.retention_keep_years }}
+                        {% if archive.retention_one_per_day %}
+                        <i class="bi bi-calendar-check text-info" title="One per day"></i>
+                        {% endif %}
+                    </small>
+                </td>
+                <td><code>{{ archive.output_format }}</code></td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary" onclick="editArchive({{ archive.id }})">
+                        <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteArchive({{ archive.id }}, '{{ archive.name }}')">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
 {% else %}
-<div class="alert alert-info" role="alert">No archives found in the directory.</div>
+<div class="alert alert-info">
+    <i class="bi bi-info-circle me-2"></i> No archives configured yet. Create your first archive to get started.
+</div>
 {% endif %}
 
-<!-- Modal for archive job logs -->
-<div class="modal fade" id="archiveLogModal" tabindex="-1" aria-labelledby="archiveLogModalLabel" aria-hidden="true">
+<!-- Create Archive Modal -->
+<div class="modal fade" id="createArchiveModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="archiveLogModalLabel">Archive Job Log</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <h5 class="modal-title">Create Archive</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body">
-                <pre id="archiveLogContent" class="log-content">Loading...</pre>
-            </div>
+            <form method="POST" action="{{ url_for('create_archive') }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Archive Name</label>
+                        <input type="text" class="form-control" id="name" name="name" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Select Stacks</label>
+                        <div class="border rounded p-3" style="max-height: 200px; overflow-y: auto;">
+                            {% for stack in stacks %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="stacks" value="{{ stack.name }}" id="stack_{{ loop.index }}">
+                                <label class="form-check-label" for="stack_{{ loop.index }}">
+                                    {{ stack.name }} <small class="text-muted">({{ stack.mount_source }})</small>
+                                </label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="stop_containers" id="stopContainers" checked>
+                            <label class="form-check-label" for="stopContainers">
+                                Stop containers during archive
+                            </label>
+                        </div>
+                        <small class="text-muted">Recommended for consistent backups</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="outputFormat" class="form-label">Output Format</label>
+                        <select class="form-select" id="outputFormat" name="output_format">
+                            <option value="tar">tar (uncompressed)</option>
+                            <option value="tar.gz">tar.gz (gzip)</option>
+                            <option value="tar.zst" selected>tar.zst (zstandard - fast)</option>
+                            <option value="folder">folder (for borg backup)</option>
+                        </select>
+                    </div>
+                    
+                    <hr>
+                    
+                    <h6>Schedule (Optional)</h6>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="schedule_enabled" id="scheduleEnabled">
+                            <label class="form-check-label" for="scheduleEnabled">
+                                Enable scheduled execution
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="scheduleCron" class="form-label">Cron Expression</label>
+                        <input type="text" class="form-control" id="scheduleCron" name="schedule_cron" placeholder="0 3 * * *">
+                        <small class="text-muted">Format: minute hour day month day_of_week (e.g., "0 3 * * *" = daily at 3 AM)</small>
+                    </div>
+                    
+                    <hr>
+                    
+                    <h6>Retention (GFS)</h6>
+                    <div class="row">
+                        <div class="col-md-3">
+                            <label for="keepDays" class="form-label">Keep Days</label>
+                            <input type="number" class="form-control" id="keepDays" name="keep_days" value="7" min="0">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="keepWeeks" class="form-label">Keep Weeks</label>
+                            <input type="number" class="form-control" id="keepWeeks" name="keep_weeks" value="4" min="0">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="keepMonths" class="form-label">Keep Months</label>
+                            <input type="number" class="form-control" id="keepMonths" name="keep_months" value="6" min="0">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="keepYears" class="form-label">Keep Years</label>
+                            <input type="number" class="form-control" id="keepYears" name="keep_years" value="2" min="0">
+                        </div>
+                    </div>
+                    
+                    <div class="mt-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="one_per_day" id="onePerDay">
+                            <label class="form-check-label" for="onePerDay">
+                                Keep only one archive per day
+                            </label>
+                        </div>
+                        <small class="text-muted">Useful if you run multiple test backups per day</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Archive</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
 
-<script>
-document.addEventListener('DOMContentLoaded', function(){
-        document.querySelectorAll('.archive-log-link').forEach(function(el){
-                el.addEventListener('click', function(e){
-                        e.preventDefault();
-                        var jobId = this.getAttribute('data-job-id');
-                        var modal = new bootstrap.Modal(document.getElementById('archiveLogModal'));
-                        document.getElementById('archiveLogContent').textContent = 'Loading...';
-                        fetch('/job_log/' + jobId)
-                                .then(function(r){ return r.json(); })
-                                .then(function(j){
-                                        if (j.error){
-                                                document.getElementById('archiveLogContent').textContent = 'Error: ' + j.error;
-                                        } else {
-                                                document.getElementById('archiveLogContent').textContent = j.log || '';
-                                        }
-                                        modal.show();
-                                }).catch(function(){
-                                        document.getElementById('archiveLogContent').textContent = 'Failed to load log.';
-                                        modal.show();
-                                });
-                });
-        });
-});
-</script>
+{% endblock %}
 
+{% block extra_js %}
+<script>
+function editArchive(archiveId) {
+    // TODO: Implement edit modal (similar to create, pre-filled)
+    alert('Edit functionality coming soon. For now, delete and recreate.');
+}
+
+function deleteArchive(archiveId, archiveName) {
+    if (confirm(`Delete archive "${archiveName}"? This will also delete all associated job history.`)) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/archives/${archiveId}/delete`;
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+</script>
 {% endblock %}

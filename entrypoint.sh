@@ -1,11 +1,31 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 
-# Wait for the database to be reachable (uses wait_for_db.py)
-if [ -n "${DATABASE_URL:-}" ]; then
-  echo "Waiting for database..."
-  python /app/wait_for_db.py
-fi
+echo "[Entrypoint] Waiting for PostgreSQL to be ready..."
 
-# Exec the command (default: gunicorn ...)
+# Wait for PostgreSQL
+max_attempts=30
+attempt=0
+until PGPASSWORD="${DATABASE_URL##*:}" psql -h "$(echo $DATABASE_URL | sed -E 's|.*@([^:/]+).*|\1|')" \
+     -U "$(echo $DATABASE_URL | sed -E 's|.*://([^:]+):.*|\1|')" \
+     -d "$(echo $DATABASE_URL | sed -E 's|.*/([^?]+).*|\1|')" -c '\q' 2>/dev/null; do
+  attempt=$((attempt + 1))
+  if [ $attempt -ge $max_attempts ]; then
+    echo "[Entrypoint] ERROR: PostgreSQL not available after $max_attempts attempts"
+    exit 1
+  fi
+  echo "[Entrypoint] Waiting for PostgreSQL... (attempt $attempt/$max_attempts)"
+  sleep 2
+done
+
+echo "[Entrypoint] PostgreSQL is ready!"
+
+# Run database initialization
+echo "[Entrypoint] Initializing database schema..."
+python3 -c "from app.db import init_db; init_db()" || {
+  echo "[Entrypoint] ERROR: Database initialization failed"
+  exit 1
+}
+
+echo "[Entrypoint] Starting application..."
 exec "$@"
