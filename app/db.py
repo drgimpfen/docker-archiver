@@ -171,6 +171,28 @@ def init_db():
             END $$;
         """)
         
+        # Migrate jobs table - add missing columns
+        cur.execute("""
+            DO $$ 
+            BEGIN
+                -- Add reclaimed_size_bytes as alias for reclaimed_bytes
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name='jobs' AND column_name='reclaimed_size_bytes'
+                ) THEN
+                    ALTER TABLE jobs ADD COLUMN reclaimed_size_bytes BIGINT DEFAULT 0;
+                END IF;
+                
+                -- Add error_message as alias for error
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name='jobs' AND column_name='error_message'
+                ) THEN
+                    ALTER TABLE jobs ADD COLUMN error_message TEXT;
+                END IF;
+            END $$;
+        """)
+        
         # Insert default settings if not exist
         cur.execute("""
             INSERT INTO settings (key, value) VALUES 
