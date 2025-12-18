@@ -923,12 +923,12 @@ def index():
     retention_runs = []
     try:
         with conn.cursor(cursor_factory=DictCursor) as cur:
-            # Get last 10 top-level archive runs only
-            cur.execute("SELECT * FROM archive_jobs WHERE is_archive = true ORDER BY start_time DESC LIMIT 10;")
+            # Get last 10 top-level archive runs from unified jobs table
+            cur.execute("SELECT * FROM jobs WHERE job_type = 'archive_master' ORDER BY start_time DESC LIMIT 10;")
             masters = cur.fetchall()
             for m in masters:
-                # fetch child stack rows for this archive (include sizes)
-                cur.execute("SELECT stack_name, archive_size_bytes, duration_seconds FROM archive_jobs WHERE archive_id = %s ORDER BY start_time ASC;", (m.get('id'),))
+                # fetch child stack rows for this archive (include sizes) from jobs where parent_id points to master
+                cur.execute("SELECT stack_name, archive_size_bytes, duration_seconds FROM jobs WHERE parent_id = %s AND job_type = 'archive_stack' ORDER BY start_time ASC;", (m.get('id'),))
                 children = cur.fetchall()
                 stacks = []
                 total_size_bytes = 0
@@ -961,11 +961,9 @@ def index():
                     'duration_human': duration_human,
                 })
 
-            # Fetch recent retention runs (master retention jobs)
+            # Fetch recent retention runs from unified jobs table
             try:
-                cur.execute(
-                    "SELECT id, start_time, status, duration_seconds, reclaimed_bytes, job_type FROM archive_jobs WHERE log LIKE 'Starting retention run%" + "' ORDER BY start_time DESC LIMIT 5;"
-                )
+                cur.execute("SELECT id, start_time, status, duration_seconds, reclaimed_bytes, job_type FROM jobs WHERE job_type = 'retention' ORDER BY start_time DESC LIMIT 5;")
                 rr = cur.fetchall()
                 for row in rr:
                     start = row.get('start_time')
@@ -1074,8 +1072,8 @@ def history():
     """Shows the full archive history."""
     conn = get_db_connection()
     with conn.cursor(cursor_factory=DictCursor) as cur:
-        # Only show top-level archive runs in history (per-stack details are internal)
-        cur.execute("SELECT * FROM archive_jobs WHERE is_archive = true ORDER BY start_time DESC;")
+        # Show top-level archive master jobs from unified `jobs` table
+        cur.execute("SELECT * FROM jobs WHERE job_type = 'archive_master' ORDER BY start_time DESC;")
         all_jobs = cur.fetchall()
     conn.close()
     return render_template('history.html', jobs=all_jobs)
@@ -1085,10 +1083,11 @@ def history():
 def archive_children(archive_id):
     """Returns JSON array of per-stack jobs belonging to a top-level archive run."""
     try:
+        # Treat archive_id as the unified jobs.id for the master job; fetch child jobs by parent_id
         conn = get_db_connection()
         with conn.cursor(cursor_factory=DictCursor) as cur:
             cur.execute(
-                "SELECT id, stack_name, start_time, end_time, duration_seconds, status, archive_size_bytes, archive_path, log FROM archive_jobs WHERE archive_id = %s ORDER BY start_time ASC;",
+                "SELECT id, stack_name, start_time, end_time, duration_seconds, status, archive_size_bytes, archive_path, log FROM jobs WHERE parent_id = %s AND job_type = 'archive_stack' ORDER BY start_time ASC;",
                 (archive_id,)
             )
             rows = cur.fetchall()
