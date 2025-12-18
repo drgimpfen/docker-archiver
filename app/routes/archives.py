@@ -209,8 +209,12 @@ def run_retention_only(archive_id):
             flash('Archive not found', 'danger')
             return redirect(url_for('index'))
         
+        # Convert to dict to avoid database connection issues in thread
+        archive_dict = dict(archive)
+        
         # Run retention in background
         def run_retention_job():
+            print(f"[INFO] Retention thread started for archive_id={archive_id}")
             try:
                 from app.retention import run_retention
                 from app.db import get_db
@@ -247,10 +251,10 @@ def run_retention_only(archive_id):
                     conn.commit()
             
             try:
-                log_message('INFO', f"Starting retention cleanup for '{archive['name']}'")
+                log_message('INFO', f"Starting retention cleanup for '{archive_dict['name']}'")
                 
                 # Run retention with log callback
-                reclaimed = run_retention(dict(archive), job_id, is_dry_run=False, log_callback=log_message)
+                reclaimed = run_retention(archive_dict, job_id, is_dry_run=False, log_callback=log_message)
                 
                 log_message('INFO', f"Retention completed, reclaimed {reclaimed} bytes")
                 

@@ -21,8 +21,11 @@ def init_scheduler():
     scheduler = BackgroundScheduler(daemon=True)
     scheduler.start()
     
-    # Load all scheduled archives
-    reload_schedules()
+    # Load all scheduled archives (with error handling for initial setup)
+    try:
+        reload_schedules()
+    except Exception as e:
+        print(f"[Scheduler] Could not load schedules during init (database might not be ready yet): {e}")
     
     # Add cleanup job for expired download tokens (runs daily)
     from app.downloads import cleanup_expired_tokens
