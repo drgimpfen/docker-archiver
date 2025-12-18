@@ -122,6 +122,7 @@ The application scans `/local/*` directories (max 1 level deep):
 
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
+| `TZ` | Europe/Berlin | No | Timezone for the application (e.g., America/New_York, Asia/Tokyo) |
 | `DB_PASSWORD` | changeme123 | Yes | PostgreSQL password |
 | `SECRET_KEY` | (dev key) | Yes | Flask session secret (change in production!) |
 | `SMTP_SERVER` | - | No | SMTP server for email notifications (e.g., smtp.gmail.com) |

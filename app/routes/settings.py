@@ -11,6 +11,45 @@ from app.notifications import send_test_notification
 bp = Blueprint('settings', __name__, url_prefix='/settings')
 
 
+def validate_apprise_urls(urls_text):
+    """
+    Validate and clean Apprise URLs:
+    - Remove mailto/mailtos URLs (email should be configured via SMTP environment)
+    - Remove duplicates
+    - Return tuple: (cleaned_urls_string, blocked_count, duplicate_count)
+    """
+    if not urls_text:
+        return '', 0, 0
+    
+    valid_urls = []
+    seen_urls = set()
+    blocked_protocols = ['mailto://', 'mailtos://']
+    blocked_count = 0
+    duplicate_count = 0
+    
+    for url in urls_text.strip().split('\n'):
+        url = url.strip()
+        if not url:
+            continue
+        
+        # Check if URL uses blocked protocols
+        is_blocked = any(url.lower().startswith(proto) for proto in blocked_protocols)
+        if is_blocked:
+            blocked_count += 1
+            continue
+        
+        # Check for duplicates (case-insensitive)
+        url_lower = url.lower()
+        if url_lower in seen_urls:
+            duplicate_count += 1
+            continue
+        
+        seen_urls.add(url_lower)
+        valid_urls.append(url)
+    
+    return '\n'.join(valid_urls), blocked_count, duplicate_count
+
+
 @bp.route('/', methods=['GET', 'POST'])
 @login_required
 def manage_settings():
@@ -19,9 +58,21 @@ def manage_settings():
         try:
             # Update settings
             base_url = request.form.get('base_url', 'http://localhost:8080')
-            apprise_urls = request.form.get('apprise_urls', '')
+            apprise_urls_raw = request.form.get('apprise_urls', '')
+            notification_subject_tag = request.form.get('notification_subject_tag', '')
             notify_success = request.form.get('notify_success') == 'on'
             notify_error = request.form.get('notify_error') == 'on'
+            notify_html_format = request.form.get('notify_html_format') == 'on'
+            
+            # Validate and clean Apprise URLs
+            apprise_urls, blocked_count, duplicate_count = validate_apprise_urls(apprise_urls_raw)
+            
+            # Inform user about blocked/removed URLs
+            if blocked_count > 0:
+                flash(f'⚠️ {blocked_count} mailto URL(s) removed. Please use SMTP environment variables for email notifications.', 'warning')
+            if duplicate_count > 0:
+                flash(f'ℹ️ {duplicate_count} duplicate URL(s) removed.', 'info')
+            
             maintenance_mode = request.form.get('maintenance_mode') == 'on'
             max_token_downloads = request.form.get('max_token_downloads', '3')
             
@@ -47,8 +98,10 @@ def manage_settings():
                 settings_to_update = [
                     ('base_url', base_url),
                     ('apprise_urls', apprise_urls),
+                    ('notification_subject_tag', notification_subject_tag),
                     ('notify_on_success', 'true' if notify_success else 'false'),
                     ('notify_on_error', 'true' if notify_error else 'false'),
+                    ('notify_html_format', 'true' if notify_html_format else 'false'),
                     ('maintenance_mode', 'true' if maintenance_mode else 'false'),
                     ('max_token_downloads', max_token_downloads),
                     ('cleanup_enabled', 'true' if cleanup_enabled else 'false'),

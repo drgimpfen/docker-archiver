@@ -55,15 +55,40 @@
             <h5 class="mb-0"><i class="bi bi-bell me-2"></i> Notifications</h5>
         </div>
         <div class="card-body">
+            {% set smtp_configured = 'SMTP_SERVER' in request.environ and 'SMTP_USER' in request.environ %}
+            {% if not smtp_configured %}
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle me-2"></i>
+                <strong>Email notifications not configured</strong><br>
+                To enable email notifications, set SMTP environment variables: SMTP_SERVER, SMTP_USER, SMTP_PASSWORD, SMTP_FROM
+            </div>
+            {% endif %}
+            
             <div class="mb-3">
                 <label for="appriseUrls" class="form-label">Apprise URLs</label>
                 <textarea class="form-control" id="appriseUrls" name="apprise_urls" 
-                          rows="5" placeholder="One URL per line&#10;discord://webhook_id/webhook_token&#10;telegram://bot_token/chat_id&#10;mailto://user:password@gmail.com">{{ settings.get('apprise_urls', '') }}</textarea>
+                          rows="5" placeholder="One URL per line&#10;discord://webhook_id/webhook_token&#10;telegram://bot_token/chat_id">{{ settings.get('apprise_urls', '') }}</textarea>
                 <div class="form-text">
                     Enter notification service URLs (one per line). See 
                     <a href="https://github.com/caronc/apprise#supported-notifications" target="_blank">Apprise documentation</a> 
-                    for supported services.
+                    for supported services.<br>
+                    <strong>Note:</strong> <code>mailto://</code> URLs are not allowed here. Use SMTP environment variables for email notifications.
+                    Duplicate URLs will be automatically removed.<br>
+                    <em>If you need duplicate URLs or email via Apprise, please open an 
+                    <a href="https://github.com/drgimpfen/Docker-Archiver/issues" target="_blank">Issue</a> or 
+                    <a href="https://github.com/drgimpfen/Docker-Archiver/discussions" target="_blank">Discussion</a> on GitHub.</em>
+                    {% if smtp_configured %}
+                    <br><strong>Note:</strong> User emails will be automatically added via configured SMTP settings.
+                    {% endif %}
                 </div>
+            </div>
+
+            <div class="mb-3">
+                <label for="notificationSubjectTag" class="form-label">Subject Tag (Optional)</label>
+                <input type="text" class="form-control" id="notificationSubjectTag" name="notification_subject_tag" 
+                       value="{{ settings.get('notification_subject_tag', '') }}" 
+                       placeholder="[Production]">
+                <div class="form-text">Optional prefix for notification subjects (e.g., [Production], [Test])</div>
             </div>
             
             <div class="mb-3">
@@ -85,6 +110,16 @@
                     </label>
                 </div>
             </div>
+
+            <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" role="switch" 
+                       id="notifyHtmlFormat" name="notify_html_format"
+                       {% if settings.get('notify_html_format', 'true') == 'true' %}checked{% endif %}>
+                <label class="form-check-label" for="notifyHtmlFormat">
+                    <strong>Send notifications as HTML</strong><br>
+                    <small class="text-muted">Enable rich formatting for email notifications. Disable for plain text format.</small>
+                </label>
+            </div>
             
             <button type="button" class="btn btn-outline-secondary btn-sm" onclick="testNotification()">
                 <i class="bi bi-send me-1"></i>Send Test Notification
@@ -95,7 +130,7 @@
     <!-- Cleanup Settings -->
     <div class="card mb-4">
         <div class="card-header">
-            <h5 class="mb-0"><i class="bi bi-broom me-2"></i> Automated Cleanup</h5>
+            <h5 class="mb-0"><i class="bi bi-recycle me-2"></i> Automated Cleanup</h5>
         </div>
         <div class="card-body">
             <div class="form-check form-switch mb-3">

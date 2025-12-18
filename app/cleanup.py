@@ -324,7 +324,7 @@ def send_cleanup_notification(orphaned_stats, log_stats, temp_stats, total_recla
     """Send notification about cleanup results."""
     try:
         import apprise
-        from app.notifications import get_setting
+        from app.notifications import get_setting, get_subject_with_tag
         
         apprise_urls = get_setting('apprise_urls', '')
         if not apprise_urls:
@@ -342,7 +342,9 @@ def send_cleanup_notification(orphaned_stats, log_stats, temp_stats, total_recla
         mode = "🧪 DRY RUN" if is_dry_run else "✅"
         
         # Build message
-        title = f"{mode} Cleanup Task Completed"
+        title = get_subject_with_tag(f"{mode} Cleanup Task Completed")
+        
+        base_url = get_setting('base_url', 'http://localhost:8080')
         
         body = f"""
 <h2>{mode} Cleanup Task</h2>
@@ -359,10 +361,22 @@ def send_cleanup_notification(orphaned_stats, log_stats, temp_stats, total_recla
         if is_dry_run:
             body += "\n<p><em>⚠️ This was a dry run - no files were actually deleted.</em></p>"
         
+        body += f"""
+<hr>
+<p><small>Docker Archiver: <a href="{base_url}">{base_url}</a></small></p>"""
+        
+        # Get format preference from notifications module
+        from app.notifications import get_notification_format, strip_html_tags
+        body_format = get_notification_format()
+        
+        # Convert to plain text if needed
+        if body_format == apprise.NotifyFormat.TEXT:
+            body = strip_html_tags(body)
+        
         apobj.notify(
             body=body,
             title=title,
-            body_format=apprise.NotifyFormat.HTML
+            body_format=body_format
         )
         
     except Exception as e:

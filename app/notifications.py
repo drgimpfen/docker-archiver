@@ -29,6 +29,36 @@ def get_user_emails():
         return []
 
 
+def get_subject_with_tag(subject):
+    """Add optional subject tag prefix to notification subject."""
+    tag = get_setting('notification_subject_tag', '').strip()
+    if tag:
+        return f"{tag} {subject}"
+    return subject
+
+
+def get_notification_format():
+    """Get notification format (html or text) from settings."""
+    import apprise
+    html_enabled = get_setting('notify_html_format', 'true').lower() == 'true'
+    return apprise.NotifyFormat.HTML if html_enabled else apprise.NotifyFormat.TEXT
+
+
+def strip_html_tags(html_text):
+    """Convert HTML to plain text by removing tags and converting entities."""
+    import re
+    # Remove HTML tags
+    text = re.sub(r'<[^>]+>', '', html_text)
+    # Convert common HTML entities
+    text = text.replace('&nbsp;', ' ')
+    text = text.replace('&lt;', '<')
+    text = text.replace('&gt;', '>')
+    text = text.replace('&amp;', '&')
+    # Clean up multiple newlines
+    text = re.sub(r'\n\s*\n', '\n\n', text)
+    return text.strip()
+
+
 def get_apprise_instance():
     """
     Create and configure Apprise instance with URLs from settings and environment.
@@ -102,7 +132,7 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
         
         status_emoji = "✅" if failed_count == 0 else "⚠️"
         
-        title = f"{status_emoji} Archive Complete: {archive_name}"
+        title = get_subject_with_tag(f"{status_emoji} Archive Complete: {archive_name}")
         
         body = f"""<h2>Archive job completed for: {archive_name}</h2>
 <p>
@@ -121,13 +151,22 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
             body += f"<li>{status_icon} {stack_name} ({stack_size_mb:.1f}MB)</li>\n"
         
         body += f"""</ul>
-<p><a href="{base_url}/history?job={job_id}">View details</a></p>"""
+<p><a href="{base_url}/history?job={job_id}">View details</a></p>
+<hr>
+<p><small>Docker Archiver: <a href="{base_url}">{base_url}</a></small></p>"""
+        
+        # Get format preference
+        body_format = get_notification_format()
+        
+        # Convert to plain text if needed
+        if body_format != get_notification_format().HTML:
+            body = strip_html_tags(body)
         
         # Send notification
         apobj.notify(
             body=body,
             title=title,
-            body_format='html'
+            body_format=body_format
         )
         
     except Exception as e:
@@ -151,19 +190,30 @@ def send_retention_notification(archive_name, deleted_count, reclaimed_bytes):
         reclaimed_mb = reclaimed_bytes / (1024 * 1024)
         size_str = f"{reclaimed_gb:.2f}GB" if reclaimed_gb >= 1 else f"{reclaimed_mb:.1f}MB"
         
-        title = f"🗑️ Retention Cleanup: {archive_name}"
+        base_url = get_setting('base_url', 'http://localhost:8080')
+        
+        title = get_subject_with_tag(f"🗑️ Retention Cleanup: {archive_name}")
         body = f"""<h2>Retention cleanup completed for: {archive_name}</h2>
 <p>
 <strong>Files deleted:</strong> {deleted_count}<br>
 <strong>Space freed:</strong> {size_str}
 </p>
-"""
+<hr>
+<p><small>Docker Archiver: <a href="{base_url}">{base_url}</a></small></p>"""
+        
+        # Get format preference
+        body_format = get_notification_format()
+        
+        # Convert to plain text if needed
+        import apprise
+        if body_format == apprise.NotifyFormat.TEXT:
+            body = strip_html_tags(body)
         
         # Send notification
         apobj.notify(
             body=body,
             title=title,
-            body_format='html'
+            body_format=body_format
         )
         
     except Exception as e:
@@ -182,19 +232,30 @@ def send_error_notification(archive_name, error_message):
         if not apobj:
             return
         
-        title = f"❌ Archive Failed: {archive_name}"
+        base_url = get_setting('base_url', 'http://localhost:8080')
+        
+        title = get_subject_with_tag(f"❌ Archive Failed: {archive_name}")
         body = f"""<h2>Archive job failed for: {archive_name}</h2>
 <p>
 <strong>Error:</strong><br>
 <code>{error_message}</code>
 </p>
-"""
+<hr>
+<p><small>Docker Archiver: <a href="{base_url}">{base_url}</a></small></p>"""
+        
+        # Get format preference
+        body_format = get_notification_format()
+        
+        # Convert to plain text if needed
+        import apprise
+        if body_format == apprise.NotifyFormat.TEXT:
+            body = strip_html_tags(body)
         
         # Send notification
         apobj.notify(
             body=body,
             title=title,
-            body_format='html'
+            body_format=body_format
         )
         
     except Exception as e:
@@ -210,21 +271,32 @@ def send_test_notification():
         if not apobj:
             raise Exception("No notification services configured")
         
-        title = "🔔 Docker Archiver - Test Notification"
-        body = """<h2>Test Notification from Docker Archiver</h2>
+        base_url = get_setting('base_url', 'http://localhost:8080')
+        
+        title = get_subject_with_tag("🔔 Docker Archiver - Test Notification")
+        body = f"""<h2>Test Notification from Docker Archiver</h2>
 <p>If you received this message, your notification configuration is working correctly!</p>
 <h3>Notification services configured:</h3>
 <ul>
 <li>Apprise URLs from settings</li>
 <li>User email addresses (if SMTP is configured)</li>
 </ul>
-"""
+<hr>
+<p><small>Docker Archiver: <a href="{base_url}">{base_url}</a></small></p>"""
+        
+        # Get format preference
+        body_format = get_notification_format()
+        
+        # Convert to plain text if needed
+        import apprise
+        if body_format == apprise.NotifyFormat.TEXT:
+            body = strip_html_tags(body)
         
         # Send notification
         apobj.notify(
             body=body,
             title=title,
-            body_format='html'
+            body_format=body_format
         )
         
     except Exception as e:
