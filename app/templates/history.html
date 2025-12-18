@@ -58,23 +58,19 @@
             {% for job in jobs %}
             <tr onclick="showJobDetails({{ job.id }})" style="cursor: pointer;" class="{% if job.is_dry_run %}table-secondary{% endif %}">
                 <td><strong>#{{ job.id }}</strong></td>
-                <td>
-                    <div class="d-flex flex-column">
-                        <div>
-                            {% if job.job_type == 'archive' %}
-                            <i class="bi bi-box-seam text-primary"></i> Archive
-                            {% elif job.job_type == 'retention' %}
-                            <i class="bi bi-trash text-warning"></i> Retention
-                            {% elif job.job_type == 'cleanup' %}
-                            <i class="bi bi-recycle text-info"></i> Cleanup
-                            {% else %}
-                            <i class="bi bi-question-circle text-muted"></i> {{ job.job_type|title }}
-                            {% endif %}
-                        </div>
-                        {% if job.is_dry_run %}
-                        <span class="badge bg-secondary mt-1">DRY RUN</span>
-                        {% endif %}
-                    </div>
+                <td style="white-space: nowrap;">
+                    {% if job.job_type == 'archive' %}
+                    <i class="bi bi-box-seam text-primary"></i> Archive
+                    {% elif job.job_type == 'retention' %}
+                    <i class="bi bi-trash text-warning"></i> Retention
+                    {% elif job.job_type == 'cleanup' %}
+                    <i class="bi bi-recycle text-info"></i> Cleanup
+                    {% else %}
+                    <i class="bi bi-question-circle text-muted"></i> {{ job.job_type|title }}
+                    {% endif %}
+                    {% if job.is_dry_run %}
+                    <span class="badge bg-secondary ms-1">DRY</span>
+                    {% endif %}
                 </td>
                 <td>
                     {{ job.archive_name or 'N/A' }}
