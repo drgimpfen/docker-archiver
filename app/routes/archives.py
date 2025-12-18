@@ -211,19 +211,25 @@ def run_retention_only(archive_id):
         
         # Run retention in background
         def run_retention_job():
-            from app.retention import run_retention
-            from app.db import get_db
-            
-            # Create a job record with empty log
-            with get_db() as conn:
-                cur = conn.cursor()
-                cur.execute("""
-                    INSERT INTO jobs (archive_id, job_type, status, start_time, triggered_by, log)
-                    VALUES (%s, 'retention', 'running', NOW(), 'manual', '')
-                    RETURNING id;
-                """, (archive_id,))
-                job_id = cur.fetchone()['id']
-                conn.commit()
+            try:
+                from app.retention import run_retention
+                from app.db import get_db
+                
+                # Create a job record with empty log
+                with get_db() as conn:
+                    cur = conn.cursor()
+                    cur.execute("""
+                        INSERT INTO jobs (archive_id, job_type, status, start_time, triggered_by, log)
+                        VALUES (%s, 'retention', 'running', NOW(), 'manual', '')
+                        RETURNING id;
+                    """, (archive_id,))
+                    job_id = cur.fetchone()['id']
+                    conn.commit()
+            except Exception as e:
+                print(f"[ERROR] Failed to create retention job record: {e}")
+                import traceback
+                traceback.print_exc()
+                return
             
             # Log function
             def log_message(level, message):
@@ -262,6 +268,10 @@ def run_retention_only(archive_id):
                 send_retention_notification(archive['name'], 0, reclaimed)  # deleted_count not tracked
                 
             except Exception as e:
+                print(f"[ERROR] Manual retention run failed: {e}")
+                import traceback
+                traceback.print_exc()
+                
                 log_message('ERROR', f"Retention failed: {str(e)}")
                 
                 with get_db() as conn:
@@ -301,8 +311,13 @@ def run(archive_id):
         
         # Run in background
         def run_job():
-            executor = ArchiveExecutor(dict(archive), is_dry_run=False)
-            executor.run(triggered_by='manual')
+            try:
+                executor = ArchiveExecutor(dict(archive), is_dry_run=False)
+                executor.run(triggered_by='manual')
+            except Exception as e:
+                print(f"[ERROR] Manual archive run failed: {e}")
+                import traceback
+                traceback.print_exc()
         
         thread = threading.Thread(target=run_job)
         thread.daemon = True
