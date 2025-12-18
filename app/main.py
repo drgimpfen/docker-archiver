@@ -62,6 +62,24 @@ csrf.exempt(api.bp)
 init_scheduler()
 
 
+# Custom Jinja2 filters
+@app.template_filter('stack_color')
+def stack_color_filter(stack_name):
+    """Generate a deterministic color for a stack name with good readability."""
+    import hashlib
+    
+    # Generate hash from stack name
+    hash_value = int(hashlib.md5(stack_name.encode()).hexdigest()[:8], 16)
+    
+    # Generate hue (0-360) from hash
+    hue = hash_value % 360
+    
+    # Use fixed saturation and lightness for good readability
+    # Saturation: 65% (not too dull, not too vibrant)
+    # Lightness: 45% (dark enough for white text)
+    return f"hsl({hue}, 65%, 45%)"
+
+
 # Core routes
 @app.route('/health')
 def health():

@@ -36,7 +36,7 @@
                 </td>
                 <td>
                     {% for stack in archive.stacks[:3] %}
-                    <span class="badge bg-secondary">{{ stack }}</span>
+                    <span class="badge" style="background-color: {{ stack|stack_color }}; color: white;">{{ stack }}</span>
                     {% endfor %}
                     {% if archive.stacks|length > 3 %}
                     <span class="badge bg-secondary">+{{ archive.stacks|length - 3 }}</span>
