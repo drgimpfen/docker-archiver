@@ -106,11 +106,14 @@ def run_retention(archive_config, job_id, is_dry_run=False, log_callback=None):
         
         # Apply one-per-day filter if enabled
         if one_per_day:
-            archives = filter_one_per_day(archives, log)
+            filtered_archives, duplicates_to_delete = filter_one_per_day(archives, log)
+            archives = filtered_archives
+        else:
+            duplicates_to_delete = []
         
         # Determine which archives to keep based on GFS rules
         to_keep = apply_gfs_retention(archives, keep_days, keep_weeks, keep_months, keep_years)
-        to_delete = [a for a in archives if a not in to_keep]
+        to_delete = [a for a in archives if a not in to_keep] + duplicates_to_delete
         
         log('INFO', f"Retention will keep {len(to_keep)} archive(s) and delete {len(to_delete)}")
         
@@ -151,26 +154,31 @@ def run_retention(archive_config, job_id, is_dry_run=False, log_callback=None):
 
 
 def filter_one_per_day(archives, log):
-    """Keep only the newest archive per day."""
+    """Keep only the newest archive per day, mark others for deletion."""
     # Group by date
     by_date = defaultdict(list)
     for archive in archives:
         date_key = archive['timestamp'].date()
         by_date[date_key].append(archive)
     
-    # Keep newest per day
+    # Keep newest per day, mark rest for deletion
     filtered = []
+    to_delete = []
+    
     for date, day_archives in by_date.items():
         # Sort by timestamp, keep newest
         day_archives.sort(key=lambda a: a['timestamp'], reverse=True)
         filtered.append(day_archives[0])
         
+        # Mark older archives from same day for deletion
         if len(day_archives) > 1:
-            log('INFO', f"Filtered {len(day_archives)-1} duplicate(s) for {date} (one-per-day mode)")
+            duplicates = day_archives[1:]
+            to_delete.extend(duplicates)
+            log('INFO', f"Marking {len(duplicates)} duplicate(s) for deletion from {date} (one-per-day mode)")
     
     # Sort again by timestamp
     filtered.sort(key=lambda a: a['timestamp'], reverse=True)
-    return filtered
+    return filtered, to_delete
 
 
 def apply_gfs_retention(archives, keep_days, keep_weeks, keep_months, keep_years):
