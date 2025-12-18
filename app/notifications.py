@@ -104,27 +104,30 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
         
         title = f"{status_emoji} Archive Complete: {archive_name}"
         
-        body = f"""Archive job completed for: {archive_name}
-
-Stacks: {success_count}/{stack_count} successful
-Total size: {size_str}
-Duration: {duration_str}
-
-Stacks processed:
+        body = f"""<h2>Archive job completed for: {archive_name}</h2>
+<p>
+<strong>Stacks:</strong> {success_count}/{stack_count} successful<br>
+<strong>Total size:</strong> {size_str}<br>
+<strong>Duration:</strong> {duration_str}
+</p>
+<h3>Stacks processed:</h3>
+<ul>
 """
         
         for metric in stack_metrics:
             stack_name = metric['stack_name']
             status_icon = "✓" if metric['status'] == 'success' else "✗"
             stack_size_mb = metric['archive_size_bytes'] / (1024 * 1024)
-            body += f"  {status_icon} {stack_name} ({stack_size_mb:.1f}MB)\n"
+            body += f"<li>{status_icon} {stack_name} ({stack_size_mb:.1f}MB)</li>\n"
         
-        body += f"\nView details: {base_url}/history?job={job_id}"
+        body += f"""</ul>
+<p><a href="{base_url}/history?job={job_id}">View details</a></p>"""
         
         # Send notification
         apobj.notify(
             body=body,
             title=title,
+            body_format='html'
         )
         
     except Exception as e:
@@ -149,16 +152,18 @@ def send_retention_notification(archive_name, deleted_count, reclaimed_bytes):
         size_str = f"{reclaimed_gb:.2f}GB" if reclaimed_gb >= 1 else f"{reclaimed_mb:.1f}MB"
         
         title = f"🗑️ Retention Cleanup: {archive_name}"
-        body = f"""Retention cleanup completed for: {archive_name}
-
-Files deleted: {deleted_count}
-Space freed: {size_str}
+        body = f"""<h2>Retention cleanup completed for: {archive_name}</h2>
+<p>
+<strong>Files deleted:</strong> {deleted_count}<br>
+<strong>Space freed:</strong> {size_str}
+</p>
 """
         
         # Send notification
         apobj.notify(
             body=body,
             title=title,
+            body_format='html'
         )
         
     except Exception as e:
@@ -178,15 +183,18 @@ def send_error_notification(archive_name, error_message):
             return
         
         title = f"❌ Archive Failed: {archive_name}"
-        body = f"""Archive job failed for: {archive_name}
-
-Error: {error_message}
+        body = f"""<h2>Archive job failed for: {archive_name}</h2>
+<p>
+<strong>Error:</strong><br>
+<code>{error_message}</code>
+</p>
 """
         
         # Send notification
         apobj.notify(
             body=body,
             title=title,
+            body_format='html'
         )
         
     except Exception as e:
@@ -203,19 +211,20 @@ def send_test_notification():
             raise Exception("No notification services configured")
         
         title = "🔔 Docker Archiver - Test Notification"
-        body = """This is a test notification from Docker Archiver.
-
-If you received this message, your notification configuration is working correctly!
-
-Notification services configured:
-- Apprise URLs from settings
-- User email addresses (if SMTP is configured)
+        body = """<h2>Test Notification from Docker Archiver</h2>
+<p>If you received this message, your notification configuration is working correctly!</p>
+<h3>Notification services configured:</h3>
+<ul>
+<li>Apprise URLs from settings</li>
+<li>User email addresses (if SMTP is configured)</li>
+</ul>
 """
         
         # Send notification
         apobj.notify(
             body=body,
             title=title,
+            body_format='html'
         )
         
     except Exception as e:

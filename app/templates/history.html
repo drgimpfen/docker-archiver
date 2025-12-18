@@ -47,11 +47,11 @@
                 <th width="80">ID</th>
                 <th width="100">Type</th>
                 <th>Archive</th>
+                <th width="200">Stacks</th>
                 <th width="100">Status</th>
-                <th width="180">Start Time</th>
-                <th width="100">Duration</th>
+                <th width="160">Start Time</th>
+                <th width="160">End Time</th>
                 <th width="120">Size</th>
-                <th width="100">Triggered By</th>
             </tr>
         </thead>
         <tbody>
@@ -72,6 +72,19 @@
                     {{ job.archive_name or 'N/A' }}
                 </td>
                 <td>
+                    {% if job.stack_names %}
+                        {% set stacks = job.stack_names.split(',') if job.stack_names else [] %}
+                        {% for stack in stacks[:3] %}
+                            <span class="badge bg-secondary">{{ stack }}</span>
+                        {% endfor %}
+                        {% if stacks|length > 3 %}
+                            <span class="badge bg-secondary">+{{ stacks|length - 3 }}</span>
+                        {% endif %}
+                    {% else %}
+                        <span class="text-muted small">N/A</span>
+                    {% endif %}
+                </td>
+                <td>
                     <span class="badge {% if job.status == 'success' %}bg-success{% elif job.status == 'running' %}bg-info{% elif job.status == 'failed' %}bg-danger{% else %}bg-secondary{% endif %}">
                         {{ job.status }}
                     </span>
@@ -79,7 +92,9 @@
                 <td>
                     <small>{{ job.start_time.strftime('%Y-%m-%d %H:%M:%S') if job.start_time else 'N/A' }}</small>
                 </td>
-                <td>{{ format_duration(job.duration_seconds) }}</td>
+                <td>
+                    <small>{{ job.end_time.strftime('%Y-%m-%d %H:%M:%S') if job.end_time else '-' }}</small>
+                </td>
                 <td>
                     {% if job.job_type == 'archive' and job.total_size_bytes %}
                     <span class="text-success">+{{ format_bytes(job.total_size_bytes) }}</span>
@@ -88,17 +103,6 @@
                     {% else %}
                     <span class="text-muted">N/A</span>
                     {% endif %}
-                </td>
-                <td>
-                    <small>
-                        {% if job.triggered_by == 'schedule' %}
-                        <i class="bi bi-clock text-primary" title="Scheduled"></i> Schedule
-                        {% elif job.triggered_by == 'manual_dry_run' %}
-                        <i class="bi bi-hand-index text-info" title="Manual Dry Run"></i> Dry Run
-                        {% else %}
-                        <i class="bi bi-hand-index text-secondary" title="Manual"></i> Manual
-                        {% endif %}
-                    </small>
                 </td>
             </tr>
             {% endfor %}
@@ -225,10 +229,15 @@ async function showJobDetails(jobId) {
                                     ${metric.error ? `<dt class="col-sm-3">Error:</dt><dd class="col-sm-9"><span class="text-danger">${metric.error}</span></dd>` : ''}
                                 </dl>
                                 
-                                ${metric.archive_path && !metric.archive_path.includes('_download_') ? 
-                                    `<button class="btn btn-sm btn-outline-primary mt-2" onclick="requestDownload(${job.id}, '${metric.stack_name}', '${metric.archive_path}')">
-                                        <i class="bi bi-download me-1"></i> Download Archive
-                                    </button>` : ''}
+                                <div class="mt-2 d-flex gap-2">
+                                    ${metric.archive_path && !metric.archive_path.includes('_download_') ? 
+                                        `<button class="btn btn-sm btn-outline-primary" onclick="requestDownload(${job.id}, '${metric.stack_name}', '${metric.archive_path}')">
+                                            <i class="bi bi-download me-1"></i> Download Archive
+                                        </button>` : ''}
+                                    <button class="btn btn-sm btn-outline-secondary" onclick="downloadLog(${job.id})">
+                                        <i class="bi bi-file-text me-1"></i> Download Log
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -270,11 +279,39 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-function requestDownload(jobId, stackName, archivePath) {
-    // This would generate a download token and provide a link
-    // For now, show alert
-    alert(`Download functionality: Generate token for ${stackName} archive.\nPath: ${archivePath}`);
-    // TODO: Implement token generation via API
+async function requestDownload(jobId, stackName, archivePath) {
+    try {
+        const response = await fetch(`{{ url_for('history.request_download', job_id=0) }}`.replace('/0/', `/${jobId}/`), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                stack_name: stackName,
+                archive_path: archivePath
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            if (data.is_folder) {
+                // Show notification that archive is being prepared
+                alert(data.message);
+            } else {
+                // Open download link
+                window.open(data.download_url, '_blank');
+            }
+        } else {
+            alert('Error: ' + (data.error || 'Unknown error'));
+        }
+    } catch (error) {
+        alert('Error requesting download: ' + error.message);
+    }
+}
+
+function downloadLog(jobId) {
+    window.open(`{{ url_for('history.download_log', job_id=0) }}`.replace('/0/', `/${jobId}/`), '_blank');
 }
 </script>
 {% endblock %}
