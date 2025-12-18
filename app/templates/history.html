@@ -33,7 +33,7 @@
             </div>
             
             <div class="col-md-4 d-flex align-items-end">
-                <a href="{{ url_for('history') }}" class="btn btn-outline-secondary">Clear Filters</a>
+                <a href="{{ url_for('history.list_history') }}" class="btn btn-outline-secondary">Clear Filters</a>
             </div>
         </form>
     </div>
@@ -278,3 +278,4 @@ function requestDownload(jobId, stackName, archivePath) {
 }
 </script>
 {% endblock %}
+

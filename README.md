@@ -1,6 +1,14 @@
-# Docker Archiver
-
-A modern, web-based solution for automated Docker stack backups with GFS (Grandfather-Father-Son) retention, scheduling, and notifications.
+<div align="center">
+  <img src="app/static/images/Logo.png" alt="Docker Archiver Logo" width="400">
+  
+  # Docker Archiver
+  
+  A modern, web-based solution for automated Docker stack backups with GFS (Grandfather-Father-Son) retention, scheduling, and notifications.
+  
+  [![GitHub](https://img.shields.io/badge/GitHub-drgimpfen/Docker--Archiver-blue?logo=github)](https://github.com/drgimpfen/Docker-Archiver/)
+  [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/Tq84tczrR2)
+  
+</div>
 
 ## Features
 
@@ -43,16 +51,15 @@ Stacks without compose files are skipped and logged.
 ### 1. Clone and Configure
 
 ```bash
-git clone https://github.com/yourusername/docker-archiver.git
-cd docker-archiver
+git clone https://github.com/drgimpfen/Docker-Archiver.git
+cd Docker-Archiver
 cp .env.example .env
 ```
 
 Edit `.env` and set:
-- `DB_PASSWORD` - PostgreSQL password
-- `SECRET_KEY` - Flask session secret
-- `ARCHIVE_DIR` - Where to store archives
-- `STACKS_DIR_1` - Path to your Docker stacks
+- `DB_PASSWORD` - PostgreSQL password (required)
+- `SECRET_KEY` - Flask session secret (required)
+- `SMTP_*` - Email/SMTP configuration (optional)
 
 ### 2. Start Services
 
@@ -60,7 +67,9 @@ Edit `.env` and set:
 docker compose up -d
 ```
 
-The application will be available at http://localhost:8080
+The application will be available at **http://localhost:8080**
+
+> **Note:** Stack directories must be configured in `docker-compose.yml` as volume mounts (see below).
 
 ### 3. Initial Setup
 
@@ -77,47 +86,51 @@ On first visit, you'll be prompted to create an admin account.
 
 ## Volume Mounts
 
-### Required Mounts
+**Important:** Stack directories are configured in `docker-compose.yml`, not via environment variables.
+
+### Required Configuration
+
+Edit `docker-compose.yml` and add your stack directories:
 
 ```yaml
-volumes:
-  # Docker socket (for container management)
-  - /var/run/docker.sock:/var/run/docker.sock
-  
-  # Archive output directory
-  - ./archives:/archives
-  
-  # Stack directories (adjust to your setup)
-  - /opt/stacks:/local/stacks
+services:
+  app:
+    volumes:
+      # Docker socket (required for container management)
+      - /var/run/docker.sock:/var/run/docker.sock
+      
+      # Archive output directory (adjust path as needed)
+      - ./archives:/archives
+      
+      # Stack directories - ADD YOUR PATHS HERE:
+      # Each mount point under /local/ will be scanned for stacks
+      - /opt/stacks:/local/stacks           # Example: Subdirectories scanned
+      - /opt/dockge/stacks:/local/dockge    # Example: Dockge stacks
+      # - /srv/more-stacks:/local/more      # Add more as needed
 ```
 
-### Multiple Stack Directories
+### How Stack Discovery Works
 
-You can mount multiple directories:
-
-```yaml
-volumes:
-  # ... other mounts ...
-  - /opt/stacks:/local/stacks        # Subdirectories scanned
-  - /opt/dockge:/local/dockge       # Single stack
-  - /srv/more-stacks:/local/more    # More subdirectories
-```
-
-The application will scan:
-- `/local/stacks/*` (each subdir is a stack)
-- `/local/dockge` (direct stack)
-- `/local/more/*` (each subdir is a stack)
+The application scans `/local/*` directories (max 1 level deep):
+- Direct compose file: `/local/mystack/compose.yml` → Stack: `mystack`
+- Subdirectories: `/local/stacks/app1/compose.yml` → Stack: `app1`
+- Multiple mounts: Each `/local/*` mount point is scanned independently
 
 ## Configuration
 
 ### Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_URL` | auto | PostgreSQL connection string |
-| `SECRET_KEY` | required | Flask session secret |
-| `APP_PORT` | 8080 | Application port |
-| `ARCHIVE_DIR` | ./archives | Archive output directory |
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `DB_PASSWORD` | changeme123 | Yes | PostgreSQL password |
+| `SECRET_KEY` | (dev key) | Yes | Flask session secret (change in production!) |
+| `SMTP_SERVER` | - | No | SMTP server for email notifications (e.g., smtp.gmail.com) |
+| `SMTP_PORT` | 587 | No | SMTP port |
+| `SMTP_USER` | - | No | SMTP username |
+| `SMTP_PASSWORD` | - | No | SMTP password/app-password |
+| `SMTP_FROM` | - | No | Email sender address |
+
+> **Note:** Port (8080) and mount paths are configured in `docker-compose.yml`, not via environment variables.
 
 ### Retention Policy
 
@@ -155,15 +168,22 @@ Docker Archiver uses [Apprise](https://github.com/caronc/apprise) for notificati
 
 ### Setup
 
+**Option 1: Apprise URLs (Manual)**
 1. Go to **Settings** → **Notifications**
 2. Add Apprise URLs (one per line):
    ```
    discord://webhook_id/webhook_token
    telegram://bot_token/chat_id
-   mailto://user:password@gmail.com
    ```
 3. Select which events to notify
 4. Save settings
+
+**Option 2: SMTP/Email (Automatic)**
+1. Configure SMTP in `.env` file (see Environment Variables above)
+2. Add email address in **Profile** page
+3. All users with configured email addresses automatically receive notifications
+
+**Combined:** Both methods can be used simultaneously (Apprise URLs + SMTP emails).
 
 ## API Endpoints
 
@@ -171,14 +191,18 @@ Docker Archiver uses [Apprise](https://github.com/caronc/apprise) for notificati
 |----------|--------|-------------|
 | `/` | GET | Dashboard |
 | `/login` | GET/POST | Login page |
+| `/logout` | GET | Logout |
 | `/setup` | GET/POST | Initial user setup |
-| `/archives` | GET | Archive management |
+| `/archives/` | GET | Archive management |
 | `/archives/create` | POST | Create archive config |
+| `/archives/<id>/edit` | POST | Edit archive config |
+| `/archives/<id>/delete` | POST | Delete archive config |
 | `/archives/<id>/run` | POST | Run archive job |
 | `/archives/<id>/dry-run` | POST | Run dry run |
-| `/history` | GET | Job history |
-| `/settings` | GET/POST | Settings page |
-| `/api/job/<id>` | GET | Job details (JSON) |
+| `/history/` | GET | Job history (with filters) |
+| `/history/api/job/<id>` | GET | Job details (JSON) |
+| `/profile/` | GET/POST | User profile (password, email) |
+| `/settings/` | GET/POST | Settings page |
 | `/api/stacks` | GET | Discovered stacks (JSON) |
 | `/download/<token>` | GET | Download archive (no auth) |
 | `/health` | GET | Health check |
@@ -205,23 +229,41 @@ python app/main.py
 ### Project Structure
 
 ```
-docker-archiver/
+Docker-Archiver/
 ├── app/
-│   ├── main.py           # Flask app & routes
-│   ├── db.py             # Database schema & connection
-│   ├── auth.py           # User authentication
-│   ├── executor.py       # Archive execution engine
-│   ├── retention.py      # GFS retention logic
-│   ├── stacks.py         # Stack discovery
-│   ├── scheduler.py      # APScheduler integration
-│   ├── downloads.py      # Download token system
-│   ├── notifications.py  # Apprise notifications
-│   ├── templates/        # Jinja2 templates
-│   └── static/           # CSS/JS assets
-├── docker-compose.yml    # Docker setup
-├── Dockerfile            # App container
-├── requirements.txt      # Python dependencies
-└── entrypoint.sh         # Startup script
+│   ├── routes/              # Flask Blueprints
+│   │   ├── archives.py      # Archive CRUD routes
+│   │   ├── history.py       # Job history routes
+│   │   ├── settings.py      # Settings routes
+│   │   └── profile.py       # User profile routes
+│   ├── main.py              # Flask app & core routes
+│   ├── db.py                # Database schema & connection
+│   ├── auth.py              # User authentication
+│   ├── executor.py          # Archive execution engine
+│   ├── retention.py         # GFS retention logic
+│   ├── stacks.py            # Stack discovery
+│   ├── scheduler.py         # APScheduler integration
+│   ├── downloads.py         # Download token system
+│   ├── notifications.py     # Apprise/SMTP notifications
+│   ├── utils.py             # Utility functions
+│   ├── templates/           # Jinja2 templates
+│   │   ├── base.html        # Base layout with navigation
+│   │   ├── index.html       # Dashboard
+│   │   ├── archives.html    # Archive management
+│   │   ├── history.html     # Job history
+│   │   ├── settings.html    # Settings page
+│   │   ├── profile.html     # User profile
+│   │   ├── login.html       # Login page
+│   │   └── setup.html       # Initial setup
+│   └── static/              # Static assets
+│       ├── icons/           # GitHub, Discord, Favicon
+│       └── images/          # Logo
+├── docker-compose.yml       # Docker setup
+├── Dockerfile               # App container
+├── requirements.txt         # Python dependencies
+├── entrypoint.sh            # Startup script
+├── wait_for_db.py           # Database wait script
+└── .env.example             # Environment template
 ```
 
 ## Database Schema
