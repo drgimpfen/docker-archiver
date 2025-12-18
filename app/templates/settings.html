@@ -71,7 +71,7 @@
             </div>
             
             <button type="button" class="btn btn-outline-secondary btn-sm" onclick="testNotification()">
-                <i class="bi bi-send me-1"></i> Send Test Notification
+                <i class="bi bi-send me-1"></i>Send Test Notification
             </button>
         </div>
     </div>
@@ -91,7 +91,7 @@
     
     <div class="d-flex gap-2">
         <button type="submit" class="btn btn-primary">
-            <i class="bi bi-check-lg me-1"></i> Save Settings
+            <i class="bi bi-check-lg me-1"></i>Save Settings
         </button>
         <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">Cancel</a>
     </div>
@@ -102,9 +102,59 @@
 {% block extra_js %}
 <script>
 function testNotification() {
-    // This would trigger a test notification
-    alert('Test notification functionality not yet implemented.\nCheck your Apprise URLs are correct and save settings first.');
-    // TODO: Implement test notification API endpoint
+    const btn = event.target;
+    const originalContent = btn.innerHTML;
+    
+    // Disable button and show loading state
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Sending...';
+    
+    fetch('{{ url_for("settings.test_notification") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Show success message
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-success alert-dismissible fade show mt-3';
+            alert.innerHTML = `
+                <i class="bi bi-check-circle me-2"></i>${data.message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            btn.parentElement.appendChild(alert);
+            
+            // Auto-dismiss after 5 seconds
+            setTimeout(() => alert.remove(), 5000);
+        } else {
+            // Show error message
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-danger alert-dismissible fade show mt-3';
+            alert.innerHTML = `
+                <i class="bi bi-exclamation-triangle me-2"></i>${data.message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            btn.parentElement.appendChild(alert);
+        }
+    })
+    .catch(error => {
+        // Show error message
+        const alert = document.createElement('div');
+        alert.className = 'alert alert-danger alert-dismissible fade show mt-3';
+        alert.innerHTML = `
+            <i class="bi bi-exclamation-triangle me-2"></i>Failed to send test notification: ${error.message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        btn.parentElement.appendChild(alert);
+    })
+    .finally(() => {
+        // Re-enable button
+        btn.disabled = false;
+        btn.innerHTML = originalContent;
+    });
 }
 </script>
 {% endblock %}

@@ -18,7 +18,7 @@ body.has-sidebar .app-main {
 
 .app-sidebar {
     position: fixed;
-    top: 57px; /* Below navbar */
+    top: 0;
     left: 0;
     bottom: 0;
     width: 240px;
@@ -27,12 +27,26 @@ body.has-sidebar .app-main {
     padding: 1rem 0;
     overflow-y: auto;
     z-index: 1020;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-header {
+    padding: 1rem 1.5rem 1.5rem;
+    border-bottom: 1px solid var(--bs-border-color);
+    margin-bottom: 1rem;
+}
+
+.app-sidebar .nav {
+    flex: 1;
 }
 
 .app-sidebar .nav-link {
     color: var(--bs-body-color);
     padding: 0.75rem 1.5rem;
     border-left: 3px solid transparent;
+    display: flex;
+    align-items: center;
 }
 
 .app-sidebar .nav-link:hover {
@@ -46,10 +60,17 @@ body.has-sidebar .app-main {
     font-weight: 500;
 }
 
+.sidebar-bottom {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--bs-border-color);
+    margin-top: auto;
+}
+
 /* Mobile sidebar toggle */
 @media (max-width: 991.98px) {
     body.has-sidebar .app-main {
         margin-left: 0;
+        width: 100%;
     }
 
     .app-sidebar {
@@ -59,6 +80,10 @@ body.has-sidebar .app-main {
 
     body.sidebar-open .app-sidebar {
         transform: translateX(0);
+    }
+
+    #sidebar-toggle {
+        display: block !important;
     }
 }
 
@@ -72,12 +97,9 @@ body.has-sidebar .app-main {
     max-width: 100%;
 }
 
-/* Navbar adjustments */
-.navbar {
-    position: sticky;
-    top: 0;
-    z-index: 1030;
-    background-color: var(--bs-body-bg) !important;
+/* Mobile toggle button */
+#sidebar-toggle {
+    display: none;
 }
 
 /* Card styling */

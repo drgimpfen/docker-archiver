@@ -191,3 +191,32 @@ Error: {error_message}
         
     except Exception as e:
         print(f"[WARNING] Failed to send notification: {e}")
+
+
+def send_test_notification():
+    """Send a test notification to verify configuration."""
+    try:
+        # Create Apprise instance with all configured URLs and emails
+        apobj = get_apprise_instance()
+        
+        if not apobj:
+            raise Exception("No notification services configured")
+        
+        title = "🔔 Docker Archiver - Test Notification"
+        body = """This is a test notification from Docker Archiver.
+
+If you received this message, your notification configuration is working correctly!
+
+Notification services configured:
+- Apprise URLs from settings
+- User email addresses (if SMTP is configured)
+"""
+        
+        # Send notification
+        apobj.notify(
+            body=body,
+            title=title,
+        )
+        
+    except Exception as e:
+        raise Exception(f"Failed to send test notification: {e}")

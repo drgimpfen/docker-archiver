@@ -63,11 +63,11 @@
                 </td>
                 <td><code>{{ archive.output_format }}</code></td>
                 <td>
-                    <button class="btn btn-sm btn-outline-primary" onclick="editArchive({{ archive.id }})">
-                        <i class="bi bi-pencil"></i>
+                    <button class="btn btn-sm btn-outline-primary" onclick="editArchive({{ archive.id }})" title="Edit Archive">
+                        <i class="bi bi-pencil me-1"></i>Edit
                     </button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="deleteArchive({{ archive.id }}, '{{ archive.name }}')">
-                        <i class="bi bi-trash"></i>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteArchive({{ archive.id }}, '{{ archive.name }}')" title="Delete Archive">
+                        <i class="bi bi-trash me-1"></i>Delete
                     </button>
                 </td>
             </tr>

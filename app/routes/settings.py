@@ -1,10 +1,11 @@
 """
 Settings routes.
 """
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from app.auth import login_required, get_current_user
 from app.db import get_db
 from app.scheduler import reload_schedules
+from app.notifications import send_test_notification
 
 
 bp = Blueprint('settings', __name__, url_prefix='/settings')
@@ -63,3 +64,14 @@ def manage_settings():
         settings=settings_dict,
         current_user=get_current_user()
     )
+
+
+@bp.route('/test-notification', methods=['POST'])
+@login_required
+def test_notification():
+    """Send a test notification."""
+    try:
+        send_test_notification()
+        return jsonify({'success': True, 'message': 'Test notification sent successfully!'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Failed to send notification: {str(e)}'}), 500

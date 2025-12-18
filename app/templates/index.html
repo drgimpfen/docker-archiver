@@ -147,13 +147,14 @@
                                     <div class="mt-3 d-flex gap-2">
                                         <form method="POST" action="{{ url_for('archives.run', archive_id=archive.id) }}" class="flex-fill">
                                             <button type="submit" class="btn btn-success btn-sm w-100">
-                                                <i class="bi bi-play-fill"></i> Run
+                                                <i class="bi bi-play-fill me-1"></i>Run Now
                                             </button>
                                         </form>
                                         <button type="button" class="btn btn-outline-secondary btn-sm" 
                                                 data-bs-toggle="modal" 
-                                                data-bs-target="#dryRunModal{{ archive.id }}">
-                                            <i class="bi bi-eye"></i>
+                                                data-bs-target="#dryRunModal{{ archive.id }}"
+                                                title="Dry Run">
+                                            <i class="bi bi-eye me-1"></i>Preview
                                         </button>
                                     </div>
                                 </div>

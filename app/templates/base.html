@@ -10,42 +10,44 @@
 </head>
 <body>
     {% if session.user_id %}
-    <nav class="navbar navbar-dark bg-transparent border-bottom" aria-label="Top bar">
-        <div class="container-fluid d-flex align-items-center">
-            <button id="sidebar-toggle" class="btn btn-outline-secondary me-3 d-lg-none" aria-label="Toggle menu">☰</button>
-            <a class="navbar-brand d-flex align-items-center" href="{{ url_for('index') }}">
-                <img src="{{ url_for('static', filename='images/Logo.png') }}" alt="Docker Archiver logo" class="header-logo" style="height:28px;margin-right:10px;"/>
-            </a>
-            <div class="ms-auto d-none d-lg-flex align-items-center">
-                <a href="https://github.com/drgimpfen/Docker-Archiver/" target="_blank" rel="noopener" class="px-2">
-                    <img src="{{ url_for('static', filename='icons/github-mark-white.png') }}" alt="GitHub" class="header-social-icon theme-icon-dark" style="height:24px;" />
-                    <img src="{{ url_for('static', filename='icons/github-mark.png') }}" alt="GitHub" class="header-social-icon theme-icon-light" style="height:24px;display:none;" />
-                </a>
-                <a href="https://discord.gg/Tq84tczrR2" target="_blank" rel="noopener" class="px-2">
-                    <img src="{{ url_for('static', filename='icons/Discord-Symbol-White.png') }}" alt="Discord" class="header-social-icon theme-icon-dark" style="height:24px;" />
-                    <img src="{{ url_for('static', filename='icons/Discord-Symbol-Black.png') }}" alt="Discord" class="header-social-icon theme-icon-light" style="height:24px;display:none;" />
-                </a>
-                <a id="theme-toggle" class="nav-link px-2" title="Toggle dark mode">🌙</a>
-                <a class="nav-link px-2" href="{{ url_for('profile.manage_profile') }}">Profile</a>
-                <a class="nav-link px-2" href="{{ url_for('settings.manage_settings') }}">Settings</a>
-                <a class="nav-link px-2" href="{{ url_for('logout') }}">Logout</a>
-            </div>
-        </div>
-    </nav>
-    {% endif %}
-
-    {% if session.user_id %}
     <aside class="app-sidebar" id="app-sidebar">
+        <!-- Logo -->
+        <div class="sidebar-header">
+            <a href="{{ url_for('index') }}" class="d-flex align-items-center text-decoration-none">
+                <img src="{{ url_for('static', filename='images/Logo.png') }}" alt="Docker Archiver" style="max-width: 200px; height: auto;">
+            </a>
+        </div>
+
+        <!-- Navigation -->
         <ul class="nav flex-column">
-            <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}">Dashboard</a></li>
-            <li class="nav-item"><a class="nav-link" href="{{ url_for('archives.list_archives') }}">Archives</a></li>
-            <li class="nav-item"><a class="nav-link" href="{{ url_for('history.list_history') }}">History</a></li>
-            <li class="nav-item"><a class="nav-link" href="{{ url_for('profile.manage_profile') }}">Profile</a></li>
-            <li class="nav-item"><a class="nav-link" href="{{ url_for('settings.manage_settings') }}">Settings</a></li>
+            <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}"><i class="bi bi-house-door me-2"></i>Dashboard</a></li>
+            <li class="nav-item"><a class="nav-link" href="{{ url_for('archives.list_archives') }}"><i class="bi bi-archive me-2"></i>Archives</a></li>
+            <li class="nav-item"><a class="nav-link" href="{{ url_for('history.list_history') }}"><i class="bi bi-clock-history me-2"></i>History</a></li>
+            <li class="nav-item"><a class="nav-link" href="{{ url_for('profile.manage_profile') }}"><i class="bi bi-person me-2"></i>Profile</a></li>
+            <li class="nav-item"><a class="nav-link" href="{{ url_for('settings.manage_settings') }}"><i class="bi bi-gear me-2"></i>Settings</a></li>
         </ul>
 
-        <!-- sidebar-bottom removed; social icons moved to header -->
+        <!-- Sidebar Bottom -->
+        <div class="sidebar-bottom">
+            <div class="d-flex justify-content-center gap-3 mb-3">
+                <a href="https://github.com/drgimpfen/Docker-Archiver/" target="_blank" rel="noopener" title="GitHub">
+                    <img src="{{ url_for('static', filename='icons/github-mark-white.png') }}" alt="GitHub" class="theme-icon-dark" style="height:20px;" />
+                    <img src="{{ url_for('static', filename='icons/github-mark.png') }}" alt="GitHub" class="theme-icon-light" style="height:20px;display:none;" />
+                </a>
+                <a href="https://discord.gg/Tq84tczrR2" target="_blank" rel="noopener" title="Discord">
+                    <img src="{{ url_for('static', filename='icons/Discord-Symbol-White.png') }}" alt="Discord" class="theme-icon-dark" style="height:20px;" />
+                    <img src="{{ url_for('static', filename='icons/Discord-Symbol-Black.png') }}" alt="Discord" class="theme-icon-light" style="height:20px;display:none;" />
+                </a>
+                <a id="theme-toggle" href="#" title="Toggle theme" style="font-size: 20px; text-decoration: none;">🌙</a>
+            </div>
+            <a href="{{ url_for('logout') }}" class="btn btn-outline-danger btn-sm w-100">
+                <i class="bi bi-box-arrow-right me-1"></i>Logout
+            </a>
+        </div>
     </aside>
+
+    <!-- Mobile Toggle Button -->
+    <button id="sidebar-toggle" class="btn btn-outline-secondary d-lg-none" style="position: fixed; top: 10px; left: 10px; z-index: 1040;" aria-label="Toggle menu">☰</button>
     {% endif %}
 
     <main class="app-main mt-4">
