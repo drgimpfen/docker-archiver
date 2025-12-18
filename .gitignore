@@ -31,6 +31,9 @@ instance/
 .env
 .env.local
 
+# Docker Compose Override (for local development)
+docker-compose.override.yml
+
 # Database
 *.db
 *.sqlite

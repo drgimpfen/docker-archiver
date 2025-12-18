@@ -1,0 +1,8 @@
+services:
+  app:
+    volumes:
+      # Development stack directories (adjust to your setup)
+      - /opt/stacks:/local/stacks
+      # Add more as needed:
+      # - /opt/dockge/stacks:/local/dockge
+      # - /srv/other-stacks:/local/other
