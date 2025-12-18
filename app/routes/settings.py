@@ -1,6 +1,7 @@
 """
 Settings routes.
 """
+import os
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from app.auth import login_required, get_current_user
 from app.db import get_db
@@ -140,10 +141,14 @@ def manage_settings():
         for row in cur.fetchall():
             settings_dict[row['key']] = row['value']
     
+    # Check if SMTP is configured via environment variables
+    smtp_configured = bool(os.environ.get('SMTP_SERVER') and os.environ.get('SMTP_USER'))
+    
     return render_template(
         'settings.html',
         settings=settings_dict,
-        current_user=get_current_user()
+        current_user=get_current_user(),
+        smtp_configured=smtp_configured
     )
 
 

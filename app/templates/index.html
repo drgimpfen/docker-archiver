@@ -163,13 +163,18 @@
                                                 <i class="bi bi-eye me-1"></i>Preview
                                             </button>
                                         </div>
-                                        <form method="POST" action="{{ url_for('archives.run_retention_only', archive_id=archive.id) }}">
-                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                                            <button type="submit" class="btn btn-outline-warning btn-sm w-100" 
-                                                    onclick="return confirm('Run retention cleanup for {{ archive.name }}? This will delete old archives according to retention rules.')">
-                                                <i class="bi bi-trash me-1"></i>Run Retention
-                                            </button>
-                                        </form>
+                                        <div class="d-flex gap-2">
+                                            <form method="POST" action="{{ url_for('archives.run_retention_only', archive_id=archive.id) }}" class="flex-fill">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                                <button type="submit" class="btn btn-outline-warning btn-sm w-100" 
+                                                        onclick="return confirm('Run retention cleanup for {{ archive.name }}? This will delete old archives according to retention rules.')">
+                                                    <i class="bi bi-trash me-1"></i>Run Retention
+                                                </button>
+                                            </form>
+                                            <a href="{{ url_for('archives.edit', archive_id=archive.id) }}" class="btn btn-outline-primary btn-sm" title="Edit Archive">
+                                                <i class="bi bi-pencil"></i>
+                                            </a>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

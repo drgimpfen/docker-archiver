@@ -55,7 +55,6 @@
             <h5 class="mb-0"><i class="bi bi-bell me-2"></i> Notifications</h5>
         </div>
         <div class="card-body">
-            {% set smtp_configured = 'SMTP_SERVER' in request.environ and 'SMTP_USER' in request.environ %}
             {% if not smtp_configured %}
             <div class="alert alert-warning">
                 <i class="bi bi-exclamation-triangle me-2"></i>
