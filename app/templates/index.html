@@ -81,6 +81,7 @@
                 {% if next_scheduled %}
                     <h6 class="mb-2">{{ next_scheduled.strftime('%H:%M') }}</h6>
                     <small class="text-muted">{{ next_scheduled.strftime('%Y-%m-%d') }}</small>
+                    <br><small class="text-info" data-next-run="{{ next_scheduled.isoformat() }}"><span class="time-until"></span></small>
                 {% else %}
                     <h6 class="mb-2 text-muted">None</h6>
                     <small class="text-muted">No schedules active</small>
