@@ -9,6 +9,9 @@ def format_bytes(bytes_val):
     if bytes_val is None:
         return 'N/A'
     
+    # Convert to float to handle Decimal from database
+    bytes_val = float(bytes_val)
+    
     for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
         if bytes_val < 1024.0:
             return f"{bytes_val:.1f}{unit}"
