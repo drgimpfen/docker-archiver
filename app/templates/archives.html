@@ -27,14 +27,12 @@
             {% for archive in archives %}
             <tr>
                 <td>
-                    <strong>{{ archive.name }}</strong><br>
-                    <small class="text-muted">
-                        {% if archive.stop_containers %}
-                        <i class="bi bi-stop-circle text-danger" title="Stops containers"></i>
-                        {% else %}
-                        <i class="bi bi-play-circle text-success" title="Keeps containers running"></i>
-                        {% endif %}
-                    </small>
+                    <strong>{{ archive.name }}</strong>
+                    {% if archive.stop_containers %}
+                    <i class="bi bi-stop-circle text-danger ms-2" title="Stops containers"></i>
+                    {% else %}
+                    <i class="bi bi-play-circle text-success ms-2" title="Keeps containers running"></i>
+                    {% endif %}
                 </td>
                 <td>
                     {% for stack in archive.stacks[:3] %}
@@ -49,6 +47,9 @@
                     <span class="badge bg-primary">
                         <i class="bi bi-clock me-1"></i> {{ archive.schedule_cron }}
                     </span>
+                    {% if archive.next_run %}
+                    <br><small class="text-muted" data-next-run="{{ archive.next_run.isoformat() }}">Next: {{ archive.next_run.strftime('%Y-%m-%d %H:%M') }} (<span class="time-until"></span>)</small>
+                    {% endif %}
                     {% elif archive.schedule_enabled %}
                     <span class="badge bg-warning">
                         <i class="bi bi-exclamation-triangle me-1"></i> No schedule set
@@ -366,6 +367,37 @@ function deleteArchive(archiveId, archiveName) {
         form.submit();
     }
 }
+
+function formatTimeUntil(timestamp) {
+    const now = new Date();
+    const target = new Date(timestamp);
+    const diff = target - now;
+    
+    if (diff < 0) return 'overdue';
+    
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    
+    if (days > 0) return `in ${days}d ${hours % 24}h`;
+    if (hours > 0) return `in ${hours}h ${minutes % 60}m`;
+    return `in ${minutes}m`;
+}
+
+// Update relative time display
+function updateTimeUntil() {
+    document.querySelectorAll('[data-next-run]').forEach(el => {
+        const timestamp = el.getAttribute('data-next-run');
+        const timeUntilSpan = el.querySelector('.time-until');
+        if (timeUntilSpan) {
+            timeUntilSpan.textContent = formatTimeUntil(timestamp);
+        }
+    });
+}
+
+// Update on page load and every minute
+updateTimeUntil();
+setInterval(updateTimeUntil, 60000);
 </script>
 {% endblock %}
 

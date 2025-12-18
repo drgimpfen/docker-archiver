@@ -27,6 +27,13 @@ def list_archives():
     # Get available stacks
     stacks = discover_stacks()
     
+    # Enrich archives with next run time
+    for archive in archive_list:
+        if archive['schedule_enabled'] and archive['schedule_cron']:
+            archive['next_run'] = get_next_run_time(archive['id'])
+        else:
+            archive['next_run'] = None
+    
     return render_template(
         'archives.html',
         archives=archive_list,
@@ -186,6 +193,75 @@ def delete(archive_id):
     except Exception as e:
         flash(f'Error deleting archive: {e}', 'danger')
         return redirect(url_for('archives.list_archives'))
+
+
+@bp.route('/<int:archive_id>/retention', methods=['POST'])
+@login_required
+def run_retention_only(archive_id):
+    """Run retention cleanup manually (without creating new archive)."""
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM archives WHERE id = %s;", (archive_id,))
+            archive = cur.fetchone()
+        
+        if not archive:
+            flash('Archive not found', 'danger')
+            return redirect(url_for('index'))
+        
+        # Run retention in background
+        def run_retention():
+            from app.retention import run_retention
+            from app.db import get_db
+            
+            # Create a job record
+            with get_db() as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    INSERT INTO jobs (archive_id, job_type, status, start_time, triggered_by)
+                    VALUES (%s, 'retention', 'running', NOW(), 'manual')
+                    RETURNING id;
+                """, (archive_id,))
+                job_id = cur.fetchone()['id']
+                conn.commit()
+            
+            try:
+                # Run retention
+                reclaimed = run_retention(dict(archive), job_id, is_dry_run=False)
+                
+                # Update job status
+                with get_db() as conn:
+                    cur = conn.cursor()
+                    cur.execute("""
+                        UPDATE jobs 
+                        SET status = 'success', end_time = NOW(), reclaimed_size_bytes = %s
+                        WHERE id = %s;
+                    """, (reclaimed, job_id))
+                    conn.commit()
+                
+                from app.notifications import send_retention_notification
+                send_retention_notification(archive['name'], 0, reclaimed)  # deleted_count not tracked
+                
+            except Exception as e:
+                with get_db() as conn:
+                    cur = conn.cursor()
+                    cur.execute("""
+                        UPDATE jobs 
+                        SET status = 'failed', end_time = NOW(), error_message = %s
+                        WHERE id = %s;
+                    """, (str(e), job_id))
+                    conn.commit()
+        
+        thread = threading.Thread(target=run_retention)
+        thread.daemon = True
+        thread.start()
+        
+        flash(f'Retention cleanup started for "{archive["name"]}"', 'success')
+        return redirect(url_for('index'))
+        
+    except Exception as e:
+        flash(f'Failed to start retention: {str(e)}', 'danger')
+        return redirect(url_for('index'))
 
 
 @bp.route('/<int:archive_id>/run', methods=['POST'])

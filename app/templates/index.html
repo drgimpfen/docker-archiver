@@ -140,23 +140,35 @@
                                     {% if archive.next_run %}
                                     <div class="mb-2">
                                         <small class="text-muted">Next run:</small><br>
-                                        <small>{{ archive.next_run.strftime('%Y-%m-%d %H:%M') }}</small>
+                                        <small data-next-run="{{ archive.next_run.isoformat() }}">
+                                            {{ archive.next_run.strftime('%Y-%m-%d %H:%M') }}
+                                            <span class="text-info">(<span class="time-until"></span>)</span>
+                                        </small>
                                     </div>
                                     {% endif %}
 
-                                    <div class="mt-3 d-flex gap-2">
-                                        <form method="POST" action="{{ url_for('archives.run', archive_id=archive.id) }}" class="flex-fill">
+                                    <div class="mt-3 d-flex flex-column gap-2">
+                                        <div class="d-flex gap-2">
+                                            <form method="POST" action="{{ url_for('archives.run', archive_id=archive.id) }}" class="flex-fill">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                                <button type="submit" class="btn btn-success btn-sm w-100">
+                                                    <i class="bi bi-play-fill me-1"></i>Run Now
+                                                </button>
+                                            </form>
+                                            <button type="button" class="btn btn-outline-secondary btn-sm" 
+                                                    data-bs-toggle="modal" 
+                                                    data-bs-target="#dryRunModal{{ archive.id }}"
+                                                    title="Dry Run">
+                                                <i class="bi bi-eye me-1"></i>Preview
+                                            </button>
+                                        </div>
+                                        <form method="POST" action="{{ url_for('archives.run_retention_only', archive_id=archive.id) }}">
                                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                                            <button type="submit" class="btn btn-success btn-sm w-100">
-                                                <i class="bi bi-play-fill me-1"></i>Run Now
+                                            <button type="submit" class="btn btn-outline-warning btn-sm w-100" 
+                                                    onclick="return confirm('Run retention cleanup for {{ archive.name }}? This will delete old archives according to retention rules.')">
+                                                <i class="bi bi-trash me-1"></i>Run Retention
                                             </button>
                                         </form>
-                                        <button type="button" class="btn btn-outline-secondary btn-sm" 
-                                                data-bs-toggle="modal" 
-                                                data-bs-target="#dryRunModal{{ archive.id }}"
-                                                title="Dry Run">
-                                            <i class="bi bi-eye me-1"></i>Preview
-                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -275,4 +287,39 @@
     </div>
 </div>
 
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function formatTimeUntil(timestamp) {
+    const now = new Date();
+    const target = new Date(timestamp);
+    const diff = target - now;
+    
+    if (diff < 0) return 'overdue';
+    
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    
+    if (days > 0) return `in ${days}d ${hours % 24}h`;
+    if (hours > 0) return `in ${hours}h ${minutes % 60}m`;
+    return `in ${minutes}m`;
+}
+
+// Update relative time display
+function updateTimeUntil() {
+    document.querySelectorAll('[data-next-run]').forEach(el => {
+        const timestamp = el.getAttribute('data-next-run');
+        const timeUntilSpan = el.querySelector('.time-until');
+        if (timeUntilSpan) {
+            timeUntilSpan.textContent = formatTimeUntil(timestamp);
+        }
+    });
+}
+
+// Update on page load and every minute
+updateTimeUntil();
+setInterval(updateTimeUntil, 60000);
+</script>
 {% endblock %}
