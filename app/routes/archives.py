@@ -287,14 +287,19 @@ def run_retention_only(archive_id):
                     """, (str(e), job_id))
                     conn.commit()
         
+        print(f"[INFO] Creating retention thread for archive: {archive_dict['name']}")
         thread = threading.Thread(target=run_retention_job)
         thread.daemon = True
         thread.start()
+        print(f"[INFO] Retention thread started: {thread.is_alive()}")
         
-        flash(f'Retention cleanup started for "{archive["name"]}"', 'success')
+        flash(f'Retention cleanup started for "{archive_dict["name"]}"', 'success')
         return redirect(url_for('index'))
         
     except Exception as e:
+        print(f"[ERROR] Failed to start retention route: {e}")
+        import traceback
+        traceback.print_exc()
         flash(f'Failed to start retention: {str(e)}', 'danger')
         return redirect(url_for('index'))
 
