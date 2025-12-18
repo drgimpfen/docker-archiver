@@ -114,33 +114,10 @@ def create():
         return redirect(url_for('archives.list_archives'))
 
 
-@bp.route('/<int:archive_id>/edit', methods=['GET', 'POST'])
+@bp.route('/<int:archive_id>/edit', methods=['POST'])
 @login_required
 def edit(archive_id):
     """Edit archive configuration."""
-    # GET request - show edit form
-    if request.method == 'GET':
-        with get_db() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT * FROM archives WHERE id = %s;", (archive_id,))
-            archive = cur.fetchone()
-            
-            if not archive:
-                flash('Archive not found.', 'danger')
-                return redirect(url_for('archives.list_archives'))
-        
-        # Get available stacks
-        stacks = discover_stacks()
-        
-        return render_template(
-            'archives.html',
-            archives=[],
-            stacks=stacks,
-            edit_archive=archive,
-            current_user=get_current_user()
-        )
-    
-    # POST request - process form
     try:
         from croniter import croniter
         

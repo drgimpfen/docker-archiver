@@ -1,125 +1,14 @@
 {% extends "base.html" %}
 
-{% block title %}{% if edit_archive %}Edit Archive{% else %}Archives{% endif %} - Docker Archiver{% endblock %}
+{% block title %}Archives - Docker Archiver{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h2><i class="bi bi-box-seam me-2"></i> {% if edit_archive %}Edit Archive: {{ edit_archive.name }}{% else %}Archive Management{% endif %}</h2>
-    {% if not edit_archive %}
+    <h2><i class="bi bi-box-seam me-2"></i> Archive Management</h2>
     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createArchiveModal">
         <i class="bi bi-plus-lg me-1"></i> Create Archive
     </button>
-    {% else %}
-    <a href="{{ url_for('archives.list_archives') }}" class="btn btn-secondary">
-        <i class="bi bi-arrow-left me-1"></i> Back to Archives
-    </a>
-    {% endif %}
 </div>
-
-{% if edit_archive %}
-<!-- Edit Archive Form -->
-<div class="card">
-    <div class="card-body">
-        <form method="POST" action="{{ url_for('archives.edit', archive_id=edit_archive.id) }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            
-            <div class="mb-3">
-                <label class="form-label">Archive Name (cannot be changed)</label>
-                <input type="text" class="form-control" value="{{ edit_archive.name }}" disabled>
-            </div>
-            
-            <div class="mb-3">
-                <label for="stacks" class="form-label">Stacks to Archive</label>
-                <select class="form-select" id="stacks" name="stacks" multiple size="10" required>
-                    {% for stack in stacks %}
-                    <option value="{{ stack }}" {% if stack in edit_archive.stacks %}selected{% endif %}>{{ stack }}</option>
-                    {% endfor %}
-                </select>
-                <div class="form-text">Hold Ctrl/Cmd to select multiple stacks</div>
-            </div>
-            
-            <div class="mb-3 form-check">
-                <input type="checkbox" class="form-check-input" id="stop_containers" name="stop_containers" {% if edit_archive.stop_containers %}checked{% endif %}>
-                <label class="form-check-label" for="stop_containers">
-                    Stop containers before archiving
-                    <i class="bi bi-info-circle text-muted" title="Ensures consistent state by stopping containers before backup"></i>
-                </label>
-            </div>
-            
-            <div class="mb-3 form-check">
-                <input type="checkbox" class="form-check-input" id="schedule_enabled" name="schedule_enabled" {% if edit_archive.schedule_enabled %}checked{% endif %}>
-                <label class="form-check-label" for="schedule_enabled">Enable automatic schedule</label>
-            </div>
-            
-            <div class="mb-3">
-                <label for="schedule_cron" class="form-label">Cron Expression</label>
-                <input type="text" class="form-control" id="schedule_cron" name="schedule_cron" value="{{ edit_archive.schedule_cron }}" placeholder="0 3 * * *">
-                <div class="form-text">Format: minute hour day month day_of_week (e.g., "0 3 * * *" for daily at 3 AM)</div>
-            </div>
-            
-            <div class="mb-3">
-                <label for="output_format" class="form-label">Archive Format</label>
-                <select class="form-select" id="output_format" name="output_format">
-                    <option value="tar" {% if edit_archive.output_format == 'tar' %}selected{% endif %}>TAR (uncompressed)</option>
-                    <option value="tar.gz" {% if edit_archive.output_format == 'tar.gz' %}selected{% endif %}>TAR.GZ (gzip)</option>
-                    <option value="tar.zst" {% if edit_archive.output_format == 'tar.zst' %}selected{% endif %}>TAR.ZST (zstandard) - Recommended</option>
-                </select>
-            </div>
-            
-            <h5 class="mt-4 mb-3">Retention Policy (GFS)</h5>
-            
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="mb-3">
-                        <label for="keep_days" class="form-label">Keep Days</label>
-                        <input type="number" class="form-control" id="keep_days" name="keep_days" value="{{ edit_archive.retention_keep_days }}" min="0">
-                        <div class="form-text">Daily archives to keep</div>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="mb-3">
-                        <label for="keep_weeks" class="form-label">Keep Weeks</label>
-                        <input type="number" class="form-control" id="keep_weeks" name="keep_weeks" value="{{ edit_archive.retention_keep_weeks }}" min="0">
-                        <div class="form-text">Weekly archives to keep</div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="mb-3">
-                        <label for="keep_months" class="form-label">Keep Months</label>
-                        <input type="number" class="form-control" id="keep_months" name="keep_months" value="{{ edit_archive.retention_keep_months }}" min="0">
-                        <div class="form-text">Monthly archives to keep</div>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="mb-3">
-                        <label for="keep_years" class="form-label">Keep Years</label>
-                        <input type="number" class="form-control" id="keep_years" name="keep_years" value="{{ edit_archive.retention_keep_years }}" min="0">
-                        <div class="form-text">Yearly archives to keep</div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="mb-3 form-check">
-                <input type="checkbox" class="form-check-input" id="one_per_day" name="one_per_day" {% if edit_archive.retention_one_per_day %}checked{% endif %}>
-                <label class="form-check-label" for="one_per_day">
-                    One per day mode
-                    <i class="bi bi-info-circle text-muted" title="Keeps only the newest archive per day"></i>
-                </label>
-            </div>
-            
-            <div class="d-flex gap-2">
-                <button type="submit" class="btn btn-primary">
-                    <i class="bi bi-check-lg me-1"></i> Save Changes
-                </button>
-                <a href="{{ url_for('archives.list_archives') }}" class="btn btn-secondary">Cancel</a>
-            </div>
-        </form>
-    </div>
-</div>
-{% else %}
 
 {% if archives %}
 <div class="table-responsive">
@@ -195,7 +84,6 @@
 <div class="alert alert-info">
     <i class="bi bi-info-circle me-2"></i> No archives configured yet. Create your first archive to get started.
 </div>
-{% endif %}
 {% endif %}
 
 <!-- Create Archive Modal -->
@@ -510,6 +398,15 @@ function updateTimeUntil() {
 // Update on page load and every minute
 updateTimeUntil();
 setInterval(updateTimeUntil, 60000);
+
+// Check if we should auto-open edit modal (from dashboard link)
+document.addEventListener('DOMContentLoaded', function() {
+    const archiveId = localStorage.getItem('openEditModal');
+    if (archiveId) {
+        localStorage.removeItem('openEditModal');
+        editArchive(parseInt(archiveId));
+    }
+});
 </script>
 {% endblock %}
 

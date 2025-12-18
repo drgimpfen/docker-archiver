@@ -171,7 +171,7 @@
                                                     <i class="bi bi-trash me-1"></i>Run Retention
                                                 </button>
                                             </form>
-                                            <a href="{{ url_for('archives.edit', archive_id=archive.id) }}" class="btn btn-outline-primary btn-sm" title="Edit Archive">
+                                            <a href="{{ url_for('archives.list_archives') }}#edit-{{ archive.id }}" class="btn btn-outline-primary btn-sm" title="Edit Archive" onclick="localStorage.setItem('openEditModal', '{{ archive.id }}')">
                                                 <i class="bi bi-pencil"></i>
                                             </a>
                                         </div>
