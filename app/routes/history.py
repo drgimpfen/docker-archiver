@@ -37,7 +37,7 @@ def list_history():
         query += " AND j.job_type = %s"
         params.append(job_type)
     
-    query += " ORDER BY j.start_time DESC LIMIT 100;"
+    query += " ORDER BY j.start_time DESC, j.id DESC LIMIT 100;"
     
     with get_db() as conn:
         cur = conn.cursor()

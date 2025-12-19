@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from collections import defaultdict
+from app import utils
 
 
 ARCHIVE_BASE = '/archives'
@@ -164,6 +165,8 @@ def filter_one_per_day(archives, log):
         date_key = archive['timestamp'].date()
         by_date[date_key].append(archive)
     
+    log('INFO', f"One-per-day filter: Found {len(by_date)} unique date(s)")
+    
     # Keep newest per day, mark rest for deletion
     filtered = []
     to_delete = []
@@ -173,11 +176,14 @@ def filter_one_per_day(archives, log):
         day_archives.sort(key=lambda a: a['timestamp'], reverse=True)
         filtered.append(day_archives[0])
         
+        log('INFO', f"Date {date}: {len(day_archives)} archive(s) - keeping newest: {day_archives[0]['path'].name}")
+        
         # Mark older archives from same day for deletion
         if len(day_archives) > 1:
             duplicates = day_archives[1:]
             to_delete.extend(duplicates)
-            log('INFO', f"Marking {len(duplicates)} duplicate(s) for deletion from {date} (one-per-day mode)")
+            for dup in duplicates:
+                log('INFO', f"  Marking for deletion: {dup['path'].name}")
     
     # Sort again by timestamp
     filtered.sort(key=lambda a: a['timestamp'], reverse=True)
@@ -190,7 +196,7 @@ def apply_gfs_retention(archives, keep_days, keep_weeks, keep_months, keep_years
     
     Returns list of archives to keep.
     """
-    now = datetime.now()
+    now = utils.now()
     to_keep = []
     
     # Sort archives by timestamp (newest first)

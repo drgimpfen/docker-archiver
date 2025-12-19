@@ -6,9 +6,12 @@ import subprocess
 import time
 import json
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from app.db import get_db
+from app import utils
 from app.stacks import validate_stack, find_compose_file
+from app import utils
 
 
 ARCHIVE_BASE = '/archives'
@@ -34,7 +37,7 @@ class ArchiveExecutor:
     
     def log(self, level, message):
         """Add log entry with timestamp."""
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        timestamp = utils.local_now().strftime('%Y-%m-%d %H:%M:%S')
         prefix = "[SIMULATION] " if self.is_dry_run else ""
         log_line = f"[{timestamp}] [{level}] {prefix}{message}"
         self.log_buffer.append(log_line)
@@ -42,7 +45,7 @@ class ArchiveExecutor:
     
     def run(self, triggered_by='manual'):
         """Execute archive job with all phases."""
-        start_time = datetime.now()
+        start_time = utils.now()
         self.log('INFO', f"Starting archive job for: {self.config['name']}")
         
         # Create job record
@@ -121,7 +124,7 @@ class ArchiveExecutor:
     
     def _process_single_stack(self, stack_name, stop_containers):
         """Process a single stack: stop -> archive -> start."""
-        stack_start = datetime.now()
+        stack_start = utils.now()
         self.log('INFO', f"--- Starting backup for stack: {stack_name} ---")
         
         # Find stack directory
@@ -166,7 +169,7 @@ class ArchiveExecutor:
                 self.log('ERROR', f"Failed to restart stack: {stack_name}")
                 # Don't fail the whole job, archive was created successfully
         
-        stack_end = datetime.now()
+        stack_end = utils.now()
         duration = int((stack_end - stack_start).total_seconds())
         
         self.log('INFO', f"--- Finished backup for stack: {stack_name} ---")
@@ -274,7 +277,7 @@ class ArchiveExecutor:
     
     def _create_archive(self, stack_name, stack_path):
         """Create archive of stack directory."""
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = utils.local_now().strftime('%Y%m%d_%H%M%S')
         output_format = self.config.get('output_format', 'tar')
         archive_name = self.config['name']
         
@@ -422,7 +425,7 @@ class ArchiveExecutor:
         
         # Calculate totals
         total_size = sum(m['archive_size_bytes'] for m in stack_metrics)
-        end_time = datetime.now()
+        end_time = utils.now()
         duration = int((end_time - start_time).total_seconds())
         
         # Update job record

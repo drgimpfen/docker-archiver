@@ -101,10 +101,10 @@
                     </span>
                 </td>
                 <td>
-                    <small style="white-space: nowrap;">{{ job.start_time.strftime('%Y-%m-%d %H:%M:%S') if job.start_time else 'N/A' }}</small>
+                    <small style="white-space: nowrap;">{{ job.start_time|datetime }}</small>
                 </td>
                 <td>
-                    <small style="white-space: nowrap;">{{ job.end_time.strftime('%Y-%m-%d %H:%M:%S') if job.end_time else '-' }}</small>
+                    <small style="white-space: nowrap;">{{ job.end_time|datetime }}</small>
                 </td>
                 <td style="text-align: right;">
                     {% if job.job_type == 'archive' and job.total_size_bytes %}
@@ -126,167 +126,11 @@
 </div>
 {% endif %}
 
-<!-- Job Details Modal (reused from index.html) -->
-<div class="modal fade" id="jobDetailsModal" tabindex="-1">
-    <div class="modal-dialog modal-xl">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">
-                    <i class="bi bi-info-circle me-2"></i> Job Details
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body" id="jobDetailsContent">
-                <div class="text-center">
-                    <div class="spinner-border" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
 {% endblock %}
 
 {% block extra_js %}
 <script>
-async function showJobDetails(jobId) {
-    const modal = new bootstrap.Modal(document.getElementById('jobDetailsModal'));
-    const content = document.getElementById('jobDetailsContent');
-    
-    modal.show();
-    
-    try {
-        const response = await fetch(`/api/jobs/${jobId}`);
-        const data = await response.json();
-        
-        if (data.error) {
-            content.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
-            return;
-        }
-        
-        const job = data.job;
-        const metrics = data.metrics;
-        
-        let html = `
-            <div class="row mb-4">
-                <div class="col-md-6">
-                    <h6>Job Information</h6>
-                    <table class="table table-sm">
-                        <tr><th width="150">Job ID:</th><td>#${job.id}</td></tr>
-                        <tr><th>Archive:</th><td>${job.archive_name || 'N/A'}</td></tr>
-                        <tr><th>Type:</th><td>${job.job_type} ${job.is_dry_run ? '<span class="badge bg-secondary">DRY RUN</span>' : ''}</td></tr>
-                        <tr><th>Status:</th><td><span class="badge bg-${job.status === 'success' ? 'success' : (job.status === 'running' ? 'info' : 'danger')}">${job.status}</span></td></tr>
-                        <tr><th>Triggered By:</th><td>${job.triggered_by}</td></tr>
-                    </table>
-                </div>
-                <div class="col-md-6">
-                    <h6>Timing & Size</h6>
-                    <table class="table table-sm">
-                        <tr><th width="150">Start Time:</th><td>${job.start_time || 'N/A'}</td></tr>
-                        <tr><th>End Time:</th><td>${job.end_time || 'N/A'}</td></tr>
-                        <tr><th>Duration:</th><td>${job.duration_seconds ? job.duration_seconds + 's' : 'N/A'}</td></tr>
-                        <tr><th>Total Size:</th><td>${job.total_size_bytes ? formatBytes(job.total_size_bytes) : 'N/A'}</td></tr>
-                        <tr><th>Reclaimed:</th><td>${job.reclaimed_bytes ? formatBytes(job.reclaimed_bytes) : 'N/A'}</td></tr>
-                    </table>
-                </div>
-            </div>
-        `;
-        
-        if (job.error) {
-            html += `
-                <div class="alert alert-danger">
-                    <h6>Error</h6>
-                    <pre class="mb-0">${job.error}</pre>
-                </div>
-            `;
-        }
-        
-        if (metrics && metrics.length > 0) {
-            html += '<h6 class="mb-3">Stack Metrics</h6><div class="accordion mb-4" id="stackMetrics">';
-            
-            metrics.forEach((metric, index) => {
-                const size_mb = (metric.archive_size_bytes / (1024 * 1024)).toFixed(1);
-                const statusClass = metric.status === 'success' ? 'success' : (metric.status === 'failed' ? 'danger' : 'secondary');
-                
-                html += `
-                    <div class="accordion-item">
-                        <h2 class="accordion-header">
-                            <button class="accordion-button ${index > 0 ? 'collapsed' : ''}" type="button" 
-                                    data-bs-toggle="collapse" data-bs-target="#stack${index}">
-                                <span class="badge bg-${statusClass} me-2">${metric.status}</span>
-                                <strong>${metric.stack_name}</strong>
-                                <span class="ms-3 text-muted">${metric.duration_seconds}s | ${size_mb}MB</span>
-                                ${metric.was_running !== null ? (metric.was_running ? ' <i class="bi bi-play-circle text-success ms-2" title="Was running"></i>' : ' <i class="bi bi-stop-circle text-muted ms-2" title="Was stopped"></i>') : ''}
-                            </button>
-                        </h2>
-                        <div id="stack${index}" class="accordion-collapse collapse ${index === 0 ? 'show' : ''}" 
-                             data-bs-parent="#stackMetrics">
-                            <div class="accordion-body">
-                                <dl class="row mb-0">
-                                    <dt class="col-sm-3">Archive Path:</dt>
-                                    <dd class="col-sm-9"><code>${metric.archive_path || 'N/A'}</code></dd>
-                                    
-                                    <dt class="col-sm-3">Archive Size:</dt>
-                                    <dd class="col-sm-9">${formatBytes(metric.archive_size_bytes)}</dd>
-                                    
-                                    <dt class="col-sm-3">Duration:</dt>
-                                    <dd class="col-sm-9">${metric.duration_seconds}s</dd>
-                                    
-                                    <dt class="col-sm-3">Was Running:</dt>
-                                    <dd class="col-sm-9">${metric.was_running !== null ? (metric.was_running ? 'Yes' : 'No') : 'Unknown'}</dd>
-                                    
-                                    ${metric.error ? `<dt class="col-sm-3">Error:</dt><dd class="col-sm-9"><span class="text-danger">${metric.error}</span></dd>` : ''}
-                                </dl>
-                                
-                                <div class="mt-2 d-flex gap-2">
-                                    ${metric.archive_path && !metric.archive_path.includes('_download_') ? 
-                                        (metric.file_exists !== false ? 
-                                            `<button class="btn btn-sm btn-outline-primary" onclick="requestDownload(${job.id}, '${metric.stack_name}', '${metric.archive_path}')">
-                                                <i class="bi bi-download me-1"></i> Download Archive
-                                            </button>` :
-                                            `<button class="btn btn-sm btn-outline-secondary" disabled title="Archive deleted by retention">
-                                                <i class="bi bi-trash me-1"></i> Archive Deleted
-                                            </button>`) : ''}
-                                    <button class="btn btn-sm btn-outline-secondary" onclick="downloadLog(${job.id})">
-                                        <i class="bi bi-file-text me-1"></i> Download Log
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            });
-            
-            html += '</div>';
-        }
-        
-        if (job.log) {
-            html += `
-                <h6 class="mb-2">Complete Log Output</h6>
-                <pre class="bg-dark text-light p-3 rounded" style="max-height: 400px; overflow-y: auto; font-size: 0.85rem;">${escapeHtml(job.log)}</pre>
-            `;
-        }
-        
-        content.innerHTML = html;
-        
-    } catch (error) {
-        content.innerHTML = `<div class="alert alert-danger">Error loading job details: ${error}</div>`;
-    }
-}
-
-function formatBytes(bytes) {
-    if (!bytes) return 'N/A';
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let size = bytes;
-    let unitIndex = 0;
-    while (size >= 1024 && unitIndex < units.length - 1) {
-        size /= 1024;
-        unitIndex++;
-    }
-    return size.toFixed(1) + units[unitIndex];
-}
+// showJobDetails and formatBytes functions are now in base.html
 
 function escapeHtml(text) {
     const div = document.createElement('div');

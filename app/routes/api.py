@@ -12,6 +12,7 @@ from pathlib import Path
 from flask import Blueprint, request, jsonify, send_file
 from app.auth import login_required, get_current_user
 from app.db import get_db
+from app import utils
 
 
 bp = Blueprint('api', __name__, url_prefix='/api')
@@ -109,7 +110,7 @@ def request_download(job_id):
         
         # Generate download token
         token = secrets.token_urlsafe(32)
-        expires_at = datetime.now() + timedelta(hours=24)
+        expires_at = utils.now() + timedelta(hours=24)
         
         # Store token in database
         with get_db() as conn:
@@ -151,7 +152,9 @@ def request_download(job_id):
 @bp.route('/jobs/<int:job_id>/log')
 @api_auth_required
 def download_log(job_id):
-    """Download job log as text file."""
+    """Download job log as text file. Optionally filter by stack name using ?stack=stackname query parameter."""
+    stack_name = request.args.get('stack')
+    
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("SELECT j.log, a.name as archive_name FROM jobs j LEFT JOIN archives a ON j.archive_id = a.id WHERE j.id = %s;", (job_id,))
@@ -160,12 +163,40 @@ def download_log(job_id):
     if not result or not result['log']:
         return "No log available", 404
     
+    log_content = result['log']
+    
+    # Filter log by stack if requested
+    if stack_name:
+        lines = log_content.split('\n')
+        filtered_lines = []
+        in_stack_section = False
+        
+        for line in lines:
+            # Check if we're entering the requested stack section
+            if f"--- Starting backup for stack: {stack_name} ---" in line:
+                in_stack_section = True
+            # Check if we're finishing this stack section
+            elif f"--- Finished backup for stack: {stack_name} ---" in line:
+                filtered_lines.append(line)
+                in_stack_section = False
+            # Check if we're entering a different stack section
+            elif "--- Starting backup for stack:" in line and f"stack: {stack_name} ---" not in line:
+                in_stack_section = False
+            
+            if in_stack_section:
+                filtered_lines.append(line)
+        
+        log_content = '\n'.join(filtered_lines)
+        if not log_content.strip():
+            return f"No log entries found for stack '{stack_name}'", 404
+    
     # Create temporary log file
-    log_filename = f"job_{job_id}_{result['archive_name'] or 'unknown'}.log"
+    filename_suffix = f"_{stack_name}" if stack_name else ""
+    log_filename = f"job_{job_id}_{result['archive_name'] or 'unknown'}{filename_suffix}.log"
     log_path = f"/tmp/{log_filename}"
     
     with open(log_path, 'w') as f:
-        f.write(result['log'])
+        f.write(log_content)
     
     return send_file(log_path, as_attachment=True, download_name=log_filename)
 
@@ -180,7 +211,7 @@ def _prepare_folder_download(token, folder_path, stack_name, user_email):
         download_dir = Path('/archives/_downloads')
         download_dir.mkdir(exist_ok=True)
         
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = utils.local_now().strftime('%Y%m%d_%H%M%S')
         archive_name = f"{stack_name}_{timestamp}.tar.zst"
         archive_path = download_dir / archive_name
         

@@ -3,7 +3,7 @@ Main Flask application with Blueprints.
 """
 import os
 
-__version__ = '0.6.0'
+__version__ = '0.6.1'
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file
 from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
@@ -78,6 +78,13 @@ def stack_color_filter(stack_name):
     # Saturation: 65% (not too dull, not too vibrant)
     # Lightness: 45% (dark enough for white text)
     return f"hsl({hue}, 65%, 45%)"
+
+
+@app.template_filter('datetime')
+def datetime_filter(dt, format_string='%Y-%m-%d %H:%M:%S'):
+    """Format datetime in local timezone."""
+    from app.utils import format_datetime
+    return format_datetime(dt, format_string)
 
 
 # Core routes
@@ -174,7 +181,8 @@ def index():
         
         # Get recent jobs (last 10)
         cur.execute("""
-            SELECT j.*, a.name as archive_name 
+            SELECT j.*, a.name as archive_name,
+                   EXTRACT(EPOCH FROM (j.end_time - j.start_time))::integer as duration_seconds
             FROM jobs j
             LEFT JOIN archives a ON j.archive_id = a.id
             ORDER BY j.start_time DESC

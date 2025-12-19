@@ -209,26 +209,38 @@ def run_retention_only(archive_id):
             flash('Archive not found', 'danger')
             return redirect(url_for('index'))
         
+        # Convert to dict to avoid database connection issues in thread
+        archive_dict = dict(archive)
+        
         # Run retention in background
         def run_retention_job():
-            from app.retention import run_retention
-            from app.db import get_db
-            
-            # Create a job record with empty log
-            with get_db() as conn:
-                cur = conn.cursor()
-                cur.execute("""
-                    INSERT INTO jobs (archive_id, job_type, status, start_time, triggered_by, log)
-                    VALUES (%s, 'retention', 'running', NOW(), 'manual', '')
-                    RETURNING id;
-                """, (archive_id,))
-                job_id = cur.fetchone()['id']
-                conn.commit()
+            print(f"[INFO] Retention thread started for archive_id={archive_id}")
+            try:
+                from app.retention import run_retention
+                from app.db import get_db
+                
+                # Create a job record with empty log
+                with get_db() as conn:
+                    from app import utils as u
+                    cur = conn.cursor()
+                    start_time = u.now()
+                    cur.execute("""
+                        INSERT INTO jobs (archive_id, job_type, status, start_time, triggered_by, log)
+                        VALUES (%s, 'retention', 'running', %s, 'manual', '')
+                        RETURNING id;
+                    """, (archive_id, start_time))
+                    job_id = cur.fetchone()['id']
+                    conn.commit()
+            except Exception as e:
+                print(f"[ERROR] Failed to create retention job record: {e}")
+                import traceback
+                traceback.print_exc()
+                return
             
             # Log function
             def log_message(level, message):
-                import datetime
-                timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                from app import utils as u
+                timestamp = u.local_now().strftime('%Y-%m-%d %H:%M:%S')
                 log_line = f"[{timestamp}] [{level}] {message}\n"
                 
                 with get_db() as conn:
@@ -241,46 +253,59 @@ def run_retention_only(archive_id):
                     conn.commit()
             
             try:
-                log_message('INFO', f"Starting retention cleanup for '{archive['name']}'")
+                log_message('INFO', f"Starting retention cleanup for '{archive_dict['name']}'")
                 
                 # Run retention with log callback
-                reclaimed = run_retention(dict(archive), job_id, is_dry_run=False, log_callback=log_message)
+                reclaimed = run_retention(archive_dict, job_id, is_dry_run=False, log_callback=log_message)
                 
                 log_message('INFO', f"Retention completed, reclaimed {reclaimed} bytes")
                 
                 # Update job status
                 with get_db() as conn:
+                    from app import utils as u
                     cur = conn.cursor()
+                    end_time = u.now()
                     cur.execute("""
                         UPDATE jobs 
-                        SET status = 'success', end_time = NOW(), reclaimed_size_bytes = %s
+                        SET status = 'success', end_time = %s, reclaimed_size_bytes = %s
                         WHERE id = %s;
-                    """, (reclaimed, job_id))
+                    """, (end_time, reclaimed, job_id))
                     conn.commit()
                 
                 from app.notifications import send_retention_notification
                 send_retention_notification(archive['name'], 0, reclaimed)  # deleted_count not tracked
                 
             except Exception as e:
+                print(f"[ERROR] Manual retention run failed: {e}")
+                import traceback
+                traceback.print_exc()
+                
                 log_message('ERROR', f"Retention failed: {str(e)}")
                 
                 with get_db() as conn:
+                    from app import utils as u
                     cur = conn.cursor()
+                    end_time = u.now()
                     cur.execute("""
                         UPDATE jobs 
-                        SET status = 'failed', end_time = NOW(), error_message = %s
+                        SET status = 'failed', end_time = %s, error_message = %s
                         WHERE id = %s;
-                    """, (str(e), job_id))
+                    """, (end_time, str(e), job_id))
                     conn.commit()
         
+        print(f"[INFO] Creating retention thread for archive: {archive_dict['name']}")
         thread = threading.Thread(target=run_retention_job)
         thread.daemon = True
         thread.start()
+        print(f"[INFO] Retention thread started: {thread.is_alive()}")
         
-        flash(f'Retention cleanup started for "{archive["name"]}"', 'success')
+        flash(f'Retention cleanup started for "{archive_dict["name"]}"', 'success')
         return redirect(url_for('index'))
         
     except Exception as e:
+        print(f"[ERROR] Failed to start retention route: {e}")
+        import traceback
+        traceback.print_exc()
         flash(f'Failed to start retention: {str(e)}', 'danger')
         return redirect(url_for('index'))
 
@@ -301,8 +326,13 @@ def run(archive_id):
         
         # Run in background
         def run_job():
-            executor = ArchiveExecutor(dict(archive), is_dry_run=False)
-            executor.run(triggered_by='manual')
+            try:
+                executor = ArchiveExecutor(dict(archive), is_dry_run=False)
+                executor.run(triggered_by='manual')
+            except Exception as e:
+                print(f"[ERROR] Manual archive run failed: {e}")
+                import traceback
+                traceback.print_exc()
         
         thread = threading.Thread(target=run_job)
         thread.daemon = True

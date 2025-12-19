@@ -229,16 +229,20 @@ def init_db():
                 ('cleanup_log_retention_days', '90'),
                 ('cleanup_dry_run', 'false'),
                 ('notify_on_cleanup', 'false'),
-                ('app_version', '0.5.0')
+                ('app_version', '0.6.0')
             ON CONFLICT (key) DO NOTHING;
         """)
         
-        # Update app version if it changed
-        from app.main import __version__
-        cur.execute("""
-            INSERT INTO settings (key, value) VALUES ('app_version', %s)
-            ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = CURRENT_TIMESTAMP;
-        """, (__version__, __version__))
+        # Update app version if it changed (avoid importing main.py during init)
+        try:
+            from app.main import __version__
+            cur.execute("""
+                INSERT INTO settings (key, value) VALUES ('app_version', %s)
+                ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = CURRENT_TIMESTAMP;
+            """, (__version__, __version__))
+        except Exception:
+            # During initial setup, main.py might not be importable yet
+            pass
         
         conn.commit()
         print("[DB] Database schema initialized successfully")

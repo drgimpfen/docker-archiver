@@ -1,6 +1,10 @@
 #!/bin/bash
 set -e
 
+# Set timezone for Python
+export TZ="${TZ:-UTC}"
+ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
 echo "[Entrypoint] Waiting for PostgreSQL to be ready..."
 
 # Use Python script to wait for database

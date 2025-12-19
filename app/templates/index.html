@@ -79,8 +79,8 @@
                     <i class="bi bi-calendar-check fs-4 text-success"></i>
                 </div>
                 {% if next_scheduled %}
-                    <h6 class="mb-2">{{ next_scheduled.strftime('%H:%M') }}</h6>
-                    <small class="text-muted">{{ next_scheduled.strftime('%Y-%m-%d') }}</small>
+                    <h6 class="mb-2">{{ next_scheduled|datetime('%H:%M') }}</h6>
+                    <small class="text-muted">{{ next_scheduled|datetime('%Y-%m-%d') }}</small>
                     <br><small class="text-info" data-next-run="{{ next_scheduled.isoformat() }}"><span class="time-until"></span></small>
                 {% else %}
                     <h6 class="mb-2 text-muted">None</h6>
@@ -133,7 +133,7 @@
                                             <span class="badge bg-{{ 'success' if archive.last_status == 'success' else 'danger' }}">
                                                 {{ archive.last_status }}
                                             </span>
-                                            {{ archive.last_run.strftime('%Y-%m-%d %H:%M') }}
+                                            {{ archive.last_run|datetime('%Y-%m-%d %H:%M') }}
                                         </small>
                                     </div>
                                     {% endif %}
@@ -142,7 +142,7 @@
                                     <div class="mb-2">
                                         <small class="text-muted">Next run:</small><br>
                                         <small data-next-run="{{ archive.next_run.isoformat() }}">
-                                            {{ archive.next_run.strftime('%Y-%m-%d %H:%M') }}
+                                            {{ archive.next_run|datetime('%Y-%m-%d %H:%M') }}
                                             <span class="text-info">(<span class="time-until"></span>)</span>
                                         </small>
                                     </div>
@@ -171,9 +171,9 @@
                                                     <i class="bi bi-trash me-1"></i>Run Retention
                                                 </button>
                                             </form>
-                                            <a href="{{ url_for('archives.list_archives') }}#edit-{{ archive.id }}" class="btn btn-outline-primary btn-sm" title="Edit Archive" onclick="localStorage.setItem('openEditModal', '{{ archive.id }}')">
+                                            <button type="button" class="btn btn-outline-primary btn-sm" title="Edit Archive" onclick="editArchive({{ archive.id }})">
                                                 <i class="bi bi-pencil"></i>
-                                            </a>
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
@@ -256,7 +256,7 @@
                             </thead>
                             <tbody>
                                 {% for job in recent_jobs %}
-                                <tr>
+                                <tr style="cursor: pointer;" onclick="showJobDetails({{ job.id }})">
                                     <td>{{ job.archive_name or 'N/A' }}</td>
                                     <td>
                                         <span class="badge bg-{{ 'info' if job.job_type == 'archive' else 'secondary' }}">
@@ -264,10 +264,10 @@
                                         </span>
                                     </td>
                                     <td>
-                                        <small>{{ job.start_time.strftime('%Y-%m-%d %H:%M') if job.start_time else 'N/A' }}</small>
+                                        <small>{{ job.start_time|datetime('%Y-%m-%d %H:%M') }}</small>
                                     </td>
                                     <td>
-                                        <small>{{ format_duration(job.duration_seconds) if job.duration_seconds else 'N/A' }}</small>
+                                        <small>{{ format_duration(job.duration_seconds) }}</small>
                                     </td>
                                     <td>
                                         <small>{{ format_bytes(job.total_size_bytes) if job.total_size_bytes else 'N/A' }}</small>
@@ -297,6 +297,8 @@
 
 {% block extra_js %}
 <script>
+// showJobDetails and formatBytes functions are now in base.html
+
 function formatTimeUntil(timestamp) {
     const now = new Date();
     const target = new Date(timestamp);
