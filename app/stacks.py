@@ -234,9 +234,8 @@ def detect_bind_mismatches():
                 dst_norm = dst
 
             if src_norm != dst_norm:
-                # Return a concise message without duplicated prefix/emoji so logs and UI are not redundant
-                # Include a newline before the recommended sentence for clearer logs/UI
-                warnings.append(f"Host path '{src_norm}' is mounted as container path '{dst_norm}'.\nRecommended: use identical paths (e.g., /opt/stacks:/opt/stacks).")
+                # Return a concise message (do not include the 'Recommended' sentence; template shows it)
+                warnings.append(f"Host path '{src_norm}' is mounted as container path '{dst_norm}'.")
     except Exception:
         pass
 

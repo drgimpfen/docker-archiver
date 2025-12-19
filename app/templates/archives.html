@@ -116,7 +116,7 @@
                 <h5 class="modal-title">Create Archive</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form method="POST" action="{{ url_for('archives.create') }}">
+            <form method="POST" action="{{ url_for('archives.create') }}" id="createArchiveForm">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <div class="modal-body">
                     <div class="mb-3">
@@ -125,7 +125,7 @@
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label">Select Stacks</label>
+                        <label class="form-label">Select Stacks <small class="text-muted">(required)</small></label>
                         <div class="border rounded p-3" style="max-height: 200px; overflow-y: auto;">
                             {% for stack in stacks %}
                             <div class="form-check">
@@ -241,7 +241,7 @@
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label">Select Stacks</label>
+                        <label class="form-label">Select Stacks <small class="text-muted">(required)</small></label>
                         <div class="border rounded p-3" style="max-height: 200px; overflow-y: auto;" id="editStacksList">
                             {% for stack in stacks %}
                             <div class="form-check">
@@ -438,6 +438,37 @@ document.addEventListener('DOMContentLoaded', function() {
     if (archiveId) {
         localStorage.removeItem('openEditModal');
         editArchive(parseInt(archiveId));
+    }
+
+    // Client-side validation: ensure at least one stack is selected when creating or editing an archive
+    function hasSelectedStacks(containerSelector) {
+        const checkboxes = document.querySelectorAll(containerSelector + ' input[type="checkbox"][name="stacks"]');
+        for (const cb of checkboxes) {
+            if (cb.checked) return true;
+        }
+        return false;
+    }
+
+    const createForm = document.getElementById('createArchiveForm');
+    if (createForm) {
+        createForm.addEventListener('submit', function(e) {
+            if (!hasSelectedStacks('#createArchiveModal')) {
+                e.preventDefault();
+                alert('Please select at least one stack for the archive.');
+                return false;
+            }
+        });
+    }
+
+    const editForm = document.getElementById('editArchiveForm');
+    if (editForm) {
+        editForm.addEventListener('submit', function(e) {
+            if (!hasSelectedStacks('#editStacksList')) {
+                e.preventDefault();
+                alert('Please select at least one stack for the archive.');
+                return false;
+            }
+        });
     }
 });
 </script>

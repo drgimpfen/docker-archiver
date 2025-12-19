@@ -67,6 +67,10 @@ def create():
                 return redirect(url_for('archives.list_archives'))
         
         stacks = request.form.getlist('stacks')
+        # Require at least one stack when creating an archive
+        if not stacks:
+            flash('Please select at least one stack for the archive.', 'danger')
+            return redirect(url_for('archives.list_archives'))
         stop_containers = request.form.get('stop_containers') == 'on'
         schedule_enabled = request.form.get('schedule_enabled') == 'on'
         schedule_cron = request.form.get('schedule_cron', '').strip()
@@ -142,6 +146,10 @@ def edit(archive_id):
         
         # Note: name field is ignored - archives cannot be renamed
         stacks = request.form.getlist('stacks')
+        # Require at least one stack when editing an archive
+        if not stacks:
+            flash('Please select at least one stack for the archive.', 'danger')
+            return redirect(url_for('archives.list_archives'))
         stop_containers = request.form.get('stop_containers') == 'on'
         schedule_enabled = request.form.get('schedule_enabled') == 'on'
         schedule_cron = request.form.get('schedule_cron', '').strip()
