@@ -34,6 +34,84 @@ class ArchiveExecutor:
         self.dry_run_config = dry_run_config or {}
         self.job_id = None
         self.log_buffer = []
+        self.stack_host_paths = {}  # Cache for stack name -> host path mapping
+    
+    def _get_host_path_from_container(self, stack_name, stack_dir):
+        """
+        Get the host path for a stack directory by inspecting running containers.
+        
+        This finds containers from the stack and checks their bind mounts to determine
+        where the stack directory is located on the host.
+        
+        Args:
+            stack_name: Name of the stack
+            stack_dir: Path to stack directory inside this container
+            
+        Returns:
+            Host path if found, otherwise returns stack_dir unchanged
+        """
+        try:
+            # Get list of containers for this stack
+            result = subprocess.run(
+                ['docker', 'ps', '-q', '-f', f'label=com.docker.compose.project={stack_name}'],
+                capture_output=True, text=True, timeout=10
+            )
+            
+            if result.returncode != 0 or not result.stdout.strip():
+                self.log('DEBUG', f"No running containers found for stack {stack_name}")
+                return stack_dir
+            
+            container_ids = result.stdout.strip().split('\n')
+            stack_dir_str = str(stack_dir)
+            
+            # Inspect the first container to find bind mounts
+            for container_id in container_ids[:1]:  # Just check first container
+                inspect_result = subprocess.run(
+                    ['docker', 'inspect', container_id],
+                    capture_output=True, text=True, timeout=10
+                )
+                
+                if inspect_result.returncode != 0:
+                    continue
+                
+                inspect_data = json.loads(inspect_result.stdout)
+                if not inspect_data:
+                    continue
+                
+                mounts = inspect_data[0].get('Mounts', [])
+                
+                # Look for bind mounts that could help us find the host path
+                for mount in mounts:
+                    if mount.get('Type') != 'bind':
+                        continue
+                    
+                    destination = mount.get('Destination', '')
+                    source = mount.get('Source', '')
+                    
+                    # Check if the source path looks like it's under the stack directory
+                    # e.g., Source="/opt/stacks/immich/library" suggests stack is at /opt/stacks/immich
+                    if source and '/' in source:
+                        source_parts = Path(source).parts
+                        stack_dir_parts = Path(stack_dir_str).parts
+                        
+                        # Try to find common subpath pattern
+                        # If destination is /usr/src/app/upload and source is /opt/stacks/immich/library,
+                        # and stack_dir is /local/stacks/immich, we can infer host stack is /opt/stacks/immich
+                        for i in range(len(source_parts) - 1, 0, -1):
+                            potential_host_stack = Path(*source_parts[:i])
+                            potential_host_stack_name = potential_host_stack.name
+                            
+                            # Check if this looks like our stack directory
+                            if potential_host_stack_name == stack_dir_parts[-1]:
+                                self.log('INFO', f"Found host path from container inspect: {potential_host_stack} (from mount {source})")
+                                return potential_host_stack
+                
+            self.log('DEBUG', f"Could not determine host path from container mounts, using: {stack_dir}")
+            return stack_dir
+            
+        except Exception as e:
+            self.log('WARNING', f"Error inspecting containers for host path: {e}")
+            return stack_dir
     
     def log(self, level, message):
         """Add log entry with timestamp."""
@@ -230,9 +308,13 @@ class ArchiveExecutor:
         stack_dir = compose_path.parent
         self.log('INFO', f"Stopping stack in {stack_dir}...")
         
-        # Use --project-directory to set working directory for relative paths
-        # This ensures relative bind mounts (like ./library) are resolved correctly
-        cmd_parts = ['docker', 'compose', '--project-directory', str(stack_dir), '-f', str(compose_path), 'down']
+        # Get host path by inspecting running containers before stopping
+        host_stack_dir = self._get_host_path_from_container(stack_name, stack_dir)
+        
+        # Cache the host path for use when restarting
+        self.stack_host_paths[stack_name] = host_stack_dir
+        
+        cmd_parts = ['docker', 'compose', '--project-directory', str(host_stack_dir), '-f', str(compose_path), 'down']
         self.log('INFO', f"Starting command: Stopping {stack_name} (docker compose down)")
         
         if self.is_dry_run:
@@ -258,9 +340,11 @@ class ArchiveExecutor:
         stack_dir = compose_path.parent
         self.log('INFO', f"Starting stack in {stack_dir}...")
         
-        # Use --project-directory to set working directory for relative paths
-        # This ensures relative bind mounts (like ./library) are resolved correctly
-        cmd_parts = ['docker', 'compose', '--project-directory', str(stack_dir), '-f', str(compose_path), 'up', '-d']
+        # Use cached host path from when we stopped the stack
+        # If not cached (e.g., stack wasn't running), use container path
+        host_stack_dir = self.stack_host_paths.get(stack_name, stack_dir)
+        
+        cmd_parts = ['docker', 'compose', '--project-directory', str(host_stack_dir), '-f', str(compose_path), 'up', '-d']
         self.log('INFO', f"Starting command: Starting {stack_name} (docker compose up -d)")
         
         if self.is_dry_run:

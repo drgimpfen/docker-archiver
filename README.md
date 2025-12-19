@@ -124,7 +124,10 @@ The application scans `/local/*` directories (max 1 level deep):
 
 ✅ **Correct:**
 ```yaml
-- /opt/stacks:/local/stacks  # Bind mount (host:container)
+services:
+  app:
+    volumes:
+      - /opt/stacks:/local/stacks  # Bind mount (host:container)
 ```
 
 ❌ **Incorrect:**
@@ -132,7 +135,9 @@ The application scans `/local/*` directories (max 1 level deep):
 - my-volume:/local/stacks    # Named volume - will NOT work
 ```
 
-**Why?** When Docker Archiver executes `docker compose` commands to stop/start stacks, it needs to resolve relative paths in your stack's compose files (like `./data` or `./config`) correctly. The archiver automatically detects the host path from bind mount configuration. Named volumes cannot be resolved this way.
+**Why?** When Docker Archiver executes `docker compose` commands to stop/start stacks, these commands run on the Docker host (not inside the container). Relative paths in your stack's compose files (like `./library` or `./postgres`) must be resolved from the **host's perspective**.
+
+**How it works:** Docker Archiver automatically detects the host path by reading `/proc/self/mountinfo`. When it sees `/local/stacks/immich` inside the container, it looks up the corresponding host path (e.g., `/opt/stacks/immich`) and uses that for `docker compose --project-directory`.
 
 **Note:** Named volumes *within* your stack's compose.yml (like `postgres_data:`) work perfectly fine - this requirement only applies to mounting the stack directories into the archiver container.
 
