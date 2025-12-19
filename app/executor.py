@@ -331,11 +331,6 @@ class ArchiveExecutor:
         self.log_buffer.append(log_line)
         print(log_line)
 
-
-def get_running_executor(job_id):
-    """Return a running ArchiveExecutor instance for a job id, if available."""
-    return RUNNING_EXECUTORS.get(job_id)
-    
     def run(self, triggered_by='manual'):
         """Execute archive job with all phases."""
         start_time = utils.now()
@@ -376,6 +371,11 @@ def get_running_executor(job_id):
                     del RUNNING_EXECUTORS[self.job_id]
             except Exception:
                 pass
+
+
+def get_running_executor(job_id):
+    """Return a running ArchiveExecutor instance for a job id, if available."""
+    return RUNNING_EXECUTORS.get(job_id)
     
     def _create_job_record(self, start_time, triggered_by):
         """Create initial job record in database."""
@@ -636,10 +636,9 @@ def get_running_executor(job_id):
         output_dir = Path(ARCHIVE_BASE) / archive_name / stack_name
         
         if ext:
-            output_file = output_dir / f"{stack_name}_{timestamp}.{ext}"
+            output_file = output_dir / f"{timestamp}_{stack_name}.{ext}"
         else:
-            output_file = output_dir / f"{stack_name}_{timestamp}"
-        
+            output_file = output_dir / f"{timestamp}_{stack_name}"
         # Skip archive creation if disabled in dry run
         if self.is_dry_run and not self.dry_run_config.get('create_archive', True):
             self.log('INFO', f"Skipping archive creation for '{stack_name}' (dry run disabled)")

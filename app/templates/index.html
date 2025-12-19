@@ -25,7 +25,12 @@
                     <div>{{ w }}</div>
                 {% endfor %}
             </div>
-            <div class="mt-2"><small class="text-muted">Correct format (recommended): <code>/opt/stacks:/opt/stacks</code> — host path equals container path. Examples not recommended: <code>/home/stacks:/opt/stacks</code>, <code>/opt/stacks:/local/stacks</code>. <a href="https://github.com/drgimpfen/Docker-Archiver#bind-mounts" target="_blank" rel="noopener">Learn more</a></small></div>
+            <div class="mt-2">
+                <small class="text-muted d-block mb-1">Correct format (recommended):</small>
+                <pre class="bg-dark text-light p-2 rounded" style="white-space: pre-wrap;"><code>volumes:
+  - /opt/stacks:/opt/stacks  # Bind mount (host:container - same path)</code></pre>
+                <small class="text-muted">Examples not recommended: <code>/home/stacks:/opt/stacks</code>, <code>/opt/stacks:/local/stacks</code>. <a href="https://github.com/drgimpfen/Docker-Archiver#bind-mounts" target="_blank" rel="noopener">Learn more</a></small>
+            </div>
             {% if ignored_bind_destinations %}
             <div class="mt-2"><small class="text-muted">Ignored mount paths: {% for d in ignored_bind_destinations %}<code>{{ d }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</small></div>
             {% endif %}

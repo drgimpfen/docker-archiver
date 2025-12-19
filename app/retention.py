@@ -73,19 +73,19 @@ def run_retention(archive_config, job_id, is_dry_run=False, log_callback=None):
                 else:
                     base = name
                 
-                # Extract timestamp: last part after underscore should be YYYYMMDD_HHMMSS
-                parts = base.split('_')
-                if len(parts) >= 3:
-                    date_str = parts[-2]  # YYYYMMDD
-                    time_str = parts[-1]  # HHMMSS
-                    timestamp = datetime.strptime(f"{date_str}_{time_str}", '%Y%m%d_%H%M%S')
-                    
+                # Extract timestamp: look for YYYYMMDD_HHMMSS anywhere in the filename
+                import re
+                m = re.search(r"(\d{8}_\d{6})", base)
+                if m:
+                    ts_str = m.group(1)
+                    timestamp = datetime.strptime(ts_str, '%Y%m%d_%H%M%S')
+
                     # Get size
                     if item.is_file():
                         size = item.stat().st_size
                     else:  # directory
                         size = sum(f.stat().st_size for f in item.rglob('*') if f.is_file())
-                    
+
                     archives.append({
                         'path': item,
                         'timestamp': timestamp,
