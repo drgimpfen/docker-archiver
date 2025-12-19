@@ -239,7 +239,7 @@ class ArchiveExecutor:
         
         try:
             result = subprocess.run(
-                cmd_parts, capture_output=True, text=True, timeout=120
+                cmd_parts, capture_output=True, text=True, timeout=120, cwd=str(compose_path.parent)
             )
             if result.returncode == 0:
                 self.log('INFO', f"Successfully finished: Stopping {stack_name}")
@@ -264,7 +264,7 @@ class ArchiveExecutor:
         
         try:
             result = subprocess.run(
-                cmd_parts, capture_output=True, text=True, timeout=120
+                cmd_parts, capture_output=True, text=True, timeout=120, cwd=str(compose_path.parent)
             )
             if result.returncode == 0:
                 self.log('INFO', f"Successfully finished: Starting {stack_name}")
