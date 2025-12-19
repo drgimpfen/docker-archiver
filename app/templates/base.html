@@ -289,7 +289,8 @@
     
     // Edit Archive Modal - Navigate to archives page
     function editArchive(archiveId) {
-        window.location.href = `/archives#edit-${archiveId}`;
+        localStorage.setItem('openEditModal', archiveId);
+        window.location.href = '/archives';
     }
     </script>
     
