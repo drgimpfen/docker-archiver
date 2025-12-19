@@ -273,13 +273,11 @@
             
             if (job.log) {
                 html += `
-                    <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
-                        <h6 class="mb-0">Log Output</h6>
-                        <button class="btn btn-sm btn-outline-secondary" onclick="downloadLog(${job.id})" title="Download Log">
-                            <i class="bi bi-download"></i> Download
-                        </button>
-                    </div>
-                    <pre class="bg-dark text-light p-3" style="max-height: 400px; overflow-y: auto;">${job.log}</pre>
+                    <h6 class="mt-4">Log Output</h6>
+                    <pre class="bg-dark text-light p-3 mb-2" style="max-height: 400px; overflow-y: auto;">${job.log}</pre>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="downloadLog(${job.id})" title="Download Log">
+                        <i class="bi bi-download"></i> Download Log
+                    </button>
                 `;
             }
             

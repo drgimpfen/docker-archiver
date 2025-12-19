@@ -173,10 +173,14 @@ def download_log(job_id):
         
         for line in lines:
             # Check if we're entering the requested stack section
-            if f"Processing stack: {stack_name}" in line or f"Stack: {stack_name}" in line:
+            if f"Starting backup for stack: {stack_name}" in line:
                 in_stack_section = True
+            # Check if we're finishing this stack section
+            elif f"Finished backup for stack: {stack_name}" in line:
+                filtered_lines.append(line)
+                in_stack_section = False
             # Check if we're entering a different stack section
-            elif "Processing stack:" in line or (line.startswith("Stack:") and stack_name not in line):
+            elif "Starting backup for stack:" in line and stack_name not in line:
                 in_stack_section = False
             
             if in_stack_section:
