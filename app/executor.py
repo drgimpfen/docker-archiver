@@ -324,12 +324,33 @@ class ArchiveExecutor:
             return []
     
     def log(self, level, message):
-        """Add log entry with timestamp."""
+        """Add log entry with timestamp and persist to DB for live tailing across processes.
+
+        Logs are appended to the in-memory buffer (for fast local access) and also
+        appended to the jobs.log column in the database so other web worker
+        processes can stream the log while the job is still running.
+        """
         timestamp = utils.local_now().strftime('%Y-%m-%d %H:%M:%S')
         prefix = "[SIMULATION] " if self.is_dry_run else ""
         log_line = f"[{timestamp}] [{level}] {prefix}{message}"
+        # Append to in-memory buffer
         self.log_buffer.append(log_line)
         print(log_line)
+
+        # Also persist incrementally to the DB (append). Guard against any DB errors.
+        try:
+            if self.job_id:
+                with get_db() as conn:
+                    cur = conn.cursor()
+                    cur.execute("""
+                        UPDATE jobs
+                        SET log = log || %s
+                        WHERE id = %s;
+                    """, (log_line + "\n", self.job_id))
+                    conn.commit()
+        except Exception:
+            # Don't let logging failures interrupt the job
+            pass
 
     def run(self, triggered_by='manual'):
         """Execute archive job with all phases."""

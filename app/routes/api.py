@@ -222,8 +222,35 @@ def tail_log(job_id):
     complete = True
 
     if executor:
-        # Use in-memory buffer for live logs
-        lines = list(executor.log_buffer)
+        # Merge DB-stored log and in-memory buffer for robust live-tail across workers.
+        db_lines = []
+        job_status = 'running'
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT j.log, j.status FROM jobs j WHERE j.id = %s;", (job_id,))
+            result = cur.fetchone()
+            if result and result.get('log'):
+                db_lines = result['log'].split('\n')
+                job_status = result.get('status') or job_status
+
+        mem_lines = list(executor.log_buffer)
+
+        # If DB appears to already contain all lines, prefer DB as authoritative
+        if len(db_lines) >= len(mem_lines):
+            lines = db_lines
+        else:
+            # If mem_lines starts with db_lines, append the remaining tail from mem_lines
+            if db_lines and mem_lines[:len(db_lines)] == db_lines:
+                lines = db_lines + mem_lines[len(db_lines):]
+            else:
+                # Best-effort merge: start with db_lines and append mem_lines while avoiding immediate duplicates
+                merged = db_lines.copy()
+                for l in mem_lines:
+                    if not merged or merged[-1] != l:
+                        merged.append(l)
+                lines = merged
+
+        # Job is still running when an executor exists (live logs)
         complete = False
     else:
         # Fallback: read stored log from DB
