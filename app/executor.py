@@ -454,7 +454,25 @@ class ArchiveExecutor:
         # Build docker compose command with --project-directory
         # Docker Compose will automatically load .env from the project directory
         # and any env_file: entries defined in the compose.yml
-        cmd_parts = ['docker', 'compose', '--project-directory', str(host_stack_dir), '-f', str(compose_path), 'up', '-d']
+        cmd_parts = ['docker', 'compose', '--project-directory', str(host_stack_dir), '-f', str(compose_path)]
+        
+        # Check for override files and add them
+        # Docker Compose loads these automatically, but only if we don't use -f
+        # Since we use -f, we need to add them explicitly
+        compose_name = compose_path.name.replace('.yaml', '').replace('.yml', '')
+        override_names = [
+            f'{compose_name}.override.yml',
+            f'{compose_name}.override.yaml'
+        ]
+        
+        for override_name in override_names:
+            container_override = Path(stack_dir) / override_name
+            if container_override.exists():
+                host_override = Path(host_stack_dir) / override_name
+                cmd_parts.extend(['-f', str(host_override)])
+                self.log('DEBUG', f"Found override file: {override_name}")
+        
+        cmd_parts.extend(['up', '-d'])
         self.log('INFO', f"Starting command: Starting {stack_name} (docker compose up -d)")
         
         if self.is_dry_run:
