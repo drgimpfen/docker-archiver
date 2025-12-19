@@ -4,6 +4,7 @@ Stack discovery and validation.
 import os
 import glob
 import subprocess
+import json
 from pathlib import Path
 
 
@@ -43,36 +44,47 @@ def get_own_container_mounts():
                 pass
         
         if container_id:
-            # Inspect our own container
-            result = subprocess.run(
-                ['docker', 'inspect', container_id],
-                capture_output=True, text=True, timeout=10
-            )
-            
-            if result.returncode == 0:
-                inspect_data = json.loads(result.stdout)
-                if inspect_data:
-                    container_data = inspect_data[0]
-                    mounts = container_data.get('Mounts', [])
-                    
-                    bind_mounts = []
-                    for mount in mounts:
-                        mount_type = mount.get('Type', '')
-                        if mount_type == 'bind':
-                            destination = mount.get('Destination', '')
-                            # Skip system mounts and our own archives mount
-                            if (destination and 
-                                not destination.startswith('/var/') and
-                                not destination.startswith('/etc/') and
-                                not destination.startswith('/usr/') and
-                                not destination.startswith('/proc/') and
-                                not destination.startswith('/sys/') and
-                                destination != '/archives' and
-                                destination != '/var/run/docker.sock'):
-                                bind_mounts.append(destination)
-                    
-                if bind_mounts:
-                    return bind_mounts
+            # Inspect our own container and print debug info
+            try:
+                result = subprocess.run(
+                    ['docker', 'inspect', container_id],
+                    capture_output=True, text=True, timeout=10
+                )
+                print(f"[DEBUG] docker inspect returncode={result.returncode}")
+                if result.returncode == 0:
+                    try:
+                        inspect_data = json.loads(result.stdout)
+                    except Exception as e:
+                        print(f"[DEBUG] failed to parse docker inspect JSON: {e}")
+                        inspect_data = None
+
+                    if inspect_data:
+                        container_data = inspect_data[0]
+                        mounts = container_data.get('Mounts', [])
+                        print(f"[DEBUG] docker inspect found {len(mounts)} mounts")
+                        for m in mounts:
+                            print(f"[DEBUG] - mount: Type={m.get('Type')} Source={m.get('Source')} Dest={m.get('Destination')}")
+
+                        bind_mounts = []
+                        for mount in mounts:
+                            mount_type = mount.get('Type', '')
+                            if mount_type == 'bind':
+                                destination = mount.get('Destination', '')
+                                # Skip system mounts and our own archives mount
+                                if (destination and 
+                                    not destination.startswith('/var/') and
+                                    not destination.startswith('/etc/') and
+                                    not destination.startswith('/usr/') and
+                                    not destination.startswith('/proc/') and
+                                    not destination.startswith('/sys/') and
+                                    destination != '/archives' and
+                                    destination != '/var/run/docker.sock'):
+                                    bind_mounts.append(destination)
+                        if bind_mounts:
+                            print(f"[DEBUG] bind mounts from docker inspect: {bind_mounts}")
+                            return bind_mounts
+            except Exception as e:
+                print(f"[DEBUG] docker inspect failed: {e}")
         
         # Method 2: Fallback to /proc/self/mountinfo
         # This works even when docker inspect fails
