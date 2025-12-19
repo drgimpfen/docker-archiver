@@ -80,6 +80,13 @@ def stack_color_filter(stack_name):
     return f"hsl({hue}, 65%, 45%)"
 
 
+@app.template_filter('datetime')
+def datetime_filter(dt, format_string='%Y-%m-%d %H:%M:%S'):
+    """Format datetime in local timezone."""
+    from app.utils import format_datetime
+    return format_datetime(dt, format_string)
+
+
 # Core routes
 @app.route('/health')
 def health():

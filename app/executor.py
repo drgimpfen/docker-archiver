@@ -37,7 +37,7 @@ class ArchiveExecutor:
     
     def log(self, level, message):
         """Add log entry with timestamp."""
-        timestamp = utils.now().strftime('%Y-%m-%d %H:%M:%S')
+        timestamp = utils.local_now().strftime('%Y-%m-%d %H:%M:%S')
         prefix = "[SIMULATION] " if self.is_dry_run else ""
         log_line = f"[{timestamp}] [{level}] {prefix}{message}"
         self.log_buffer.append(log_line)
@@ -277,7 +277,7 @@ class ArchiveExecutor:
     
     def _create_archive(self, stack_name, stack_path):
         """Create archive of stack directory."""
-        timestamp = utils.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = utils.local_now().strftime('%Y%m%d_%H%M%S')
         output_format = self.config.get('output_format', 'tar')
         archive_name = self.config['name']
         

@@ -181,7 +181,7 @@ def _prepare_folder_download(token, folder_path, stack_name, user_email):
         download_dir = Path('/archives/_downloads')
         download_dir.mkdir(exist_ok=True)
         
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = utils.local_now().strftime('%Y%m%d_%H%M%S')
         archive_name = f"{stack_name}_{timestamp}.tar.zst"
         archive_path = download_dir / archive_name
         

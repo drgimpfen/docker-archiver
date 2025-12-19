@@ -83,7 +83,7 @@ def prepare_archive_for_download(file_path, output_format='tar.gz'):
     # If it's a directory, create temporary archive
     if path.is_dir():
         # Create temp file in same directory
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = utils.local_now().strftime('%Y%m%d_%H%M%S')
         
         if output_format == 'tar.gz':
             temp_file = path.parent / f"{path.name}_download_{timestamp}.tar.gz"

@@ -221,12 +221,14 @@ def run_retention_only(archive_id):
                 
                 # Create a job record with empty log
                 with get_db() as conn:
+                    from app import utils as u
                     cur = conn.cursor()
+                    start_time = u.now()
                     cur.execute("""
                         INSERT INTO jobs (archive_id, job_type, status, start_time, triggered_by, log)
-                        VALUES (%s, 'retention', 'running', NOW(), 'manual', '')
+                        VALUES (%s, 'retention', 'running', %s, 'manual', '')
                         RETURNING id;
-                    """, (archive_id,))
+                    """, (archive_id, start_time))
                     job_id = cur.fetchone()['id']
                     conn.commit()
             except Exception as e:
@@ -238,7 +240,7 @@ def run_retention_only(archive_id):
             # Log function
             def log_message(level, message):
                 from app import utils as u
-                timestamp = u.now().strftime('%Y-%m-%d %H:%M:%S')
+                timestamp = u.local_now().strftime('%Y-%m-%d %H:%M:%S')
                 log_line = f"[{timestamp}] [{level}] {message}\n"
                 
                 with get_db() as conn:
@@ -260,12 +262,14 @@ def run_retention_only(archive_id):
                 
                 # Update job status
                 with get_db() as conn:
+                    from app import utils as u
                     cur = conn.cursor()
+                    end_time = u.now()
                     cur.execute("""
                         UPDATE jobs 
-                        SET status = 'success', end_time = NOW(), reclaimed_size_bytes = %s
+                        SET status = 'success', end_time = %s, reclaimed_size_bytes = %s
                         WHERE id = %s;
-                    """, (reclaimed, job_id))
+                    """, (end_time, reclaimed, job_id))
                     conn.commit()
                 
                 from app.notifications import send_retention_notification
@@ -279,12 +283,14 @@ def run_retention_only(archive_id):
                 log_message('ERROR', f"Retention failed: {str(e)}")
                 
                 with get_db() as conn:
+                    from app import utils as u
                     cur = conn.cursor()
+                    end_time = u.now()
                     cur.execute("""
                         UPDATE jobs 
-                        SET status = 'failed', end_time = NOW(), error_message = %s
+                        SET status = 'failed', end_time = %s, error_message = %s
                         WHERE id = %s;
-                    """, (str(e), job_id))
+                    """, (end_time, str(e), job_id))
                     conn.commit()
         
         print(f"[INFO] Creating retention thread for archive: {archive_dict['name']}")

@@ -8,14 +8,43 @@ from zoneinfo import ZoneInfo
 
 
 def now():
-    """Get current datetime in configured timezone (naive)."""
+    """Get current datetime in UTC (for database storage)."""
+    from datetime import timezone
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def local_now():
+    """Get current datetime in local timezone (for filenames, logs)."""
+    tz = get_display_timezone()
+    from datetime import timezone
+    return datetime.now(timezone.utc).astimezone(tz).replace(tzinfo=None)
+
+
+def get_display_timezone():
+    """Get the configured display timezone."""
     tz_name = os.environ.get('TZ', 'UTC')
     try:
-        tz = ZoneInfo(tz_name)
+        return ZoneInfo(tz_name)
     except Exception:
-        tz = ZoneInfo('UTC')
-    # Return naive datetime in local timezone for DB compatibility
-    return datetime.now(tz).replace(tzinfo=None)
+        return ZoneInfo('UTC')
+
+
+def format_datetime(dt, format_string='%Y-%m-%d %H:%M:%S'):
+    """Convert UTC datetime to local timezone for display."""
+    if dt is None:
+        return '-'
+    if not isinstance(dt, datetime):
+        return str(dt)
+    
+    # Assume dt is UTC (from database)
+    from datetime import timezone
+    dt_utc = dt.replace(tzinfo=timezone.utc)
+    
+    # Convert to display timezone
+    local_tz = get_display_timezone()
+    dt_local = dt_utc.astimezone(local_tz)
+    
+    return dt_local.strftime(format_string)
 
 
 def format_bytes(bytes_val):

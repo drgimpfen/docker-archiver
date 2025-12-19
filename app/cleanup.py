@@ -36,7 +36,7 @@ def run_cleanup():
     log_lines = []
     
     def log_message(level, message):
-        timestamp = utils.now().strftime('%Y-%m-%d %H:%M:%S')
+        timestamp = utils.local_now().strftime('%Y-%m-%d %H:%M:%S')
         log_line = f"[{timestamp}] [{level}] {message}\n"
         log_lines.append(log_line)
         print(f"[Cleanup] {message}")
@@ -46,9 +46,9 @@ def run_cleanup():
             cur = conn.cursor()
             cur.execute("""
                 INSERT INTO jobs (job_type, status, start_time, triggered_by, is_dry_run, log)
-                VALUES ('cleanup', 'running', NOW(), 'scheduled', %s, '')
+                VALUES ('cleanup', 'running', %s, 'scheduled', %s, '')
                 RETURNING id;
-            """, (is_dry_run,))
+            """, (start_time, is_dry_run))
             job_id = cur.fetchone()['id']
             conn.commit()
     except Exception as e:
@@ -72,12 +72,13 @@ def run_cleanup():
         if job_id:
             with get_db() as conn:
                 cur = conn.cursor()
+                end_time = utils.now()
                 cur.execute("""
                     UPDATE jobs 
-                    SET status = 'success', end_time = NOW(), 
+                    SET status = 'success', end_time = %s, 
                         reclaimed_size_bytes = %s, log = %s
                     WHERE id = %s;
-                """, (total_reclaimed, ''.join(log_lines), job_id))
+                """, (end_time, total_reclaimed, ''.join(log_lines), job_id))
                 conn.commit()
         
         # Send notification if enabled
@@ -90,12 +91,13 @@ def run_cleanup():
         if job_id:
             with get_db() as conn:
                 cur = conn.cursor()
+                end_time = utils.now()
                 cur.execute("""
                     UPDATE jobs 
-                    SET status = 'failed', end_time = NOW(), 
+                    SET status = 'failed', end_time = %s, 
                         error_message = %s, log = %s
                     WHERE id = %s;
-                """, (str(e), ''.join(log_lines), job_id))
+                """, (end_time, str(e), log_text, job_id))
                 conn.commit()
         
         raise

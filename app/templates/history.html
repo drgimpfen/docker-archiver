@@ -101,10 +101,10 @@
                     </span>
                 </td>
                 <td>
-                    <small style="white-space: nowrap;">{{ job.start_time.strftime('%Y-%m-%d %H:%M:%S') if job.start_time else 'N/A' }}</small>
+                    <small style="white-space: nowrap;">{{ job.start_time|datetime }}</small>
                 </td>
                 <td>
-                    <small style="white-space: nowrap;">{{ job.end_time.strftime('%Y-%m-%d %H:%M:%S') if job.end_time else '-' }}</small>
+                    <small style="white-space: nowrap;">{{ job.end_time|datetime }}</small>
                 </td>
                 <td style="text-align: right;">
                     {% if job.job_type == 'archive' and job.total_size_bytes %}
