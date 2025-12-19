@@ -257,7 +257,7 @@
                             <td>${m.duration_seconds !== null && m.duration_seconds !== undefined ? m.duration_seconds + 's' : 'N/A'}</td>
                             <td>${m.archive_size_bytes ? formatBytes(m.archive_size_bytes) : 'N/A'}</td>
                             <td><small>${m.archive_path || 'N/A'}</small></td>
-                            <td>
+                            <td class="text-nowrap">
                                 ${hasArchive ? `<button class="btn btn-sm btn-outline-primary me-1" onclick="requestDownload(${job.id}, '${m.stack_name}', '${m.archive_path}')" title="Download Archive"><i class="bi bi-download"></i></button>` : ''}
                                 <button class="btn btn-sm btn-outline-secondary" onclick="downloadStackLog(${job.id}, '${m.stack_name}')" title="Download Stack Log"><i class="bi bi-file-text"></i></button>
                             </td>
@@ -273,12 +273,12 @@
             
             if (job.log) {
                 html += `
-                    <h6 class="mt-4">
-                        Log Output
-                        <button class="btn btn-sm btn-outline-secondary float-end" onclick="downloadLog(${job.id})" title="Download Log">
+                    <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+                        <h6 class="mb-0">Log Output</h6>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="downloadLog(${job.id})" title="Download Log">
                             <i class="bi bi-download"></i> Download
                         </button>
-                    </h6>
+                    </div>
                     <pre class="bg-dark text-light p-3" style="max-height: 400px; overflow-y: auto;">${job.log}</pre>
                 `;
             }
