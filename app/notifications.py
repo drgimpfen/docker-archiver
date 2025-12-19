@@ -134,6 +134,9 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
         
         title = get_subject_with_tag(f"{status_emoji} Archive Complete: {archive_name}")
         
+        # Check if any stacks have named volumes
+        stacks_with_volumes = [m for m in stack_metrics if m.get('named_volumes')]
+        
         body = f"""<h2>Archive job completed for: {archive_name}</h2>
 <p>
 <strong>Stacks:</strong> {success_count}/{stack_count} successful<br>
@@ -148,10 +151,35 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
             stack_name = metric['stack_name']
             status_icon = "✓" if metric['status'] == 'success' else "✗"
             stack_size_mb = metric['archive_size_bytes'] / (1024 * 1024)
-            body += f"<li>{status_icon} {stack_name} ({stack_size_mb:.1f}MB)</li>\n"
+            
+            # Add volume warning if present
+            volume_warning = ""
+            if metric.get('named_volumes'):
+                volumes = metric['named_volumes']
+                volume_warning = f" <span style='color: orange;'>⚠️ {len(volumes)} named volume(s) not backed up</span>"
+            
+            body += f"<li>{status_icon} {stack_name} ({stack_size_mb:.1f}MB){volume_warning}</li>\n"
         
-        body += f"""</ul>
-<p><a href="{base_url}/history?job={job_id}">View details</a></p>
+        body += f"""</ul>"""
+        
+        # Add global warning about named volumes
+        if stacks_with_volumes:
+            body += f"""
+<hr>
+<p style='color: orange;'><strong>⚠️ Named Volumes Warning</strong></p>
+<p>The following stacks use named volumes that are <strong>NOT included</strong> in the backup archives:</p>
+<ul>
+"""
+            for metric in stacks_with_volumes:
+                volumes = metric['named_volumes']
+                body += f"<li><strong>{metric['stack_name']}:</strong> {', '.join(volumes)}</li>\n"
+            
+            body += """</ul>
+<p>Named volumes require separate backup using tools like <code>docker volume backup</code> or similar.</p>
+<hr>
+"""
+        
+        body += f"""<p><a href="{base_url}/history?job={job_id}">View details</a></p>
 <hr>
 <p><small>Docker Archiver: <a href="{base_url}">{base_url}</a></small></p>"""
         

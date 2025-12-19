@@ -41,14 +41,14 @@ class ArchiveExecutor:
         Get the host path for a stack directory by inspecting running containers.
         
         This finds containers from the stack and checks their bind mounts to determine
-        where the stack directory is located on the host.
+        where the stack directory is located on the host. Also detects named volumes.
         
         Args:
             stack_name: Name of the stack
             stack_dir: Path to stack directory inside this container
             
         Returns:
-            Host path if found, otherwise returns stack_dir unchanged
+            Tuple of (host_path, volume_names) where volume_names is a list of named volumes found
         """
         try:
             # Get list of containers for this stack
@@ -59,13 +59,15 @@ class ArchiveExecutor:
             
             if result.returncode != 0 or not result.stdout.strip():
                 self.log('DEBUG', f"No running containers found for stack {stack_name}")
-                return stack_dir
+                return stack_dir, []
             
             container_ids = result.stdout.strip().split('\n')
             stack_dir_str = str(stack_dir)
+            found_host_path = None
+            named_volumes = []
             
-            # Inspect the first container to find bind mounts
-            for container_id in container_ids[:1]:  # Just check first container
+            # Inspect containers to find bind mounts and named volumes
+            for container_id in container_ids:
                 inspect_result = subprocess.run(
                     ['docker', 'inspect', container_id],
                     capture_output=True, text=True, timeout=10
@@ -80,38 +82,56 @@ class ArchiveExecutor:
                 
                 mounts = inspect_data[0].get('Mounts', [])
                 
-                # Look for bind mounts that could help us find the host path
+                # Check all mounts
                 for mount in mounts:
-                    if mount.get('Type') != 'bind':
-                        continue
+                    mount_type = mount.get('Type', '')
                     
-                    destination = mount.get('Destination', '')
-                    source = mount.get('Source', '')
+                    # Collect named volumes
+                    if mount_type == 'volume':
+                        volume_name = mount.get('Name', '')
+                        if volume_name and volume_name not in named_volumes:
+                            named_volumes.append(volume_name)
                     
-                    # Check if the source path looks like it's under the stack directory
-                    # e.g., Source="/opt/stacks/immich/library" suggests stack is at /opt/stacks/immich
-                    if source and '/' in source:
-                        source_parts = Path(source).parts
-                        stack_dir_parts = Path(stack_dir_str).parts
+                    # Look for bind mounts to determine host path
+                    elif mount_type == 'bind' and not found_host_path:
+                        destination = mount.get('Destination', '')
+                        source = mount.get('Source', '')
                         
-                        # Try to find common subpath pattern
-                        # If destination is /usr/src/app/upload and source is /opt/stacks/immich/library,
-                        # and stack_dir is /local/stacks/immich, we can infer host stack is /opt/stacks/immich
-                        for i in range(len(source_parts) - 1, 0, -1):
-                            potential_host_stack = Path(*source_parts[:i])
-                            potential_host_stack_name = potential_host_stack.name
+                        # Check if the source path looks like it's under the stack directory
+                        # e.g., Source="/opt/stacks/immich/library" suggests stack is at /opt/stacks/immich
+                        if source and '/' in source:
+                            source_parts = Path(source).parts
+                            stack_dir_parts = Path(stack_dir_str).parts
                             
-                            # Check if this looks like our stack directory
-                            if potential_host_stack_name == stack_dir_parts[-1]:
-                                self.log('INFO', f"Found host path from container inspect: {potential_host_stack} (from mount {source})")
-                                return potential_host_stack
-                
-            self.log('DEBUG', f"Could not determine host path from container mounts, using: {stack_dir}")
-            return stack_dir
+                            # Try to find common subpath pattern
+                            # If destination is /usr/src/app/upload and source is /opt/stacks/immich/library,
+                            # and stack_dir is /local/stacks/immich, we can infer host stack is /opt/stacks/immich
+                            for i in range(len(source_parts) - 1, 0, -1):
+                                potential_host_stack = Path(*source_parts[:i])
+                                potential_host_stack_name = potential_host_stack.name
+                                
+                                # Check if this looks like our stack directory
+                                if potential_host_stack_name == stack_dir_parts[-1]:
+                                    found_host_path = potential_host_stack
+                                    break
+            
+            # Log findings
+            if found_host_path:
+                self.log('INFO', f"Found host path from container inspect: {found_host_path}")
+            else:
+                self.log('DEBUG', f"Could not determine host path from container mounts, using: {stack_dir}")
+                found_host_path = stack_dir
+            
+            if named_volumes:
+                self.log('WARNING', f"⚠️  Stack {stack_name} uses named volumes: {', '.join(named_volumes)}")
+                self.log('WARNING', f"    Named volumes are NOT included in the backup archive!")
+                self.log('WARNING', f"    Consider using 'docker volume backup' or similar tools for volume data.")
+            
+            return found_host_path, named_volumes
             
         except Exception as e:
             self.log('WARNING', f"Error inspecting containers for host path: {e}")
-            return stack_dir
+            return stack_dir, []
     
     def log(self, level, message):
         """Add log entry with timestamp."""
@@ -309,10 +329,15 @@ class ArchiveExecutor:
         self.log('INFO', f"Stopping stack in {stack_dir}...")
         
         # Get host path by inspecting running containers before stopping
-        host_stack_dir = self._get_host_path_from_container(stack_name, stack_dir)
+        # Also detects any named volumes that won't be backed up
+        host_stack_dir, named_volumes = self._get_host_path_from_container(stack_name, stack_dir)
         
-        # Cache the host path for use when restarting
+        # Cache the host path and volumes for use when restarting and reporting
         self.stack_host_paths[stack_name] = host_stack_dir
+        if named_volumes:
+            if not hasattr(self, 'stack_volumes'):
+                self.stack_volumes = {}
+            self.stack_volumes[stack_name] = named_volumes
         
         cmd_parts = ['docker', 'compose', '--project-directory', str(host_stack_dir), '-f', str(compose_path), 'down']
         self.log('INFO', f"Starting command: Stopping {stack_name} (docker compose down)")
@@ -560,6 +585,11 @@ class ArchiveExecutor:
     def _create_stack_metric(self, stack_name, status, start_time, was_running=None, 
                             archive_path=None, archive_size=0, duration=0, error=None):
         """Create stack metric dict."""
+        # Check if stack has named volumes
+        named_volumes = None
+        if hasattr(self, 'stack_volumes') and stack_name in self.stack_volumes:
+            named_volumes = self.stack_volumes[stack_name]
+        
         return {
             'stack_name': stack_name,
             'status': status,
@@ -568,7 +598,8 @@ class ArchiveExecutor:
             'archive_path': archive_path,
             'archive_size_bytes': archive_size,
             'duration_seconds': duration,
-            'error': error
+            'error': error,
+            'named_volumes': named_volumes  # List of volume names or None
         }
     
     def _save_stack_metrics(self, stack_metrics):
