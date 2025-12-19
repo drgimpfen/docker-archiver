@@ -212,7 +212,7 @@
                         <table class="table table-sm">
                             <tr><th width="150">Start Time:</th><td>${job.start_time || 'N/A'}</td></tr>
                             <tr><th>End Time:</th><td>${job.end_time || 'N/A'}</td></tr>
-                            <tr><th>Duration:</th><td>${job.duration_seconds ? job.duration_seconds + 's' : 'N/A'}</td></tr>
+                            <tr><th>Duration:</th><td>${job.duration_seconds !== null && job.duration_seconds !== undefined ? job.duration_seconds + 's' : 'N/A'}</td></tr>
                             <tr><th>Total Size:</th><td>${job.total_size_bytes ? formatBytes(job.total_size_bytes) : 'N/A'}</td></tr>
                             <tr><th>Reclaimed:</th><td>${job.reclaimed_bytes ? formatBytes(job.reclaimed_bytes) : 'N/A'}</td></tr>
                         </table>
@@ -252,7 +252,7 @@
                             <td>${m.stack_name}</td>
                             <td><span class="badge bg-${m.status === 'success' ? 'success' : 'danger'}">${m.status}</span></td>
                             <td>${m.was_running ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-muted"></i>'}</td>
-                            <td>${m.duration_seconds ? m.duration_seconds + 's' : 'N/A'}</td>
+                            <td>${m.duration_seconds !== null && m.duration_seconds !== undefined ? m.duration_seconds + 's' : 'N/A'}</td>
                             <td>${m.archive_size_bytes ? formatBytes(m.archive_size_bytes) : 'N/A'}</td>
                             <td><small>${m.archive_path || 'N/A'}</small></td>
                         </tr>

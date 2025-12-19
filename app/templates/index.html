@@ -267,7 +267,7 @@
                                         <small>{{ job.start_time|datetime('%Y-%m-%d %H:%M') }}</small>
                                     </td>
                                     <td>
-                                        <small>{{ format_duration(job.duration_seconds) if job.duration_seconds else 'N/A' }}</small>
+                                        <small>{{ format_duration(job.duration_seconds) if job.duration_seconds is not none else 'N/A' }}</small>
                                     </td>
                                     <td>
                                         <small>{{ format_bytes(job.total_size_bytes) if job.total_size_bytes else 'N/A' }}</small>
