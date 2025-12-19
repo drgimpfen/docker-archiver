@@ -261,16 +261,24 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                 body += f"    <li><strong>{metric['stack_name']}:</strong> {', '.join(volumes)}</li>\n"
             body += "  </ul>\n"
 
-        # Full log in collapsible details
+        # Full log (always expanded unless log will be attached)
         try:
             if job_row and job_row.get('log'):
-                body += """
+                # Determine if the log will be attached instead of inlined
+                attach_log_setting = get_setting('notify_attach_log', 'false').lower() == 'true'
+                attach_on_failure_setting = get_setting('notify_attach_log_on_failure', 'false').lower() == 'true'
+                should_attach_log = attach_log_setting or (attach_on_failure_setting and failed_count > 0)
+
+                if not should_attach_log:
+                    body += """
   <hr>
-  <details>
-    <summary><strong>Full job log</strong> (click to expand)</summary>
-    <pre style='background:#f7f7f7;padding:10px;border-radius:6px;white-space:pre-wrap;'>\n"""
-                body += (job_row.get('log') or '') + "\n"
-                body += "    </pre>\n  </details>\n"
+  <h3>Full job log</h3>
+  <pre style='background:#f7f7f7;padding:10px;border-radius:6px;white-space:pre-wrap;'>\n"""
+                    body += (job_row.get('log') or '') + "\n"
+                    body += "  </pre>\n"
+                else:
+                    # If log will be attached, omit the inline log to avoid duplication
+                    body += "\n"
         except Exception:
             pass
 
