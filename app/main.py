@@ -3,7 +3,7 @@ Main Flask application with Blueprints.
 """
 import os
 
-__version__ = '0.6.1'
+__version__ = '0.6.2'
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file
 from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
