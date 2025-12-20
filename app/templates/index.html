@@ -501,6 +501,16 @@ try {
     console.error('Error invoking startJobsEventSource:', e);
 }
 
+// Attach handlers to any existing job rows rendered on the page (ensures modal opens on click)
+document.querySelectorAll('tr[data-job-id]').forEach(function(tr) {
+    try {
+        const id = tr.getAttribute('data-job-id');
+        if (id) attachJobRowHandlers(tr, id);
+    } catch (e) {
+        console.debug('Failed to attach handlers to existing job row:', e);
+    }
+});
+
 // Fallback: ensure Run Now buttons work even if base scripts failed to initialize
 document.querySelectorAll('.start-archive-btn').forEach(function(b) {
     b.addEventListener('click', async function(ev) {
@@ -513,12 +523,11 @@ document.querySelectorAll('.start-archive-btn').forEach(function(b) {
             const data = await resp.json();
             console.log('Fallback run response', data);
             if (data && data.success) {
-                // Try to insert a pending row if function exists, otherwise reload to show the new job
-                if (typeof addPendingJobRow === 'function') {
-                    addPendingJobRow(archiveId, b.getAttribute('data-archive-name') || 'Archive');
+                // Rely on SSE to show the new job; display a transient toast instead of optimistic insertion
+                if (typeof showToast === 'function') {
+                    showToast('Job started — it will appear in the list shortly.', 'info');
                 } else {
-                    // Fallback: reload to reflect the new job
-                    window.location.reload();
+                    alert('Job started — it will appear in the list shortly.');
                 }
             } else {
                 alert('Failed to start archive: ' + (data && data.error ? data.error : 'unknown'));

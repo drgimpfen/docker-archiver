@@ -635,7 +635,7 @@
                     tr.setAttribute('data-job-status', job.status || 'running');
                     tr.setAttribute('data-follow', 'false');
                     tr.style.cursor = 'pointer';
-                    tr.onclick = function() { showJobDetails(job.id); };
+                    tr.onclick = function() { try { attachJobRowHandlers(tr, job.id); } catch (e) { console.debug('attachJobRowHandlers failed on tr.onclick', e); } };
 
                     tr.innerHTML = `
                         <td class="align-middle" style="white-space: nowrap;">
@@ -657,18 +657,9 @@
                     // Insert at top
                     tbody.insertBefore(tr, tbody.firstChild);
 
-                    // Attach click handler explicitly to ensure modal opens
+                    // Attach robust click + keyboard handlers to ensure modal opens when a row is clicked
                     try {
-                        tr.addEventListener('click', function(e) {
-                            // Ignore clicks on controls
-                            if (e.target.closest('button') || e.target.closest('a')) return;
-                            showJobDetails(job.id);
-                        });
-                        // Also allow keyboard navigation (Enter key)
-                        tr.addEventListener('keydown', function(e) {
-                            if (e.key === 'Enter') showJobDetails(job.id);
-                        });
-                        tr.tabIndex = 0;
+                        attachJobRowHandlers(tr, job.id);
                     } catch (e) {
                         console.debug('Failed to attach click handler to job row:', e);
                     }
@@ -749,7 +740,45 @@
                 }
             }
 
-            // Delegate click on job rows to ensure modal opens even if inline handlers fail
+            // Helper to attach click/keyboard handlers to a job row
+            function attachJobRowHandlers(tr, jobId) {
+                try {
+                    tr.addEventListener('click', function(e) {
+                        try {
+                            // Ignore clicks on controls inside the row (buttons/links)
+                            if (e.target && (e.target.closest('button') || e.target.closest('a'))) return;
+                            console.debug('Job row clicked:', jobId);
+                            // Prevent duplicate modal opens
+                            if (window._currentJobId && String(window._currentJobId) === String(jobId)) return;
+                            if (typeof showJobDetails === 'function') {
+                                showJobDetails(parseInt(jobId, 10));
+                            } else {
+                                console.warn('showJobDetails not available when clicking job row', jobId);
+                            }
+                        } catch (err) {
+                            console.error('Error in job row click handler', err);
+                        }
+                    });
+
+                    // Keyboard support (Enter key)
+                    tr.addEventListener('keydown', function(e) {
+                        try {
+                            if (e.key === 'Enter') {
+                                if (typeof showJobDetails === 'function') showJobDetails(parseInt(jobId, 10));
+                            }
+                        } catch (err) {
+                            console.error('Error in job row keydown handler', err);
+                        }
+                    });
+
+                    // Make row focusable for keyboard access
+                    tr.tabIndex = 0;
+                } catch (e) {
+                    console.debug('Failed to attach handlers to job row:', e);
+                }
+            }
+
+            // Delegate click on job rows as a fallback (keeps previous behavior) — still logs for debugging
             document.addEventListener('click', function(ev) {
                 try {
                     const tr = ev.target.closest && ev.target.closest('tr[data-job-id]');
@@ -760,13 +789,46 @@
                     if (!jobId) return;
                     // Stop if a modal is already open for a different job
                     if (window._currentJobId && String(window._currentJobId) === jobId) return;
-                    showJobDetails(parseInt(jobId, 10));
+                    console.debug('Delegated click detected for job row:', jobId);
+                    if (typeof showJobDetails === 'function') {
+                        showJobDetails(parseInt(jobId, 10));
+                    }
                 } catch (e) {
                     console.error('Failed to handle row click delegation:', e);
                 }
             });
 
             // Handle Run Now buttons with optimistic UI insertion
+            function showToast(message, type='info') {
+                try {
+                    const id = `toast-${Date.now()}`;
+                    const containerId = 'toast-container';
+                    let container = document.getElementById(containerId);
+                    if (!container) {
+                        container = document.createElement('div');
+                        container.id = containerId;
+                        container.style.position = 'fixed';
+                        container.style.top = '1rem';
+                        container.style.right = '1rem';
+                        container.style.zIndex = 2000;
+                        document.body.appendChild(container);
+                    }
+                    const div = document.createElement('div');
+                    div.id = id;
+                    div.className = `alert alert-${type} shadow-sm`;
+                    div.style.marginBottom = '0.5rem';
+                    div.style.minWidth = '220px';
+                    div.textContent = message;
+                    container.appendChild(div);
+                    setTimeout(() => {
+                        try { div.style.transition = 'opacity 0.3s ease'; div.style.opacity = '0'; } catch (e) {}
+                        setTimeout(() => div.remove(), 350);
+                    }, 4000);
+                } catch (e) {
+                    try { console.warn('Could not show toast', e); } catch (e) {}
+                }
+            }
+
             async function runArchiveFromButton(btn) {
                 try {
                     const archiveId = btn.getAttribute('data-archive-id');
@@ -780,25 +842,8 @@
                         const resp = await fetch(`/api/archives/${archiveId}/run`, { method: 'POST' });
                         const data = await resp.json();
                         if (data && data.success) {
-                            if (data.job_id) {
-                                try {
-                                    const jresp = await fetch(`/api/jobs/${data.job_id}`);
-                                    if (jresp.ok) {
-                                        const jdata = await jresp.json();
-                                        if (jdata && jdata.job) {
-                                            addOrInsertJobRow(jdata.job);
-                                        } else {
-                                            addPendingJobRow(archiveId, archiveName);
-                                        }
-                                    } else {
-                                        addPendingJobRow(archiveId, archiveName);
-                                    }
-                                } catch (e) {
-                                    addPendingJobRow(archiveId, archiveName);
-                                }
-                            } else {
-                                addPendingJobRow(archiveId, archiveName);
-                            }
+                            // We rely on SSE to insert the job row when the server/worker publishes it.
+                            showToast('Job started — it will appear in the list shortly.', 'info');
                         } else {
                             alert('Failed to start archive: ' + (data && data.error ? data.error : 'unknown'));
                         }
@@ -880,7 +925,7 @@
                         <td><small>N/A</small></td>
                         <td style="text-align: right;"><span class="text-muted">N/A</span></td>
                     `;
-                    tr.addEventListener('click', function() { showJobDetails(job.id); });
+                    attachJobRowHandlers(tr, job.id);
                     tbody.insertBefore(tr, tbody.firstChild);
                     tr.style.backgroundColor = '#fff3cd';
                     setTimeout(() => { tr.style.transition = 'background-color 1s ease'; tr.style.backgroundColor = ''; }, 1200);
