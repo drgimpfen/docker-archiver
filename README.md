@@ -40,13 +40,7 @@ Each archive run follows a 4-phase process:
 3. **Phase 2: Retention** - Apply GFS retention rules and cleanup old archives
 4. **Phase 3: Finalization** - Calculate totals, send notifications, log disk usage
 
-### Stack Discovery
-
-The application scans `/local/*` directories (max 1 level deep) for Docker Compose files:
-- `compose.yml` / `compose.yaml`
-- `docker-compose.yml` / `docker-compose.yaml`
-
-Stacks without compose files are skipped and logged.
+See **How Stack Discovery Works** below for full details on how stack directories are detected and scanned.
 
 ## Quick Start
 
