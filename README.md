@@ -168,6 +168,20 @@ After changing compose files restart the app: `docker compose up -d --build app`
 
 **Recommendation:** It's sensible to include and run a lightweight Redis service by default (the override example adds `redis:7-alpine`). Running Redis even on single-node development setups makes the deployment future-proof (enables cross-worker SSE when you scale to multiple Gunicorn workers) and adds minimal resource overhead. If you prefer to omit Redis, remove the `redis` service from your compose file and either unset `REDIS_URL` or remove it from the `app` environment to disable cross-worker streaming.
 
+**Optional Gunicorn environment overrides:** You can optionally control Gunicorn sizing via env vars in `docker-compose.yml` (they are commented examples in the provided compose). Example settings you can enable in `docker-compose.override.yml`:
+
+```yaml
+services:
+  app:
+    environment:
+      # Override automatic sizing and force workers/threads
+      # GUNICORN_WORKERS: "6"     # explicit workers (overrides auto calc)
+      # GUNICORN_MAX_WORKERS: "8" # cap for auto sizing
+      # GUNICORN_THREADS: "2"     # threads per worker
+      # GUNICORN_TIMEOUT: "300"  # worker timeout in seconds
+```
+
+
 ### How Stack Discovery Works
 
 Discovery follows these rules:
@@ -262,7 +276,7 @@ For more details and troubleshooting tips, see the dashboard warning messages or
 
 > **Note:** Port (8080) and mount paths are configured in `docker-compose.yml`, not via environment variables.
 
-> **Note:** If you deploy with multiple workers (Gunicorn, etc.) and want real-time SSE events to work across workers, configure `REDIS_URL` and install the `redis` Python package (already optional in `requirements.txt`).
+> **Note:** Redis is required for reliable cross‑worker SSE propagation. Set `REDIS_URL` (e.g., `redis://redis:6379/0`) and ensure the `redis` Python package is available. The app assumes Redis is present for real‑time streaming and global event propagation.
 
 > **Note:** On startup the app will mark any jobs still in `running` state that **do not have an `end_time`** as `failed` to avoid stuck jobs and UI confusion; this behavior is automatic and not configurable via environment variables.
 
@@ -358,7 +372,7 @@ Authorization: Bearer <your-api-token>
 | `/api/archives/<id>/run` | POST | Token/Session | Trigger archive execution |
 | `/api/archives/<id>/dry-run` | POST | Token/Session | Run simulation (dry run) |
 | **Jobs** |
-| `/api/jobs` | GET | Token/Session | List jobs (supports filters: `?archive_id=1&type=archive&limit=50`) |
+| `/api/jobs` | GET | Token/Session | List jobs (supports filters: `?archive_id=1&type=archive&limit=20`) |
 | `/api/jobs/<id>` | GET | Token/Session | Get job details with stack metrics |
 | `/api/jobs/<id>/download` | POST | Token/Session | Request archive download (generates token) |
 | `/api/jobs/<id>/log` | GET | Token/Session | Download job log file |

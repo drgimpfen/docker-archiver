@@ -20,6 +20,7 @@ _lock = threading.Lock()
 # Optional Redis support (for multi-worker deployments)
 _redis_client = None
 _redis_subscribers = {}  # job_id -> {'thread': Thread, 'stop': Event}
+_redis_global = None  # {'thread': Thread, 'stop': Event}
 _use_redis = False
 
 REDIS_URL = os.environ.get('REDIS_URL')
@@ -69,6 +70,42 @@ def _start_redis_subscriber(job_id):
     t.start()
 
 
+def _start_redis_global_subscriber():
+    """Start a background thread that subscribes to the global jobs-events channel.
+    Forwards messages into the local global listener queues.
+    """
+    global _redis_global
+    if not _use_redis or _redis_global is not None:
+        return
+
+    stop_event = threading.Event()
+
+    def run():
+        try:
+            pubsub = _redis_client.pubsub(ignore_subscribe_messages=True)
+            channel = "jobs-events"
+            pubsub.subscribe(channel)
+            while not stop_event.is_set():
+                msg = pubsub.get_message(timeout=1)
+                if msg and msg.get('data'):
+                    data = msg['data']
+                    # Forward to global queues
+                    with _lock:
+                        queues = list(_global_listeners)
+                    for q in queues:
+                        try:
+                            q.put_nowait(data)
+                        except Exception:
+                            pass
+        except Exception:
+            # If anything goes wrong, just stop subscriber
+            pass
+
+    t = threading.Thread(target=run, daemon=True)
+    _redis_global = {'thread': t, 'stop': stop_event}
+    t.start()
+
+
 def _stop_redis_subscriber(job_id):
     s = _redis_subscribers.get(job_id)
     if not s:
@@ -115,6 +152,27 @@ def unregister_event_listener(job_id, q):
                 _stop_redis_subscriber(job_id)
 
 
+# Global listeners for job metadata changes
+_global_listeners = []
+
+def register_global_listener():
+    q = queue.Queue()
+    with _lock:
+        _global_listeners.append(q)
+
+    if _use_redis:
+        _start_redis_global_subscriber()
+    return q
+
+
+def unregister_global_listener(q):
+    with _lock:
+        try:
+            _global_listeners.remove(q)
+        except ValueError:
+            return
+
+
 def send_event(job_id, event_type, payload):
     """Send a JSON event to all registered listeners for job_id.
 
@@ -140,5 +198,29 @@ def send_event(job_id, event_type, payload):
         try:
             channel = f"job-events:{job_id}"
             _redis_client.publish(channel, data)
+        except Exception:
+            pass
+
+
+def send_global_event(event_type, payload):
+    """Send a JSON event to all global listeners and publish to the global Redis channel.
+
+    Event is of the form: {type: <event_type>, data: <payload>}
+    """
+    data = json.dumps({'type': event_type, 'data': payload}, default=str)
+
+    # Local in-memory delivery
+    with _lock:
+        queues = list(_global_listeners)
+    for q in queues:
+        try:
+            q.put_nowait(data)
+        except Exception:
+            pass
+
+    # Publish to Redis global channel if enabled
+    if _use_redis and _redis_client:
+        try:
+            _redis_client.publish('jobs-events', data)
         except Exception:
             pass

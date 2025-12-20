@@ -465,6 +465,24 @@ def _create_job_record_impl(self, start_time, triggered_by):
         ))
         job_id = cur.fetchone()['id']
         conn.commit()
+
+        # Broadcast a global job creation event so dashboards can update in real-time
+        try:
+            from app.sse import send_global_event
+            job_meta = {
+                'id': job_id,
+                'archive_id': self.config['id'],
+                'archive_name': self.config.get('name'),
+                'job_type': 'archive',
+                'status': 'running',
+                'start_time': start_time,
+                'is_dry_run': self.is_dry_run,
+                'stack_names': ','.join(self.config.get('stacks', []))
+            }
+            send_global_event('job', job_meta)
+        except Exception:
+            pass
+
         return job_id
 
 # Bind implementation to class so instances always have the method
@@ -965,6 +983,12 @@ def _update_job_status(self, status, end_time=None, duration=None, total_size=No
                 'reclaimed_bytes': None,
             }
             send_event(self.job_id, 'status', job_meta)
+            try:
+                # Also emit a global summary so the dashboard can update without polling
+                from app.sse import send_global_event
+                send_global_event('job', job_meta)
+            except Exception:
+                pass
         except Exception:
             pass
     

@@ -581,44 +581,114 @@
                 }
             }
 
-            function handleSseEvent(payload) {
-                if (!payload || !payload.type) return;
-                if (payload.type === 'log') {
-                        const line = payload.data && payload.data.line ? payload.data.line : JSON.stringify(payload.data);
-                        appendLogLine(line);
-                    } else if (payload.type === 'status' || payload.type === 'job') {
-                    // Update modal and dashboard immediately
-                    const jobMeta = payload.data || {};
-                    if (jobMeta.status) {
-                        job.status = jobMeta.status;
-                        const statusBadge = document.getElementById('job-status-badge');
-                        if (statusBadge) {
-                            const cls = job.status === 'success' ? 'success' : (job.status === 'running' ? 'info' : 'danger');
-                            statusBadge.className = `badge bg-${cls}`;
-                            statusBadge.textContent = job.status;
+            // Helper: deterministic HSL color for stack badges (client-side)
+            function stackColor(name) {
+                if (!name) return '#6c757d';
+                let h = 0;
+                for (let i = 0; i < name.length; i++) {
+                    h = (h * 31 + name.charCodeAt(i)) % 360;
+                }
+                return `hsl(${h}, 65%, 45%)`;
+            }
+
+            // Insert a job row at the top of the Recent Jobs table if it doesn't exist
+            function addOrInsertJobRow(job) {
+                try {
+                    const tbody = document.querySelector('table.table.table-hover.table-sm tbody');
+                    if (!tbody) return;
+                    let existing = document.getElementById(`job-row-${job.id}`);
+                    if (existing) {
+                        updateJobRowFromJob(job);
+                        return;
+                    }
+
+                    // Build stacks badges
+                    let stacksHtml = '<span class="text-muted small">N/A</span>';
+                    if (job.stack_names) {
+                        const parts = job.stack_names.split(',').filter(s => s && s.trim());
+                        if (parts.length) {
+                            stacksHtml = parts.slice(0,3).map(s => `<span class="badge" style="background-color: ${stackColor(s)}; color: white;">${s}</span>`).join('');
+                            if (parts.length > 3) stacksHtml += `<span class="badge bg-secondary">+${parts.length - 3}</span>`;
                         }
                     }
 
-                    if (jobMeta.start_time) {
-                        const elStart = document.getElementById('job-start-time'); if (elStart) elStart.textContent = jobMeta.start_time;
-                    }
-                    if (jobMeta.end_time) {
-                        const elEnd = document.getElementById('job-end-time'); if (elEnd) elEnd.textContent = jobMeta.end_time;
-                    }
-                    if (jobMeta.duration_seconds !== undefined) {
-                        const elDuration = document.getElementById('job-duration'); if (elDuration) elDuration.textContent = jobMeta.duration_seconds + 's';
-                    }
-                    if (jobMeta.total_size_bytes !== undefined) {
-                        const elTotal = document.getElementById('job-total-size'); if (elTotal) elTotal.textContent = jobMeta.total_size_bytes ? formatBytes(jobMeta.total_size_bytes) : 'N/A';
-                    }
+                    const tr = document.createElement('tr');
+                    tr.id = `job-row-${job.id}`;
+                    tr.setAttribute('data-job-id', job.id);
+                    tr.setAttribute('data-job-status', job.status || 'running');
+                    tr.setAttribute('data-follow', 'false');
+                    tr.style.cursor = 'pointer';
+                    tr.onclick = function() { showJobDetails(job.id); };
 
-                    // Update dashboard row if present
-                    const dashboardRow = document.getElementById(`job-row-${job.id}`);
-                    if (dashboardRow) {
-                        dashboardRow.setAttribute('data-job-status', job.status);
-                        const tableBadge = dashboardRow.querySelector('td:nth-child(2) .badge');
-                        if (tableBadge) {
-                            const cls = job.status === 'success' ? 'bg-success' : (job.status === 'running' ? 'bg-info' : 'bg-danger');
+                    tr.innerHTML = `
+                        <td class="align-middle" style="white-space: nowrap;">
+                            <div class="d-inline-flex align-items-center">
+                                <strong class="me-2">#${job.id}</strong>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="(function(e){ e.stopPropagation(); toggleFollow(${job.id}); }).call(this)"><i class="bi bi-bullseye"></i></button>
+                            </div>
+                        </td>
+                        <td><span class="badge ${job.status === 'success' ? 'bg-success' : (job.status === 'running' ? 'bg-info' : 'bg-danger')}">${job.status}</span></td>
+                        <td>${job.job_type || 'archive'}</td>
+                        <td>${job.archive_name || 'N/A'}</td>
+                        <td>${stacksHtml}</td>
+                        <td class="d-none d-md-table-cell"><small style="white-space: nowrap;" id="row-job-start-${job.id}">${job.start_time ? job.start_time.substring(0,16).replace('T',' ') : 'N/A'}</small></td>
+                        <td class="d-none d-md-table-cell"><small style="white-space: nowrap;" id="row-job-end-${job.id}">${job.end_time ? job.end_time.substring(0,16).replace('T',' ') : 'N/A'}</small></td>
+                        <td><small id="row-job-duration-${job.id}">${job.duration_seconds !== null && job.duration_seconds !== undefined ? job.duration_seconds + 's' : 'N/A'}</small></td>
+                        <td style="text-align: right;"><span id="row-job-size-${job.id}">${job.total_size_bytes ? `<span class="text-success">+${formatBytes(job.total_size_bytes)}</span>` : '<span class="text-muted">N/A</span>'}</span></td>
+                    `;
+
+                    // Insert at top
+                    tbody.insertBefore(tr, tbody.firstChild);
+                } catch (e) {
+                    console.error('Failed to insert job row:', e);
+                }
+            }
+
+            // --- Global jobs EventSource (dashboard) ---
+            function startJobsEventSource() {
+                if (typeof(EventSource) === 'undefined') return;
+                if (window._jobsEventSource) return;
+                try {
+                    window._jobsEventSource = new EventSource('/api/jobs/events');
+
+                    window._jobsEventSource.onopen = function() {
+                        try { console.debug('Jobs SSE connected'); } catch (e) {}
+                    };
+
+                    window._jobsEventSource.onmessage = function(e) {
+                        try {
+                            const payload = JSON.parse(e.data);
+                            if (!payload || !payload.type) return;
+                            if (payload.type === 'job' || payload.type === 'status') {
+                                // payload.data is a job summary
+                                // If the job row exists update it, otherwise insert it
+                                if (document.getElementById(`job-row-${payload.data.id}`)) {
+                                    updateJobRowFromJob(payload.data);
+                                } else {
+                                    addOrInsertJobRow(payload.data);
+                                }
+                            }
+                        } catch (err) {
+                            // ignore
+                        }
+                    };
+
+                    window._jobsEventSource.onerror = function(err) {
+                        console.error('Jobs SSE error', err);
+                        try { window._jobsEventSource.close(); } catch (e) {}
+                        window._jobsEventSource = null;
+                    };
+                } catch (err) {
+                    console.error('Failed to start Jobs SSE:', err);
+                }
+            }
+
+            function stopJobsEventSource() {
+                if (window._jobsEventSource) {
+                    try { window._jobsEventSource.close(); } catch (e) {}
+                    window._jobsEventSource = null;
+                }
+            }
                             tableBadge.className = `badge ${cls}`;
                             tableBadge.textContent = job.status;
                         }

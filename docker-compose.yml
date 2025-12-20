@@ -43,6 +43,12 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
+      # Gunicorn (optional) - commented example overrides
+      # If you want to control Gunicorn sizing explicitly, uncomment and set below:
+      # GUNICORN_WORKERS: "" # set explicit number of workers (overrides auto sizing)
+      # GUNICORN_MAX_WORKERS: "8" # max workers when using automatic sizing (default 8)
+      # GUNICORN_THREADS: "2" # threads per worker (default 2)
+      # GUNICORN_TIMEOUT: "300" # worker timeout in seconds (default 300)
     volumes:
       # Docker socket for container management
       - /var/run/docker.sock:/var/run/docker.sock

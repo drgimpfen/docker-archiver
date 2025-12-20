@@ -234,6 +234,35 @@ def job_events(job_id):
     return Response(stream_with_context(gen()), mimetype='text/event-stream')
 
 
+@bp.route('/jobs/events')
+@api_auth_required
+def jobs_events():
+    """Global SSE endpoint for job metadata/status changes (preferred over dashboard polling).
+
+    Streams events with shape: {"type": "job", "data": {<job summary>}}
+    """
+    try:
+        from app.sse import register_global_listener, unregister_global_listener
+    except Exception:
+        return jsonify({'error': 'SSE not available in this deployment'}), 501
+
+    def gen():
+        q = register_global_listener()
+        try:
+            yield ': connected\n\n'
+            while True:
+                try:
+                    msg = q.get(timeout=15)
+                except Exception:
+                    yield ': keepalive\n\n'
+                    continue
+                yield f"data: {msg}\n\n"
+        finally:
+            unregister_global_listener(q)
+
+    return Response(stream_with_context(gen()), mimetype='text/event-stream')
+
+
 @bp.route('/jobs/<int:job_id>/log/tail')
 @api_auth_required
 def tail_log(job_id):
@@ -519,13 +548,17 @@ def list_jobs():
     """List jobs with optional filters (API endpoint)."""
     archive_id = request.args.get('archive_id', type=int)
     job_type = request.args.get('type')
-    limit = request.args.get('limit', type=int, default=100)
+    limit = request.args.get('limit', type=int, default=20)
     
+    # Return a lightweight summary for the jobs list to avoid huge payloads (no full logs)
     query = """
-        SELECT j.*, a.name as archive_name,
-               (SELECT STRING_AGG(stack_name, ',') 
-                FROM job_stack_metrics 
-                WHERE job_id = j.id) as stack_names
+        SELECT
+            j.id, j.archive_id, j.job_type, j.status,
+            j.start_time, j.end_time, j.total_size_bytes, j.reclaimed_size_bytes,
+            j.is_dry_run, j.triggered_by,
+            a.name as archive_name,
+            EXTRACT(EPOCH FROM (COALESCE(j.end_time, NOW()) - j.start_time))::INTEGER as duration_seconds,
+            (SELECT STRING_AGG(stack_name, ',') FROM job_stack_metrics WHERE job_id = j.id) as stack_names
         FROM jobs j
         LEFT JOIN archives a ON j.archive_id = a.id
         WHERE 1=1

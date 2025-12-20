@@ -85,7 +85,16 @@ docker compose up -d --build
 
 ### Gunicorn & Workers
 
-The Docker image runs Gunicorn by default (see `Dockerfile`, default `--workers 2`). For higher throughput, increase workers (e.g., `--workers 4`) but be aware that real-time SSE events require a cross-worker pub/sub if you run multiple workers — this is why Redis is included by default. Ensure `REDIS_URL` is set (the compose file sets this to `redis://redis:6379/0`) when scaling beyond one worker.
+The Docker image computes a sane default for Gunicorn workers on startup: the entrypoint detects CPU count and uses the formula **(2 * CPUS + 1)** to compute the worker count and caps it to `GUNICORN_MAX_WORKERS` (default **8**). This works well on machines with spare CPU capacity and avoids hardcoding worker counts in images.
+
+You can override the automatic sizing with these environment variables:
+
+- `GUNICORN_WORKERS` — set an explicit number of workers (overrides auto calculation)
+- `GUNICORN_MAX_WORKERS` — maximum workers when using automatic sizing (default: 8)
+- `GUNICORN_THREADS` — threads per worker (default: 2)
+- `GUNICORN_TIMEOUT` — worker timeout in seconds (default: 300)
+
+When running multiple workers and you rely on real-time SSE, ensure a cross-worker pub/sub is configured (e.g., Redis via `REDIS_URL`).
 
 ### Use HTTPS (Traefik Example)
 

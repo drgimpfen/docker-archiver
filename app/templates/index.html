@@ -460,12 +460,15 @@ async function pollRunningJobs() {
     }
 
     try {
-        const resp = await fetch('/api/jobs?type=archive&limit=50');
+        if (_jobsPollInFlight) return;
+        _jobsPollInFlight = true;
+        const resp = await fetch('/api/jobs?type=archive&limit=20');
         if (!resp.ok) return;
         const data = await resp.json();
         if (!data.jobs) return;
 
         data.jobs.forEach(job => updateJobRowFromJob(job));
+        _jobsPollInFlight = false;
 
         // If modal open for a job and its status changed, refresh it
         if (window._currentJobId) {
@@ -481,13 +484,14 @@ async function pollRunningJobs() {
         // (Users can still click a job row to open details manually.)
     } catch (err) {
         console.error('Failed to poll running jobs:', err);
+    } finally {
+        // Ensure flag reset even on error
+        _jobsPollInFlight = false;
     }
 }
 
-// Start polling on load if any running jobs exist
-if (document.querySelector('tr[data-job-status="running"]')) {
-    _dashboardPoller = setInterval(pollRunningJobs, 5000);
-}
+// Start Jobs SSE on dashboard load to receive new job events
+startJobsEventSource();
 
 // Periodically check for newly started running jobs and start polling if needed
 setInterval(() => {
