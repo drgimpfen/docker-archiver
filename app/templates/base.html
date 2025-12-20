@@ -810,35 +810,7 @@
 
 
             // Handle Run Now buttons with optimistic UI insertion
-            function showToast(message, type='info') {
-                try {
-                    const id = `toast-${Date.now()}`;
-                    const containerId = 'toast-container';
-                    let container = document.getElementById(containerId);
-                    if (!container) {
-                        container = document.createElement('div');
-                        container.id = containerId;
-                        container.style.position = 'fixed';
-                        container.style.top = '1rem';
-                        container.style.right = '1rem';
-                        container.style.zIndex = 2000;
-                        document.body.appendChild(container);
-                    }
-                    const div = document.createElement('div');
-                    div.id = id;
-                    div.className = `alert alert-${type} shadow-sm`;
-                    div.style.marginBottom = '0.5rem';
-                    div.style.minWidth = '220px';
-                    div.textContent = message;
-                    container.appendChild(div);
-                    setTimeout(() => {
-                        try { div.style.transition = 'opacity 0.3s ease'; div.style.opacity = '0'; } catch (e) {}
-                        setTimeout(() => div.remove(), 350);
-                    }, 4000);
-                } catch (e) {
-                    try { console.warn('Could not show toast', e); } catch (e) {}
-                }
-            }
+
 
             async function runArchiveFromButton(btn) {
                 try {
@@ -854,7 +826,7 @@
                         const data = await resp.json();
                         if (data && data.success) {
                             // We rely on SSE to insert the job row when the server/worker publishes it.
-                            showToast('Job started — it will appear in the list shortly.', 'info');
+                            // No UI popup to avoid accidental duplicate starts.
                         } else {
                             alert('Failed to start archive: ' + (data && data.error ? data.error : 'unknown'));
                         }

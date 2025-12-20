@@ -521,11 +521,7 @@ document.querySelectorAll('.start-archive-btn').forEach(function(b) {
             const data = await resp.json();
             if (data && data.success) {
                 // Rely on SSE to show the new job; display a transient toast instead of optimistic insertion
-                if (typeof showToast === 'function') {
-                    showToast('Job started — it will appear in the list shortly.', 'info');
-                } else {
-                    alert('Job started — it will appear in the list shortly.');
-                }
+                // Rely on SSE to show the new job; do not show modal/popup to avoid duplication.
             } else {
                 alert('Failed to start archive: ' + (data && data.error ? data.error : 'unknown'));
             }

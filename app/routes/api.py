@@ -458,6 +458,11 @@ def run_archive(archive_id):
         
         if not archive:
             return jsonify({'error': 'Archive not found'}), 404
+
+        # Prevent starting duplicate archive runs concurrently
+        from app.db import is_archive_running
+        if is_archive_running(archive_id):
+            return jsonify({'error': 'Archive already has a running job'}), 409
         
         # Create a job record immediately so the UI can observe it and so the
         # detached subprocess can attach to the precreated job.
