@@ -221,6 +221,8 @@ services:
 
 **Note:** Named volumes *within* your stack's compose.yml (like `postgres_data:`) work perfectly fine - this requirement only applies to mounting the stack directories into the archiver container.
 
+**Postgres data directory:** The project's `docker-compose.yml` uses a host bind mount for Postgres data at `./postgres-data:/var/lib/postgresql/data`. For reliable backups prefer `pg_dump` (recommended). If you need a file-level backup, stop the `db` container and copy `./postgres-data` (or use filesystem snapshots) to avoid partial writes.
+
 ---
 
 <a name="bind-mounts"></a>

@@ -7,8 +7,9 @@ services:
       POSTGRES_DB: docker_archiver
       POSTGRES_USER: archiver
       POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme123}
+    # Use a host bind mount for Postgres data so it's easy to inspect/backup locally
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U archiver -d docker_archiver"]
       interval: 5s
@@ -71,9 +72,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-
-volumes:
-  postgres_data:
 
 networks:
   archiver-net:

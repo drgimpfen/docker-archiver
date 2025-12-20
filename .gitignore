@@ -36,6 +36,8 @@ docker-compose.override.yml
 
 # Redis data directory (local bind mount)
 redis-data/
+# Postgres data directory (local bind mount)
+postgres-data/
 # Database
 *.db
 *.sqlite

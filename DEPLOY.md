@@ -109,6 +109,17 @@ networks:
 
 > For more reverse proxy examples (Traefik, Nginx/NPM, Caddy) and tips for SSE/WebSocket, see `REVERSE_PROXY.md`.
 # Backup
+
+> Note: The compose file in this repository uses a host bind mount for Postgres at `./postgres-data:/var/lib/postgresql/data`. The preferred, consistent way to back up your database is using `pg_dump` (shown below). For a file-level backup, stop the `db` container before copying the `./postgres-data` directory to avoid partial writes.
+>
+> Example file-level backup (stop the DB first):
+>
+> ```bash
+> docker compose stop db
+> cp -r ./postgres-data ./postgres-data-backup
+> docker compose start db
+> ```
+
 docker compose exec db pg_dump -U archiver docker_archiver > backup.sql
 
 # Restore
