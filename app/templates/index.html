@@ -14,6 +14,42 @@
 </div>
 {% endif %}
 
+{% if bind_warnings %}
+<div class="alert alert-warning border-warning mb-4" role="alert">
+    <div class="d-flex gap-3">
+        <div class="flex-shrink-0"><i class="bi bi-exclamation-triangle-fill fs-4"></i></div>
+        <div>
+            <strong>Bind mount mismatches detected</strong>
+            <div class="mt-2">
+                {# Show primary message directly (message is concise and has no redundant prefix) #}
+                <div>{{ bind_warnings[0] | replace('\n', '<br>') | safe }}</div>
+                {% if bind_warnings|length > 1 %}
+                <details class="mt-2" style="color: #ddd;">
+                    <summary style="cursor: pointer;">Show all details</summary>
+                    <ul class="mt-2 mb-0">
+                        {% for w in bind_warnings %}
+                        <li>{{ w | replace('\n', '<br>') | safe }}</li>
+                        {% endfor %}
+                    </ul>
+                </details>
+                {% endif %}
+            </div>
+            <div class="mt-2">
+                <div><small class="text-muted"><strong>Required:</strong> Host and container paths **must be identical** (e.g., <code>/opt/stacks:/opt/stacks</code>).</small></div>
+                <small class="text-danger d-block mb-1">Bind mounts are mandatory — mismatched mounts are not supported and will be ignored, causing jobs to fail.</small>
+                <small class="text-muted d-block mb-1">Correct format:</small>
+                <pre class="bg-dark text-light p-2 rounded" style="white-space: pre-wrap;"><code>volumes:
+  - /opt/stacks:/opt/stacks  # Bind mount (host:container - same path)</code></pre>
+                <small class="text-muted">Examples not supported: <code>/home/stacks:/opt/stacks</code>, <code>/opt/stacks:/local/stacks</code>. <a href="https://github.com/drgimpfen/Docker-Archiver#bind-mounts" target="_blank" rel="noopener">Learn more</a> · <a href="https://github.com/drgimpfen/Docker-Archiver#troubleshooting-bind-mount-warnings" target="_blank" rel="noopener">Troubleshooting</a></small>
+            </div>
+            {% if ignored_bind_destinations %}
+            <div class="mt-2"><small class="text-muted">Ignored mount paths: {% for d in ignored_bind_destinations %}<code>{{ d }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</small></div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- System Info Cards -->
 <div class="row g-3 mb-4">
     <!-- Storage Card -->
@@ -24,7 +60,7 @@
                     <h6 class="card-subtitle text-muted mb-0">Archive Storage</h6>
                     <i class="bi bi-hdd-fill fs-4 text-{{ disk_status }}"></i>
                 </div>
-                <h3 class="mb-2">{{ format_bytes(total_archives_size) }}</h3>
+                <h3 class="mb-2" id="total-archives-size">{{ format_bytes(total_archives_size) }}</h3>
                 <div class="progress mb-2" style="height: 10px;">
                     <div class="progress-bar bg-{{ disk_status }}" 
                          role="progressbar" 
@@ -47,10 +83,10 @@
         <div class="card h-100">
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h6 class="card-subtitle text-muted mb-0">Total Stacks</h6>
+                    <h6 class="card-subtitle text-muted mb-0">Total Archives</h6>
                     <i class="bi bi-stack fs-4 text-primary"></i>
                 </div>
-                <h3 class="mb-2">{{ total_stacks_configured }}</h3>
+                <h3 class="mb-2" id="total-archives-count">{{ total_archives_configured }}</h3>
                 <small class="text-muted">{{ active_schedules }} scheduled</small>
             </div>
         </div>
@@ -64,7 +100,7 @@
                     <h6 class="card-subtitle text-muted mb-0">Last 24h</h6>
                     <i class="bi bi-clock-history fs-4 text-info"></i>
                 </div>
-                <h3 class="mb-2">{{ jobs_last_24h }}</h3>
+                <h3 class="mb-2" id="jobs-last-24h">{{ jobs_last_24h }}</h3>
                 <small class="text-muted">successful backups</small>
             </div>
         </div>
@@ -189,6 +225,7 @@
                                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                                     </div>
                                     <form method="POST" action="{{ url_for('archives.dry_run', archive_id=archive.id) }}">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <div class="modal-body">
                                             <p class="text-muted">Select which operations to simulate:</p>
                                             <div class="form-check">
@@ -246,35 +283,79 @@
                         <table class="table table-hover table-sm">
                             <thead>
                                 <tr>
-                                    <th style="width: 150px;">Archive</th>
-                                    <th style="width: 80px;">Type</th>
-                                    <th style="width: 110px;">Started</th>
-                                    <th style="width: 80px;">Duration</th>
-                                    <th style="width: 80px;">Size</th>
-                                    <th style="width: 80px;">Status</th>
+                                    <th style="width:50px;">ID</th>
+                                    <th style="width:90px;">Status</th>
+                                    <th style="width:110px;">Type</th>
+                                    <th>Archive</th>
+                                    <th>Stacks</th>
+                                    <th class="d-none d-md-table-cell" style="width:120px;">Start</th>
+                                    <th class="d-none d-md-table-cell" style="width:120px;">End</th>
+                                    <th style="width:90px;">Duration</th>
+                                    <th style="width:90px; text-align: right;">Size</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for job in recent_jobs %}
-                                <tr style="cursor: pointer;" onclick="showJobDetails({{ job.id }})">
-                                    <td>{{ job.archive_name or 'N/A' }}</td>
+                                <tr id="job-row-{{ job.id }}" data-job-id="{{ job.id }}" data-job-status="{{ job.status }}" data-follow="false" style="cursor: pointer;" onclick="showJobDetails({{ job.id }})" class="{% if job.is_dry_run %}table-secondary{% endif %}">
+                                    <td class="align-middle" style="white-space: nowrap;">
+                                        <div class="d-inline-flex align-items-center">
+                                            <strong class="me-2">#{{ job.id }}</strong>
+                                            <button class="btn btn-sm btn-outline-secondary" onclick="(function(e){ e.stopPropagation(); toggleFollow({{ job.id }}); }).call(this)"><i class="bi bi-bullseye"></i></button>
+                                        </div>
+                                    </td>
                                     <td>
-                                        <span class="badge bg-{{ 'info' if job.job_type == 'archive' else 'secondary' }}">
-                                            {{ job.job_type }}
+                                        <span class="badge {% if job.status == 'success' %}bg-success{% elif job.status == 'running' %}bg-info{% elif job.status == 'failed' %}bg-danger{% else %}bg-secondary{% endif %}">
+                                            {{ job.status }}
                                         </span>
                                     </td>
-                                    <td>
-                                        <small>{{ job.start_time|datetime('%Y-%m-%d %H:%M') }}</small>
+                                    <td style="white-space: nowrap;">
+                                        {% if job.job_type == 'archive' %}
+                                        <i class="bi bi-box-seam text-primary"></i> Archive
+                                        {% elif job.job_type == 'retention' %}
+                                        <i class="bi bi-trash text-warning"></i> Retention
+                                        {% elif job.job_type == 'cleanup' %}
+                                        <i class="bi bi-recycle text-info"></i> Cleanup
+                                        {% else %}
+                                        <i class="bi bi-question-circle text-muted"></i> {{ job.job_type|title }}
+                                        {% endif %}
+                                        {% if job.is_dry_run %}
+                                        <span class="badge bg-secondary ms-1">DRY</span>
+                                        {% endif %}
                                     </td>
+                                    <td>{{ job.archive_name or 'N/A' }}</td>
                                     <td>
-                                        <small>{{ format_duration(job.duration_seconds) }}</small>
+                                        {% if job.stack_names %}
+                                            {% set stacks = (job.stack_names.split(',') if job.stack_names else []) | sort %}
+                                            {% for stack in stacks[:3] %}
+                                                <span class="badge" style="background-color: {{ stack|stack_color }}; color: white;">{{ stack }}</span>
+                                            {% endfor %}
+                                            {% if stacks|length > 3 %}
+                                                <span class="badge bg-secondary">+{{ stacks|length - 3 }}</span>
+                                            {% endif %}
+                                        {% elif job.archive_stacks %}
+                                            {% set stacks2 = job.archive_stacks | sort %}
+                                            {% for stack in stacks2[:3] %}
+                                                <span class="badge" style="background-color: {{ stack|stack_color }}; color: white;">{{ stack }}</span>
+                                            {% endfor %}
+                                            {% if stacks2|length > 3 %}
+                                                <span class="badge bg-secondary">+{{ stacks2|length - 3 }}</span>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted small">N/A</span>
+                                        {% endif %}
                                     </td>
-                                    <td>
-                                        <small>{{ format_bytes(job.total_size_bytes) if job.total_size_bytes else 'N/A' }}</small>
-                                    </td>
-                                    <td>
-                                        <span class="badge bg-{{ 'success' if job.status == 'success' else ('danger' if job.status == 'failed' else 'warning') }}">
-                                            {{ job.status }}
+                                    <td class="d-none d-md-table-cell"><small style="white-space: nowrap;" id="row-job-start-{{ job.id }}">{{ job.start_time|datetime('%Y-%m-%d %H:%M') }}</small></td>
+                                    <td class="d-none d-md-table-cell"><small style="white-space: nowrap;" id="row-job-end-{{ job.id }}">{{ job.end_time|datetime('%Y-%m-%d %H:%M') }}</small></td>
+                                    <td><small id="row-job-duration-{{ job.id }}">{{ format_duration(job.duration_seconds) }}</small></td>
+                                    <td style="text-align: right;">
+                                        <span id="row-job-size-{{ job.id }}">
+                                        {% if job.job_type == 'archive' and job.total_size_bytes %}
+                                        <span class="text-success">+{{ format_bytes(job.total_size_bytes) }}</span>
+                                        {% elif (job.job_type == 'retention' or job.job_type == 'cleanup') and (job.reclaimed_bytes or job.reclaimed_size_bytes) %}
+                                        <span class="text-warning">-{{ format_bytes(job.reclaimed_size_bytes or job.reclaimed_bytes) }}</span>
+                                        {% else %}
+                                        <span class="text-muted">N/A</span>
+                                        {% endif %}
                                         </span>
                                     </td>
                                 </tr>
@@ -329,5 +410,96 @@ function updateTimeUntil() {
 // Update on page load and every minute
 updateTimeUntil();
 setInterval(updateTimeUntil, 60000);
+
+// --- Dashboard polling for running jobs ---
+let _dashboardPoller = null;
+
+function updateJobRowFromJob(job) {
+    const row = document.getElementById(`job-row-${job.id}`);
+    if (!row) return;
+    row.setAttribute('data-job-status', job.status);
+
+    // Update status badge
+    const badge = row.querySelector('td:nth-child(2) .badge');
+    if (badge) {
+        const cls = job.status === 'success' ? 'bg-success' : (job.status === 'running' ? 'bg-info' : 'bg-danger');
+        badge.className = `badge ${cls}`;
+        badge.textContent = job.status;
+    }
+
+    // Update timing and size
+    const startEl = document.getElementById(`row-job-start-${job.id}`);
+    const endEl = document.getElementById(`row-job-end-${job.id}`);
+    const durEl = document.getElementById(`row-job-duration-${job.id}`);
+    const sizeEl = document.getElementById(`row-job-size-${job.id}`);
+
+    if (startEl) startEl.textContent = job.start_time ? job.start_time.substring(0,16).replace('T',' ') : 'N/A';
+    if (endEl) endEl.textContent = job.end_time ? job.end_time.substring(0,16).replace('T',' ') : 'N/A';
+    if (durEl) durEl.textContent = (job.duration_seconds !== null && job.duration_seconds !== undefined) ? job.duration_seconds + 's' : 'N/A';
+
+    if (sizeEl) {
+        if (job.job_type === 'archive' && job.total_size_bytes) {
+            sizeEl.innerHTML = `<span class="text-success">+${formatBytes(job.total_size_bytes)}</span>`;
+        } else if ((job.job_type === 'retention' || job.job_type === 'cleanup') && (job.reclaimed_bytes || job.reclaimed_size_bytes)) {
+            sizeEl.innerHTML = `<span class="text-warning">-${formatBytes(job.reclaimed_size_bytes || job.reclaimed_bytes)}</span>`;
+        } else {
+            sizeEl.innerHTML = `<span class="text-muted">N/A</span>`;
+        }
+    }
+}
+
+async function pollRunningJobs() {
+    const runningRows = document.querySelectorAll('tr[data-job-status="running"]');
+    if (!runningRows.length) {
+        if (_dashboardPoller) {
+            clearInterval(_dashboardPoller);
+            _dashboardPoller = null;
+        }
+        return;
+    }
+
+    try {
+        const resp = await fetch('/api/jobs?type=archive&limit=50');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (!data.jobs) return;
+
+        data.jobs.forEach(job => updateJobRowFromJob(job));
+
+        // If modal open for a job and its status changed, refresh it
+        if (window._currentJobId) {
+            const jobId = window._currentJobId;
+            const jobRow = document.getElementById(`job-row-${jobId}`);
+            if (jobRow && jobRow.getAttribute('data-job-status') !== 'running') {
+                // Re-fetch modal details
+                showJobDetails(jobId);
+            }
+        }
+
+        // Auto-open modal for followed jobs that are running
+        document.querySelectorAll('tr[data-follow="true"]').forEach(row => {
+            const jobId = row.getAttribute('data-job-id');
+            const status = row.getAttribute('data-job-status');
+            if (status === 'running' && String(window._currentJobId) !== jobId) {
+                showJobDetails(parseInt(jobId));
+            }
+        });
+    } catch (err) {
+        console.error('Failed to poll running jobs:', err);
+    }
+}
+
+// Start polling on load if any running jobs exist
+if (document.querySelector('tr[data-job-status="running"]')) {
+    _dashboardPoller = setInterval(pollRunningJobs, 5000);
+}
+
+// Periodically check for newly started running jobs and start polling if needed
+setInterval(() => {
+    if (document.querySelector('tr[data-job-status="running"]') && !_dashboardPoller) {
+        _dashboardPoller = setInterval(pollRunningJobs, 5000);
+    }
+}, 10000);
+
 </script>
 {% endblock %}

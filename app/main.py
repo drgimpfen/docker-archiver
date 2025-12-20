@@ -2,8 +2,9 @@
 Main Flask application with Blueprints.
 """
 import os
+import threading
 
-__version__ = '0.6.5'
+__version__ = '0.7.0'
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file
 from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
@@ -11,7 +12,7 @@ from flask_limiter.util import get_remote_address
 from app.db import init_db, get_db
 from app.auth import login_required, authenticate_user, create_user, get_user_count, get_current_user
 from app.scheduler import init_scheduler, get_next_run_time
-from app.stacks import discover_stacks
+from app.stacks import discover_stacks, get_stack_mount_paths
 from app.downloads import get_download_by_token, prepare_archive_for_download
 from app.notifications import get_setting
 from app.utils import format_bytes, format_duration, get_disk_usage
@@ -23,6 +24,15 @@ from app.routes import archives, history, settings, profile, api
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+
+
+@app.context_processor
+def inject_app_version():
+    """Inject application version into all templates as `app_version`."""
+    try:
+        return {'app_version': __version__}
+    except Exception:
+        return {'app_version': 'unknown'}
 
 # Security: CSRF Protection
 csrf = CSRFProtect(app)
@@ -57,6 +67,68 @@ app.register_blueprint(api.bp)
 
 # Exempt API blueprint from CSRF (uses Bearer tokens)
 csrf.exempt(api.bp)
+
+# Run startup discovery once, safely, on first request using a guarded before_request handler.
+startup_discovery_done = False
+startup_discovery_lock = threading.Lock()
+
+def run_startup_discovery():
+    """Run stack/mount detection once per process (guarded by a lock)."""
+    global startup_discovery_done
+    if startup_discovery_done:
+        return
+    with startup_discovery_lock:
+        if startup_discovery_done:
+            return
+        try:
+            mount_paths = get_stack_mount_paths()
+            print(f"[DEBUG] Auto-detected mount paths: {mount_paths}")
+            stacks = discover_stacks()
+            print(f"[INFO] Discovered {len(stacks)} stacks:")
+            for s in stacks:
+                print(f"  - {s['name']} (at {s['path']}, compose: {s.get('compose_file')})")
+
+            # Detect bind mount mismatches and persist warnings to app config for UI
+            try:
+                from app.stacks import detect_bind_mismatches, get_mismatched_destinations
+                bind_warnings = detect_bind_mismatches()
+                # Deduplicate warnings while preserving order
+                bind_warnings = list(dict.fromkeys(bind_warnings)) if bind_warnings else []
+                if bind_warnings:
+                    for w in bind_warnings:
+                        # Ensure multiline warnings are clearly prefixed in logs
+                        for line in str(w).splitlines():
+                            print(f"[WARNING] {line}")
+                app.config['BIND_MISMATCH_WARNINGS'] = bind_warnings
+                # Also persist the exact container destinations that are mismatched so we can ignore them
+                ignored = list(dict.fromkeys(get_mismatched_destinations()))
+                app.config['IGNORED_BIND_DESTINATIONS'] = ignored
+                if ignored:
+                    print(f"[INFO] Ignoring stacks under destinations: {ignored}")
+            except Exception as e:
+                print(f"[DEBUG] Could not detect bind mismatches: {e}")
+
+        except Exception as e:
+            print(f"[ERROR] Startup mount/stack detection failed: {e}")
+        finally:
+            startup_discovery_done = True
+
+
+@app.before_request
+def _ensure_startup_discovery():
+    """Ensure the startup discovery has run (runs only once per process)."""
+    run_startup_discovery()
+
+@app.context_processor
+def inject_bind_warnings():
+    """Inject bind mount mismatch warnings and ignored destinations into templates."""
+    try:
+        return {
+            'bind_warnings': app.config.get('BIND_MISMATCH_WARNINGS', []),
+            'ignored_bind_destinations': app.config.get('IGNORED_BIND_DESTINATIONS', [])
+        }
+    except Exception:
+        return {'bind_warnings': [], 'ignored_bind_destinations': []}
 
 # Initialize scheduler on startup
 init_scheduler()
@@ -113,7 +185,7 @@ def index():
         archives_list = cur.fetchall()
         
         # Dashboard statistics
-        total_stacks_configured = len(archives_list)
+        total_archives_configured = len(archives_list)
         active_schedules = sum(1 for a in archives_list if a['schedule_enabled'])
         
         # Last 24h jobs
@@ -181,7 +253,8 @@ def index():
         
         # Get recent jobs (last 10)
         cur.execute("""
-            SELECT j.*, a.name as archive_name,
+            SELECT j.*, a.name as archive_name, a.stacks as archive_stacks,
+                   (SELECT STRING_AGG(stack_name, ',') FROM job_stack_metrics WHERE job_id = j.id) as stack_names,
                    EXTRACT(EPOCH FROM (j.end_time - j.start_time))::integer as duration_seconds
             FROM jobs j
             LEFT JOIN archives a ON j.archive_id = a.id
@@ -206,7 +279,7 @@ def index():
         disk=disk,
         disk_status=disk_status,
         total_archives_size=total_archives_size,
-        total_stacks_configured=total_stacks_configured,
+        total_archives_configured=total_archives_configured,
         active_schedules=active_schedules,
         jobs_last_24h=jobs_last_24h,
         next_scheduled=next_scheduled,

@@ -19,6 +19,8 @@ sudo usermod -aG docker $USER
 git clone https://github.com/yourusername/docker-archiver.git
 cd docker-archiver
 cp .env.example .env
+# Optional: copy the override example for local development
+cp docker-compose.override.yml.example docker-compose.override.yml
 nano .env
 ```
 
@@ -28,26 +30,49 @@ DB_PASSWORD=your-secure-db-password
 SECRET_KEY=your-random-secret-key-here
 APP_PORT=8080
 ARCHIVE_DIR=/mnt/archives
-STACKS_DIR_1=/opt/stacks
 ```
 
 ### 3. Configure Volume Mounts
 
-Edit `docker-compose.yml` to match your stack locations:
+Add your stack directory **bind mounts** to `docker-compose.yml`. **This is mandatory** — host and container paths for the stack directories **must be identical** (e.g., `- /opt/stacks:/opt/stacks`). The application auto-detects bind mounts and scans them for compose files.
 
 ```yaml
 volumes:
   - /var/run/docker.sock:/var/run/docker.sock
   - /mnt/backups:/archives
-  - /opt/stacks:/local/stacks
-  - /srv/dockge:/local/dockge
+  - /opt/stacks:/opt/stacks        # ← Auto-detected (host:container paths must match)
+  - /home/user/docker:/home/user/docker  # ← Auto-detected
 ```
+
+If stacks are not mounted as identical bind mounts, the app may ignore them and jobs can fail. See the Dashboard bind-mount warnings and README troubleshooting section for guidance.
 
 ### 4. Start Services
 
+Redis is included in `docker-compose.yml` by default and stores data in `./redis-data` (bind mounted). The `redis` service in the compose file is simple and lightweight, but we recommend adding a basic healthcheck to ensure the `app` waits for Redis to be ready before starting (example shown in compose). To start the services:
+
 ```bash
-docker compose up -d
-docker compose logs -f app
+# Recommended update & start workflow (pull, update images, rebuild app service, tail logs)
+git pull --ff-only && docker compose pull && docker compose up -d --build --no-deps --remove-orphans app && docker compose logs -f --tail=200 app
+```
+
+If you prefer a simple start for a fresh deployment:
+
+```bash
+docker compose up -d --build
+```
+
+**Optional: Add a Redis healthcheck** (example for `docker-compose.yml`):
+
+```yaml
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    volumes:
+      - ./redis-data:/data
 ```
 
 ### 5. Initial Setup
@@ -57,6 +82,10 @@ docker compose logs -f app
 3. Configure first archive
 
 ## Production Hardening
+
+### Gunicorn & Workers
+
+The Docker image runs Gunicorn by default (see `Dockerfile`, default `--workers 2`). For higher throughput, increase workers (e.g., `--workers 4`) but be aware that real-time SSE events require a cross-worker pub/sub if you run multiple workers — this is why Redis is included by default. Ensure `REDIS_URL` is set (the compose file sets this to `redis://redis:6379/0`) when scaling beyond one worker.
 
 ### Use HTTPS (Traefik Example)
 
@@ -78,10 +107,19 @@ networks:
     external: true
 ```
 
-### Backup Database
-
-```bash
+> For more reverse proxy examples (Traefik, Nginx/NPM, Caddy) and tips for SSE/WebSocket, see `REVERSE_PROXY.md`.
 # Backup
+
+> Note: The compose file in this repository uses a host bind mount for Postgres at `./postgres-data:/var/lib/postgresql/data`. The preferred, consistent way to back up your database is using `pg_dump` (shown below). For a file-level backup, stop the `db` container before copying the `./postgres-data` directory to avoid partial writes.
+>
+> Example file-level backup (stop the DB first):
+>
+> ```bash
+> docker compose stop db
+> cp -r ./postgres-data ./postgres-data-backup
+> docker compose start db
+> ```
+
 docker compose exec db pg_dump -U archiver docker_archiver > backup.sql
 
 # Restore
@@ -145,6 +183,30 @@ sudo chmod 666 /var/run/docker.sock
    ```bash
    docker compose logs app | grep -i stack
    ```
+
+### Redis Backup & Troubleshooting
+
+- Backup Redis data (simple bind-copy):
+  ```bash
+  # Stop redis, copy dump, restart
+  docker compose stop redis
+  cp -r ./redis-data ./redis-data-backup
+  docker compose start redis
+  ```
+- Or use `redis-cli` to create a snapshot:
+  ```bash
+  docker compose exec redis redis-cli SAVE
+  # copy dump.rdb from ./redis-data
+  ```
+
+- Check Redis and REDIS_URL inside the app container:
+  ```bash
+  docker compose ps redis
+  docker compose logs redis
+  docker compose exec app env | grep REDIS_URL
+  ```
+- If SSE streaming doesn't propagate across workers, confirm `REDIS_URL` is set and reachable from the app.
+
 
 ### Archive Job Fails
 

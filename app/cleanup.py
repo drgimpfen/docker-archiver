@@ -97,7 +97,7 @@ def run_cleanup():
                     SET status = 'failed', end_time = %s, 
                         error_message = %s, log = %s
                     WHERE id = %s;
-                """, (end_time, str(e), log_text, job_id))
+                """, (end_time, str(e), ''.join(log_lines), job_id))
                 conn.commit()
         
         raise
@@ -148,7 +148,11 @@ def cleanup_orphaned_archives(is_dry_run=False, log_callback=None):
                 log(f"Deleting orphaned archive directory: {archive_dir.name} ({format_bytes(size)})")
                 # Mark all archives in this directory as deleted
                 _mark_archives_as_deleted_by_path(str(archive_dir), 'cleanup')
-                shutil.rmtree(archive_dir)
+                try:
+                    shutil.rmtree(archive_dir)
+                except Exception as e:
+                    # Log and continue with other directories; don't let one failure abort the entire cleanup
+                    log(f"Failed to delete {archive_dir}: {e}")
     
     if orphaned_count > 0:
         log(f"Found {orphaned_count} orphaned archive(s), {format_bytes(reclaimed_bytes)} to reclaim")
@@ -227,7 +231,10 @@ def cleanup_temp_files(is_dry_run=False, log_callback=None):
             log(f"Would delete temp file: {temp_file.relative_to(archive_base)} ({format_bytes(size)})")
         else:
             log(f"Deleting temp file: {temp_file.relative_to(archive_base)} ({format_bytes(size)})")
-            temp_file.unlink()
+            try:
+                temp_file.unlink()
+            except Exception as e:
+                log(f"Failed to delete temp file {temp_file.relative_to(archive_base)}: {e}")
     
     # Find empty stack directories
     for archive_dir in archive_base.iterdir():
@@ -246,7 +253,10 @@ def cleanup_temp_files(is_dry_run=False, log_callback=None):
                     log(f"Would delete empty stack directory: {stack_dir.relative_to(archive_base)}")
                 else:
                     log(f"Deleting empty stack directory: {stack_dir.relative_to(archive_base)}")
-                    shutil.rmtree(stack_dir)
+                    try:
+                        shutil.rmtree(stack_dir)
+                    except Exception as e:
+                        log(f"Failed to delete empty stack directory {stack_dir.relative_to(archive_base)}: {e}")
     
     if temp_count > 0:
         log(f"Found {temp_count} temp file(s)/directory(ies), {format_bytes(reclaimed_bytes)} to reclaim")

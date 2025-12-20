@@ -27,3 +27,6 @@ gunicorn==21.2.0
 # Utilities
 python-dateutil==2.8.2
 croniter==2.0.1
+
+# Optional: Redis for cross-worker event streaming (install if using multi-worker deployments)
+redis==5.3.1

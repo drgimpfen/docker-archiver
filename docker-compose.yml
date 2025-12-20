@@ -7,14 +7,23 @@ services:
       POSTGRES_DB: docker_archiver
       POSTGRES_USER: archiver
       POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme123}
+    # Use a host bind mount for Postgres data so it's easy to inspect/backup locally
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U archiver -d docker_archiver"]
       interval: 5s
       timeout: 3s
       retries: 5
     restart: unless-stopped
+    networks:
+      - archiver-net
+
+  redis:
+    image: "redis:7-alpine"
+    restart: unless-stopped
+    volumes:
+      - ./redis-data:/data
     networks:
       - archiver-net
 
@@ -26,6 +35,8 @@ services:
       DATABASE_URL: postgresql://archiver:${DB_PASSWORD:-changeme123}@db:5432/docker_archiver
       SECRET_KEY: ${SECRET_KEY:-change-this-secret-key-in-production}
       FLASK_ENV: production
+      # Redis for cross-worker SSE
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       # SMTP/Email Configuration (optional)
       SMTP_SERVER: ${SMTP_SERVER:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -37,16 +48,24 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Archive output directory (bind mount - adjust to your setup)
       - ./archives:/archives
-      # Stack directories - add your stack locations here:
-      # Example: If your stacks are in /opt/stacks, add:
-      # - /opt/stacks:/local/stacks
-      # Example: If you use Dockge in /opt/dockge/stacks:
-      # - /opt/dockge/stacks:/local/dockge
+      # Stack directories - automatically detected from volume mounts
+      # Add bind mounts for your stack directories here
+      # The container will automatically scan these for Docker Compose files
+      # Examples for different setups:
+      # - /opt/stacks:/opt/stacks                    # Default location
+      # - /srv/docker/stacks:/srv/docker/stacks      # Systemd/docker-compose location
+      # - /home/user/docker:/home/user/docker        # User home directory
+      #
+      # Add your stack directory mounts here:
+      - /opt/stacks:/opt/stacks
+      - /home/user/docker:/home/user/docker
     ports:
       - "8080:8080"
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     restart: unless-stopped
     networks:
       - archiver-net
@@ -55,9 +74,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-
-volumes:
-  postgres_data:
 
 networks:
   archiver-net:

@@ -1,6 +1,7 @@
 """
 Archives management routes.
 """
+import os
 import threading
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from app.auth import login_required, get_current_user
@@ -66,6 +67,10 @@ def create():
                 return redirect(url_for('archives.list_archives'))
         
         stacks = request.form.getlist('stacks')
+        # Require at least one stack when creating an archive
+        if not stacks:
+            flash('Please select at least one stack for the archive.', 'danger')
+            return redirect(url_for('archives.list_archives'))
         stop_containers = request.form.get('stop_containers') == 'on'
         schedule_enabled = request.form.get('schedule_enabled') == 'on'
         schedule_cron = request.form.get('schedule_cron', '').strip()
@@ -81,10 +86,28 @@ def create():
         output_format = request.form.get('output_format', 'tar')
         
         # Retention settings
-        keep_days = int(request.form.get('keep_days', 7))
-        keep_weeks = int(request.form.get('keep_weeks', 4))
-        keep_months = int(request.form.get('keep_months', 6))
-        keep_years = int(request.form.get('keep_years', 2))
+        def parse_retention_field(name, default):
+            raw = request.form.get(name)
+            if raw is None:
+                return default
+            raw = str(raw).strip()
+            if raw == '':
+                return 0
+            try:
+                val = int(raw)
+                return val if val >= 0 else 0
+            except ValueError:
+                raise ValueError(f"Invalid integer for {name}: '{raw}'")
+
+        try:
+            keep_days = parse_retention_field('keep_days', 7)
+            keep_weeks = parse_retention_field('keep_weeks', 4)
+            keep_months = parse_retention_field('keep_months', 6)
+            keep_years = parse_retention_field('keep_years', 2)
+        except ValueError as ve:
+            flash(str(ve), 'danger')
+            return redirect(url_for('archives.list_archives'))
+
         one_per_day = request.form.get('one_per_day') == 'on'
         
         with get_db() as conn:
@@ -123,6 +146,10 @@ def edit(archive_id):
         
         # Note: name field is ignored - archives cannot be renamed
         stacks = request.form.getlist('stacks')
+        # Require at least one stack when editing an archive
+        if not stacks:
+            flash('Please select at least one stack for the archive.', 'danger')
+            return redirect(url_for('archives.list_archives'))
         stop_containers = request.form.get('stop_containers') == 'on'
         schedule_enabled = request.form.get('schedule_enabled') == 'on'
         schedule_cron = request.form.get('schedule_cron', '').strip()
@@ -137,10 +164,28 @@ def edit(archive_id):
             return redirect(url_for('archives.list_archives'))
         output_format = request.form.get('output_format', 'tar')
         
-        keep_days = int(request.form.get('keep_days', 7))
-        keep_weeks = int(request.form.get('keep_weeks', 4))
-        keep_months = int(request.form.get('keep_months', 6))
-        keep_years = int(request.form.get('keep_years', 2))
+        def parse_retention_field(name, default):
+            raw = request.form.get(name)
+            if raw is None:
+                return default
+            raw = str(raw).strip()
+            if raw == '':
+                return 0
+            try:
+                val = int(raw)
+                return val if val >= 0 else 0
+            except ValueError:
+                raise ValueError(f"Invalid integer for {name}: '{raw}'")
+
+        try:
+            keep_days = parse_retention_field('keep_days', 7)
+            keep_weeks = parse_retention_field('keep_weeks', 4)
+            keep_months = parse_retention_field('keep_months', 6)
+            keep_years = parse_retention_field('keep_years', 2)
+        except ValueError as ve:
+            flash(str(ve), 'danger')
+            return redirect(url_for('archives.list_archives'))
+
         one_per_day = request.form.get('one_per_day') == 'on'
         
         with get_db() as conn:

@@ -1,8 +1,10 @@
 services:
   app:
+    # This override file is intended for local development mounts and overrides.
     volumes:
       # Development stack directories (adjust to your setup)
-      - /opt/stacks:/local/stacks
+      # Required: use identical host:container paths (e.g., /opt/stacks:/opt/stacks)
+      - /opt/stacks:/opt/stacks
       # Add more as needed:
-      # - /opt/dockge/stacks:/local/dockge
-      # - /srv/other-stacks:/local/other
+      # - /srv/docker/stacks:/srv/docker/stacks
+      # - /home/user/docker:/home/user/docker

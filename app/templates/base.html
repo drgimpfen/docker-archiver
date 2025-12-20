@@ -9,6 +9,25 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+    /* Log terminal styles */
+    .log {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
+        font-size: 0.9rem;
+        line-height: 1.4rem;
+        color: #e6e6e6;
+    }
+    .log-line { display: flex; gap: 8px; padding: 2px 4px; }
+    .log-line .ln { color: #777; width: 40px; flex: 0 0 40px; text-align: right; user-select: none; }
+    .log-line .text { white-space: pre-wrap; word-break: break-word; flex: 1 1 auto; }
+    .level-ERROR { color: #ff6b6b; font-weight: 700; }
+    .level-WARNING { color: #ffc542; font-weight: 600; }
+    .level-INFO { color: #6bc8ff; }
+    .level-DEBUG { color: #9aa4b2; }
+    .log-line.muted { opacity: 0.8; }
+    .log-highlight { background: rgba(255,255,0,0.12); }
+    .paused-indicator { display:inline-block; background:#ff6b6b; color:white; padding:2px 6px; border-radius:4px; font-weight:600; margin-left:8px; }
+    </style>
 </head>
 <body>
     {% if session.user_id %}
@@ -46,7 +65,7 @@
                 <i class="bi bi-box-arrow-right me-1"></i>Logout
             </a>
             <div class="text-center">
-                <small class="text-muted">v0.6.0</small>
+                <small class="text-muted">v{{ app_version }}</small>
             </div>
         </div>
     </aside>
@@ -66,7 +85,8 @@
                 {% endfor %}
             {% endif %}
         {% endwith %}
-        
+
+
         {% block content %}{% endblock %}
     </main>
 
@@ -87,6 +107,62 @@
                 };
             }
         })();
+
+        // LocalStorage helpers for 'follow' feature
+        function getFollowedJobs() {
+            try { return JSON.parse(localStorage.getItem('followedJobs') || '[]'); } catch (e) { return []; }
+        }
+        function setFollowedJobs(list) {
+            try { localStorage.setItem('followedJobs', JSON.stringify(list)); } catch (e) {}
+        }
+        function isJobFollowed(jobId) {
+            return getFollowedJobs().includes(String(jobId));
+        }
+        function setJobFollowed(jobId, value) {
+            const list = getFollowedJobs().filter(x=>x);
+            const s = String(jobId);
+            const exists = list.includes(s);
+            if (value && !exists) list.push(s);
+            if (!value && exists) {
+                const idx = list.indexOf(s); if (idx !== -1) list.splice(idx,1);
+            }
+            setFollowedJobs(list);
+        }
+
+        // Persisted Line Number setting
+        function getShowLineNumbers() {
+            try { return localStorage.getItem('showLineNumbers') === 'true'; } catch (e) { return false; }
+        }
+        function setShowLineNumbers(v) {
+            try { localStorage.setItem('showLineNumbers', v ? 'true' : 'false'); } catch (e) {}
+        }
+
+        // Global follow toggle for index rows
+        function toggleFollow(jobId) {
+            const row = document.getElementById(`job-row-${jobId}`);
+            if (!row) return;
+            const current = row.getAttribute('data-follow') === 'true';
+            const newVal = !current;
+            row.setAttribute('data-follow', newVal.toString());
+            // Persist
+            setJobFollowed(jobId, newVal);
+            // Update any modal or index follow buttons
+            document.querySelectorAll(`#job-follow-toggle-${jobId}`).forEach(btn => btn.classList.toggle('btn-success', newVal));
+            // If following and the job is running, open details
+            if (newVal && row.getAttribute('data-job-status') === 'running') {
+                showJobDetails(jobId);
+            }
+        }
+
+        // Initialize follow state on page load
+        document.addEventListener('DOMContentLoaded', ()=>{
+            const followed = getFollowedJobs();
+            followed.forEach(id => {
+                const row = document.getElementById(`job-row-${id}`);
+                if (row) row.setAttribute('data-follow','true');
+                document.querySelectorAll(`#job-follow-toggle-${id}`).forEach(btn => btn.classList.add('btn-success'));
+            });
+        });
         
         // Bootstrap 5 native theme toggle
         (function(){
@@ -178,10 +254,27 @@
     <script>
     // Shared job details modal function
     async function showJobDetails(jobId) {
-        const modal = new bootstrap.Modal(document.getElementById('jobDetailsModal'));
+        // Track currently-open modal job id for dashboard polling
+        window._currentJobId = jobId;
+        const modalEl = document.getElementById('jobDetailsModal');
+        const modal = new bootstrap.Modal(modalEl);
         const content = document.getElementById('jobDetailsContent');
         
         modal.show();
+
+        // Clear current job id when modal is hidden
+        modalEl.addEventListener('hide.bs.modal', () => {
+            window._currentJobId = null;
+            if (window._jobLogPoller) {
+                clearTimeout(window._jobLogPoller);
+                window._jobLogPoller = null;
+            }
+            // Stop any SSE connection
+            if (window._jobEventSource) {
+                try { window._jobEventSource.close(); } catch(e) {}
+                window._jobEventSource = null;
+            }
+        }, { once: true });
         
         try {
             const response = await fetch(`/api/jobs/${jobId}`);
@@ -201,20 +294,20 @@
                         <h6>Job Information</h6>
                         <table class="table table-sm">
                             <tr><th width="150">Job ID:</th><td>#${job.id}</td></tr>
-                            <tr><th>Archive:</th><td>${job.archive_name || 'N/A'}</td></tr>
-                            <tr><th>Type:</th><td>${job.job_type} ${job.is_dry_run ? '<span class="badge bg-secondary">DRY RUN</span>' : ''}</td></tr>
-                            <tr><th>Status:</th><td><span class="badge bg-${job.status === 'success' ? 'success' : (job.status === 'running' ? 'info' : 'danger')}">${job.status}</span></td></tr>
-                            <tr><th>Triggered By:</th><td>${job.triggered_by}</td></tr>
+                            <tr><th>Archive:</th><td id="job-archive-name">${job.archive_name || 'N/A'}</td></tr>
+                            <tr><th>Type:</th><td id="job-type">${job.job_type} ${job.is_dry_run ? '<span class="badge bg-secondary">DRY RUN</span>' : ''}</td></tr>
+                            <tr><th>Status:</th><td><span id="job-status-badge" class="badge bg-${job.status === 'success' ? 'success' : (job.status === 'running' ? 'info' : 'danger')}">${job.status}</span></td></tr>
+                            <tr><th>Triggered By:</th><td id="job-triggered-by">${job.triggered_by}</td></tr>
                         </table>
                     </div>
                     <div class="col-md-6">
                         <h6>Timing & Size</h6>
                         <table class="table table-sm">
-                            <tr><th width="150">Start Time:</th><td>${job.start_time || 'N/A'}</td></tr>
-                            <tr><th>End Time:</th><td>${job.end_time || 'N/A'}</td></tr>
-                            <tr><th>Duration:</th><td>${job.duration_seconds !== null && job.duration_seconds !== undefined ? job.duration_seconds + 's' : 'N/A'}</td></tr>
-                            <tr><th>Total Size:</th><td>${job.total_size_bytes ? formatBytes(job.total_size_bytes) : 'N/A'}</td></tr>
-                            <tr><th>Reclaimed:</th><td>${job.reclaimed_bytes ? formatBytes(job.reclaimed_bytes) : 'N/A'}</td></tr>
+                            <tr><th width="150">Start Time:</th><td id="job-start-time">${job.start_time || 'N/A'}</td></tr>
+                            <tr><th>End Time:</th><td id="job-end-time">${job.end_time || 'N/A'}</td></tr>
+                            <tr><th>Duration:</th><td id="job-duration">${job.duration_seconds !== null && job.duration_seconds !== undefined ? job.duration_seconds + 's' : 'N/A'}</td></tr>
+                            <tr><th>Total Size:</th><td id="job-total-size">${job.total_size_bytes ? formatBytes(job.total_size_bytes) : 'N/A'}</td></tr>
+                            <tr><th>Reclaimed:</th><td id="job-reclaimed">${job.reclaimed_bytes ? formatBytes(job.reclaimed_bytes) : 'N/A'}</td></tr>
                         </table>
                     </div>
                 </div>
@@ -244,7 +337,7 @@
                                 <th style="width: 80px;">Actions</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="job-metrics-body">
                 `;
                 
                 metrics.forEach(m => {
@@ -271,17 +364,550 @@
                 `;
             }
             
-            if (job.log) {
-                html += `
-                    <h6 class="mt-4">Log Output</h6>
-                    <pre class="bg-dark text-light p-3 mb-2" style="max-height: 400px; overflow-y: auto;">${job.log}</pre>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="downloadLog(${job.id})" title="Download Log">
-                        <i class="bi bi-download"></i> Download Log
-                    </button>
-                `;
-            }
-            
+            html += `
+                <h6 class="mt-4">Log Output
+                    <small class="text-muted ms-2">(terminal)</small>
+                </h6>
+                <div class="d-flex gap-2 align-items-center mb-2">
+                    <input id="job-log-search-${job.id}" class="form-control form-control-sm" placeholder="Search log..." style="max-width: 300px;" oninput="(function(){ const v=this.value.toLowerCase(); document.querySelectorAll('#job-log .log-line').forEach(el=>el.classList.toggle('log-highlight', v && el.textContent.toLowerCase().includes(v))); }).call(this)">
+                    <button id="job-log-copy-${job.id}" class="btn btn-sm btn-outline-secondary">Copy</button>
+                    <button id="job-log-download-${job.id}" class="btn btn-sm btn-outline-secondary">Download</button>
+                    <button id="job-log-toggle-autoscroll-${job.id}" class="btn btn-sm btn-outline-primary">Pause</button>
+                    <button id="job-log-clear-${job.id}" class="btn btn-sm btn-outline-danger">Clear</button>
+                    <button id="job-log-toggle-linenos-${job.id}" class="btn btn-sm btn-outline-secondary">Line #</button>
+                    <button id="job-follow-toggle-${job.id}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-bullseye"></i> Follow</button>
+                    <span id="job-sse-status-${job.id}" class="badge bg-secondary ms-2">Polling</span>
+                    <span id="job-paused-indicator-${job.id}" class="paused-indicator" style="display:none;">PAUSED</span>
+                </div>
+                <div id="job-log" class="bg-dark text-light p-0 mb-2 log console" style="max-height: 400px; overflow-y: auto; border-radius:6px; box-shadow: 0 6px 18px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.04); background: linear-gradient(180deg, #0b0f12 0%, #0f1417 100%);">
+                    <div class="console-header">
+                        <div class="console-controls" aria-hidden="true">
+                            <span class="dot dot-red"></span>
+                            <span class="dot dot-yellow"></span>
+                            <span class="dot dot-green"></span>
+                        </div>
+                        <div class="console-title">Terminal</div>
+                    </div>
+            `;
+
             content.innerHTML = html;
+
+            // --- Live log polling & job refresh ---
+            // Clear existing poller if present
+            if (window._jobLogPoller) {
+                clearTimeout(window._jobLogPoller);
+                window._jobLogPoller = null;
+            }
+
+            const logPre = document.getElementById('job-log');
+            let lastLine = 0;
+            let refreshInterval = 0; // counter to reduce metadata fetch frequency
+
+            // Auto-scroll toggle (default: on)
+            window._jobLogAutoScroll = true;
+            // Line numbers persisted setting
+            window._jobLogShowLineNumbers = getShowLineNumbers();
+
+            function toggleAutoScroll() {
+                window._jobLogAutoScroll = !window._jobLogAutoScroll;
+                const btn = document.getElementById(`job-log-toggle-autoscroll-${job.id}`);
+                const badge = document.getElementById(`job-paused-indicator-${job.id}`);
+                if (btn) btn.textContent = window._jobLogAutoScroll ? 'Pause' : 'Resume';
+                if (badge) badge.style.display = window._jobLogAutoScroll ? 'none' : '';
+            }
+
+            function toggleLineNumbers() {
+                window._jobLogShowLineNumbers = !window._jobLogShowLineNumbers;
+                // Persist
+                setShowLineNumbers(window._jobLogShowLineNumbers);
+                // Toggle display for existing lines
+                document.querySelectorAll('#job-log .ln').forEach(el => el.style.display = window._jobLogShowLineNumbers ? '' : 'none');
+                // Update button UI
+                const btn = document.getElementById(`job-log-toggle-linenos-${job.id}`);
+                if (btn) {
+                    btn.textContent = window._jobLogShowLineNumbers ? 'Hide #' : 'Line #';
+                    btn.classList.toggle('btn-success', window._jobLogShowLineNumbers);
+                }
+            }
+
+            function ensureConsoleHeader(container) {
+                if (!container) return;
+                if (!container.querySelector('.console-header')) {
+                    const header = document.createElement('div');
+                    header.className = 'console-header';
+                    header.innerHTML = `
+                        <div class="console-controls" aria-hidden="true">
+                            <span class="dot dot-red"></span>
+                            <span class="dot dot-yellow"></span>
+                            <span class="dot dot-green"></span>
+                        </div>
+                        <div class="console-title">Terminal</div>
+                    `;
+                    container.insertBefore(header, container.firstChild);
+                }
+            }
+
+            function clearLog() {
+                const container = document.getElementById('job-log');
+                if (container) {
+                    // Remove only log-line children so header remains
+                    container.querySelectorAll('.log-line').forEach(el => el.remove());
+                }
+                lastLine = 0;
+                window._jobLogLineCount = 0;
+            }
+
+            function toggleLineNumbers() {
+                window._jobLogShowLineNumbers = !window._jobLogShowLineNumbers;
+                document.querySelectorAll('#job-log .ln').forEach(el => el.style.display = window._jobLogShowLineNumbers ? '' : 'none');
+            }
+
+            function appendLogLine(line) {
+                // Normalize and split if the incoming line contains multiple timestamped entries
+                if (!line) return;
+                const tsGlobal = /\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]/g;
+                const matches = Array.from(line.matchAll(tsGlobal));
+                if (matches.length > 1) {
+                    // Split into chunks that each start with a timestamp
+                    const parts = [];
+                    for (let i = 0; i < matches.length; i++) {
+                        const start = matches[i].index;
+                        const end = (i + 1 < matches.length) ? matches[i + 1].index : line.length;
+                        parts.push(line.slice(start, end).trim());
+                    }
+                    parts.forEach(p => appendLogLine(p));
+                    return;
+                }
+
+                // Ensure container
+                const container = document.getElementById('job-log');
+                if (!container) return;
+                // Ensure header exists (so modal opened later still shows it)
+                ensureConsoleHeader(container);
+                window._jobLogLineCount = (window._jobLogLineCount || 0) + 1;
+                const div = document.createElement('div');
+                div.className = 'log-line';
+                const ln = document.createElement('div');
+                ln.className = 'ln';
+                ln.textContent = window._jobLogLineCount;
+                ln.style.display = window._jobLogShowLineNumbers ? '' : 'none';
+                const text = document.createElement('div');
+                text.className = 'text';
+
+                // Try to extract a leading timestamp
+                let tsMatch = line.match(/^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s*/);
+                if (!tsMatch) {
+                    // If no leading timestamp, try to find one anywhere and trim preceding garbage
+                    const anyTs = line.match(/\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]/);
+                    if (anyTs && anyTs.index !== undefined) {
+                        line = line.slice(anyTs.index);
+                        tsMatch = line.match(/^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s*/);
+                    }
+                }
+
+                if (tsMatch) {
+                    const ts = tsMatch[0];
+                    const tsSpan = document.createElement('span');
+                    tsSpan.className = 'ts me-2 text-muted';
+                    tsSpan.textContent = ts;
+                    text.appendChild(tsSpan);
+                    line = line.slice(tsMatch[0].length);
+                }
+
+                // Parse level prefix like [ERROR], [WARNING], [INFO], [DEBUG]
+                const m = line.match(/^(\[(ERROR|WARNING|INFO|DEBUG)\])\s*/);
+                if (m) {
+                    const lvlToken = m[1];
+                    const lvl = m[2];
+                    const levelSpan = document.createElement('span');
+                    levelSpan.className = `level-${lvl}`;
+                    levelSpan.textContent = lvlToken + ' ';
+                    text.appendChild(levelSpan);
+                    // Append rest
+                    const rest = document.createTextNode(line.slice(m[0].length));
+                    text.appendChild(rest);
+                } else {
+                    // No explicit level at start - append the full line
+                    text.appendChild(document.createTextNode(line));
+                }
+
+                div.appendChild(ln);
+                div.appendChild(text);
+                container.appendChild(div);
+
+                // Auto scroll if enabled
+                if (window._jobLogAutoScroll !== false) {
+                    container.scrollTop = container.scrollHeight;
+                }
+            }
+
+            // SSE event source for live log + metadata (preferred over polling when supported)
+            function startJobEventSource() {
+                if (typeof(EventSource) === 'undefined') return;
+                if (window._jobEventSource) return;
+                try {
+                    window._jobEventSource = new EventSource(`/api/jobs/${job.id}/events`);
+
+                    window._jobEventSource.onopen = function() {
+                        try { updateSseStatus('live'); } catch (e) {}
+                    };
+
+                    window._jobEventSource.onmessage = function(e) {
+                        try {
+                            const payload = JSON.parse(e.data);
+                            handleSseEvent(payload);
+                        } catch (err) {
+                            // ignore parse errors
+                        }
+                    };
+
+                    window._jobEventSource.onerror = function(err) {
+                        // On error try to close and fall back to polling
+                        console.error('SSE error for job', job.id, err);
+                        try { window._jobEventSource.close(); } catch (e) {}
+                        window._jobEventSource = null;
+                        try { updateSseStatus('polling'); } catch (e) {}
+                    };
+                } catch (err) {
+                    console.error('Failed to start SSE:', err);
+                    try { updateSseStatus('polling'); } catch (e) {}
+                }
+            }
+
+            function stopJobEventSource() {
+                if (window._jobEventSource) {
+                    try { window._jobEventSource.close(); } catch (e) {}
+                    window._jobEventSource = null;
+                }
+            }
+
+            function handleSseEvent(payload) {
+                if (!payload || !payload.type) return;
+                if (payload.type === 'log') {
+                        const line = payload.data && payload.data.line ? payload.data.line : JSON.stringify(payload.data);
+                        appendLogLine(line);
+                    } else if (payload.type === 'status' || payload.type === 'job') {
+                    // Update modal and dashboard immediately
+                    const jobMeta = payload.data || {};
+                    if (jobMeta.status) {
+                        job.status = jobMeta.status;
+                        const statusBadge = document.getElementById('job-status-badge');
+                        if (statusBadge) {
+                            const cls = job.status === 'success' ? 'success' : (job.status === 'running' ? 'info' : 'danger');
+                            statusBadge.className = `badge bg-${cls}`;
+                            statusBadge.textContent = job.status;
+                        }
+                    }
+
+                    if (jobMeta.start_time) {
+                        const elStart = document.getElementById('job-start-time'); if (elStart) elStart.textContent = jobMeta.start_time;
+                    }
+                    if (jobMeta.end_time) {
+                        const elEnd = document.getElementById('job-end-time'); if (elEnd) elEnd.textContent = jobMeta.end_time;
+                    }
+                    if (jobMeta.duration_seconds !== undefined) {
+                        const elDuration = document.getElementById('job-duration'); if (elDuration) elDuration.textContent = jobMeta.duration_seconds + 's';
+                    }
+                    if (jobMeta.total_size_bytes !== undefined) {
+                        const elTotal = document.getElementById('job-total-size'); if (elTotal) elTotal.textContent = jobMeta.total_size_bytes ? formatBytes(jobMeta.total_size_bytes) : 'N/A';
+                    }
+
+                    // Update dashboard row if present
+                    const dashboardRow = document.getElementById(`job-row-${job.id}`);
+                    if (dashboardRow) {
+                        dashboardRow.setAttribute('data-job-status', job.status);
+                        const tableBadge = dashboardRow.querySelector('td:nth-child(2) .badge');
+                        if (tableBadge) {
+                            const cls = job.status === 'success' ? 'bg-success' : (job.status === 'running' ? 'bg-info' : 'bg-danger');
+                            tableBadge.className = `badge ${cls}`;
+                            tableBadge.textContent = job.status;
+                        }
+                    }
+
+                    // If job finished, stop SSE and any polling
+                    if (job.status !== 'running') {
+                        stopJobEventSource();
+                        try { updateSseStatus('stopped'); } catch (e) {}
+                        if (window._jobLogPoller) { clearTimeout(window._jobLogPoller); window._jobLogPoller = null; }
+                    }
+                } else if (payload.type === 'metrics') {
+                    // Replace metrics table
+                    const tbody = document.getElementById('job-metrics-body');
+                    if (tbody && Array.isArray(payload.data)) {
+                        tbody.innerHTML = '';
+                        payload.data.forEach(m => {
+                            const hasArchive = m.archive_path && !m.archive_path.includes('_download_');
+                            const row = document.createElement('tr');
+                            row.innerHTML = `
+                                <td>${m.stack_name}</td>
+                                <td><span class="badge bg-${m.status === 'success' ? 'success' : 'danger'}">${m.status}</span></td>
+                                <td>${m.was_running ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-muted"></i>'}</td>
+                                <td>${m.duration_seconds !== null && m.duration_seconds !== undefined ? m.duration_seconds + 's' : 'N/A'}</td>
+                                <td>${m.archive_size_bytes ? formatBytes(m.archive_size_bytes) : 'N/A'}</td>
+                                <td><small>${m.archive_path || 'N/A'}</small></td>
+                                <td class="text-nowrap">${hasArchive ? `<button class="btn btn-sm btn-outline-primary me-1" onclick="requestDownload(${job.id}, '${m.stack_name}', '${m.archive_path}')" title="Download Archive"><i class="bi bi-download"></i></button>` : ''}<button class="btn btn-sm btn-outline-secondary" onclick="downloadStackLog(${job.id}, '${m.stack_name}')" title="Download Stack Log"><i class="bi bi-file-text"></i></button></td>
+                            `;
+                            tbody.appendChild(row);
+                        });
+                    }
+                }
+            }
+
+            async function refreshJobInfo() {
+                try {
+                    const resp = await fetch(`/api/jobs/${job.id}`);
+                    if (!resp.ok) return;
+                    const data = await resp.json();
+                    if (!data || !data.job) return;
+
+                    // Update local job object
+                    job = data.job;
+
+                    // Update status badge
+                    const statusBadge = document.getElementById('job-status-badge');
+                    if (statusBadge) {
+                        const cls = job.status === 'success' ? 'success' : (job.status === 'running' ? 'info' : 'danger');
+                        statusBadge.className = `badge bg-${cls}`;
+                        statusBadge.textContent = job.status;
+                    }
+
+                    // Update timing & size fields
+                    const elStart = document.getElementById('job-start-time');
+                    const elEnd = document.getElementById('job-end-time');
+                    const elDuration = document.getElementById('job-duration');
+                    const elTotal = document.getElementById('job-total-size');
+                    const elReclaimed = document.getElementById('job-reclaimed');
+
+                    if (elStart) elStart.textContent = job.start_time || 'N/A';
+                    if (elEnd) elEnd.textContent = job.end_time || 'N/A';
+                    if (elDuration) elDuration.textContent = (job.duration_seconds !== null && job.duration_seconds !== undefined) ? job.duration_seconds + 's' : 'N/A';
+                    if (elTotal) elTotal.textContent = job.total_size_bytes ? formatBytes(job.total_size_bytes) : 'N/A';
+                    if (elReclaimed) elReclaimed.textContent = job.reclaimed_bytes ? formatBytes(job.reclaimed_bytes) : 'N/A';
+
+                    // Update metrics table if present
+                    if (Array.isArray(data.metrics)) {
+                        const tbody = document.getElementById('job-metrics-body');
+                        if (tbody) {
+                            tbody.innerHTML = '';
+                            data.metrics.forEach(m => {
+                                const hasArchive = m.archive_path && !m.archive_path.includes('_download_');
+                                const row = document.createElement('tr');
+                                row.innerHTML = `
+                                    <td>${m.stack_name}</td>
+                                    <td><span class="badge bg-${m.status === 'success' ? 'success' : 'danger'}">${m.status}</span></td>
+                                    <td>${m.was_running ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-muted"></i>'}</td>
+                                    <td>${m.duration_seconds !== null && m.duration_seconds !== undefined ? m.duration_seconds + 's' : 'N/A'}</td>
+                                    <td>${m.archive_size_bytes ? formatBytes(m.archive_size_bytes) : 'N/A'}</td>
+                                    <td><small>${m.archive_path || 'N/A'}</small></td>
+                                    <td class="text-nowrap">${hasArchive ? `<button class="btn btn-sm btn-outline-primary me-1" onclick="requestDownload(${job.id}, '${m.stack_name}', '${m.archive_path}')" title="Download Archive"><i class="bi bi-download"></i></button>` : ''}<button class="btn btn-sm btn-outline-secondary" onclick="downloadStackLog(${job.id}, '${m.stack_name}')" title="Download Stack Log"><i class="bi bi-file-text"></i></button></td>
+                                `;
+                                tbody.appendChild(row);
+                            });
+                        }
+                    }
+
+                    // Also update table row in dashboard if present
+                    const dashboardRow = document.getElementById(`job-row-${job.id}`);
+                    if (dashboardRow) {
+                        dashboardRow.setAttribute('data-job-status', job.status);
+                        const tableBadge = dashboardRow.querySelector('td:nth-child(2) .badge');
+                        if (tableBadge) {
+                            const cls = job.status === 'success' ? 'success' : (job.status === 'running' ? 'info' : 'danger');
+                            tableBadge.className = `badge bg-${cls}`;
+                            tableBadge.textContent = job.status;
+                        }
+
+                        const startEl = document.getElementById(`row-job-start-${job.id}`);
+                        const endEl = document.getElementById(`row-job-end-${job.id}`);
+                        const durEl = document.getElementById(`row-job-duration-${job.id}`);
+                        const sizeEl = document.getElementById(`row-job-size-${job.id}`);
+
+                        if (startEl) startEl.textContent = job.start_time || 'N/A';
+                        if (endEl) endEl.textContent = job.end_time || 'N/A';
+                        if (durEl) durEl.textContent = (job.duration_seconds !== null && job.duration_seconds !== undefined) ? job.duration_seconds + 's' : 'N/A';
+                        if (sizeEl) {
+                            if (job.job_type === 'archive' && job.total_size_bytes) {
+                                sizeEl.innerHTML = `<span class="text-success">+${formatBytes(job.total_size_bytes)}</span>`;
+                            } else if ((job.job_type === 'retention' || job.job_type === 'cleanup') && (job.reclaimed_bytes || job.reclaimed_size_bytes)) {
+                                sizeEl.innerHTML = `<span class="text-warning">-${formatBytes(job.reclaimed_size_bytes || job.reclaimed_bytes)}</span>`;
+                            } else {
+                                sizeEl.innerHTML = `<span class="text-muted">N/A</span>`;
+                            }
+                        }
+                    }
+
+                    // If job finished, fetch final log snapshot and stop polling
+                    if (job.status !== 'running') {
+                        // Get final log if available and display
+                        if (job.log) {
+                            logPre.textContent = job.log;
+                            logPre.scrollTop = logPre.scrollHeight;
+                        }
+
+                        if (window._jobLogPoller) {
+                            clearTimeout(window._jobLogPoller);
+                            window._jobLogPoller = null;
+                        }
+                    }
+                } catch (err) {
+                    console.error('Failed to refresh job info:', err);
+                }
+            }
+
+            async function fetchTail() {
+                try {
+                    const resp = await fetch(`/api/jobs/${job.id}/log/tail?last_line=${lastLine}`);
+                    if (!resp.ok) {
+                        // If not found or error, stop polling
+                        return;
+                    }
+                    const data = await resp.json();
+                    if (data.lines && data.lines.length) {
+                        data.lines.forEach(l => {
+                            appendLogLine(l);
+                        });
+                    }
+                    lastLine = data.last_line || lastLine;
+
+                    // Indicate we're using polling (fallback)
+                    try { updateSseStatus('polling'); } catch (e) {}
+
+                    // If API returned job metadata with the tail, update modal and dashboard immediately
+                    if (data.job) {
+                        job = data.job;
+
+                        // Update status badge
+                        const statusBadge = document.getElementById('job-status-badge');
+                        if (statusBadge) {
+                            const cls = job.status === 'success' ? 'success' : (job.status === 'running' ? 'info' : 'danger');
+                            statusBadge.className = `badge bg-${cls}`;
+                            statusBadge.textContent = job.status;
+                        }
+
+                        // Update timing & size fields
+                        const elStart = document.getElementById('job-start-time');
+                        const elEnd = document.getElementById('job-end-time');
+                        const elDuration = document.getElementById('job-duration');
+                        const elTotal = document.getElementById('job-total-size');
+                        const elReclaimed = document.getElementById('job-reclaimed');
+
+                        if (elStart) elStart.textContent = job.start_time || 'N/A';
+                        if (elEnd) elEnd.textContent = job.end_time || 'N/A';
+                        if (elDuration) elDuration.textContent = (job.duration_seconds !== null && job.duration_seconds !== undefined) ? job.duration_seconds + 's' : 'N/A';
+                        if (elTotal) elTotal.textContent = job.total_size_bytes ? formatBytes(job.total_size_bytes) : 'N/A';
+                        if (elReclaimed) elReclaimed.textContent = job.reclaimed_bytes ? formatBytes(job.reclaimed_bytes) : 'N/A';
+
+                        // Update dashboard row if present
+                        const dashboardRow = document.getElementById(`job-row-${job.id}`);
+                        if (dashboardRow) {
+                            dashboardRow.setAttribute('data-job-status', job.status);
+                            const tableBadge = dashboardRow.querySelector('td:nth-child(2) .badge');
+                            if (tableBadge) {
+                                const cls = job.status === 'success' ? 'success' : (job.status === 'running' ? 'info' : 'danger');
+                                tableBadge.className = `badge bg-${cls}`;
+                                tableBadge.textContent = job.status;
+                            }
+
+                            const startEl = document.getElementById(`row-job-start-${job.id}`);
+                            const endEl = document.getElementById(`row-job-end-${job.id}`);
+                            const durEl = document.getElementById(`row-job-duration-${job.id}`);
+                            const sizeEl = document.getElementById(`row-job-size-${job.id}`);
+
+                            if (startEl) startEl.textContent = job.start_time || 'N/A';
+                            if (endEl) endEl.textContent = job.end_time || 'N/A';
+                            if (durEl) durEl.textContent = (job.duration_seconds !== null && job.duration_seconds !== undefined) ? job.duration_seconds + 's' : 'N/A';
+                            if (sizeEl) {
+                                if (job.job_type === 'archive' && job.total_size_bytes) {
+                                    sizeEl.innerHTML = `<span class="text-success">+${formatBytes(job.total_size_bytes)}</span>`;
+                                } else if ((job.job_type === 'retention' || job.job_type === 'cleanup') && (job.reclaimed_bytes || job.reclaimed_size_bytes)) {
+                                    sizeEl.innerHTML = `<span class="text-warning">-${formatBytes(job.reclaimed_size_bytes || job.reclaimed_bytes)}</span>`;
+                                } else {
+                                    sizeEl.innerHTML = `<span class="text-muted">N/A</span>`;
+                                }
+                            }
+                        }
+                    }
+
+                    // Refresh metadata every 2 poll iterations (approx every 2s)
+                    refreshInterval = (refreshInterval + 1) % 2;
+                    if (refreshInterval === 0) {
+                        refreshJobInfo();
+                    }
+
+                    if (!data.complete) {
+                        // Schedule next poll
+                        window._jobLogPoller = setTimeout(fetchTail, 1000);
+                    } else {
+                        // Final fetch to ensure latest metadata and complete log are shown
+                        await refreshJobInfo();
+                    }
+                } catch (err) {
+                    console.error('Failed to fetch log tail:', err);
+                }
+            }
+
+            // Setup controls for both running and completed jobs (attach listeners and initialize UI)
+            const copyBtn = document.getElementById(`job-log-copy-${job.id}`);
+            if (copyBtn) copyBtn.addEventListener('click', ()=> navigator.clipboard.writeText(Array.from(document.querySelectorAll('#job-log .text')).map(e=>e.textContent).join('\n')).catch(()=>{}));
+            const downloadBtn = document.getElementById(`job-log-download-${job.id}`);
+            if (downloadBtn) downloadBtn.addEventListener('click', ()=> downloadLog(job.id));
+            const autoBtn = document.getElementById(`job-log-toggle-autoscroll-${job.id}`);
+            if (autoBtn) autoBtn.addEventListener('click', toggleAutoScroll);
+            const clearBtn = document.getElementById(`job-log-clear-${job.id}`);
+            if (clearBtn) clearBtn.addEventListener('click', clearLog);
+            const lineBtn = document.getElementById(`job-log-toggle-linenos-${job.id}`);
+            if (lineBtn) {
+                lineBtn.addEventListener('click', toggleLineNumbers);
+                // Initialize label and active state
+                lineBtn.textContent = window._jobLogShowLineNumbers ? 'Hide #' : 'Line #';
+                lineBtn.classList.toggle('btn-success', window._jobLogShowLineNumbers);
+            }
+            const followBtn = document.getElementById(`job-follow-toggle-${job.id}`);
+            if (followBtn) {
+                // Reflect persisted follow state
+                try { followBtn.classList.toggle('btn-success', isJobFollowed(job.id)); } catch (e) {}
+                followBtn.addEventListener('click', ()=> toggleFollow(job.id));
+            }
+
+            // SSE status helper
+            function updateSseStatus(state) {
+                const s = document.getElementById(`job-sse-status-${job.id}`);
+                if (!s) return;
+                if (state === 'live') {
+                    s.textContent = 'Live';
+                    s.className = 'badge bg-success ms-2';
+                    s.title = 'Connected via SSE (live updates)';
+                } else if (state === 'stopped') {
+                    s.textContent = 'Stopped';
+                    s.className = 'badge bg-secondary ms-2';
+                    s.title = 'Stream stopped';
+                } else {
+                    s.textContent = 'Polling';
+                    s.className = 'badge bg-secondary ms-2';
+                    s.title = 'Using polling fallback';
+                }
+            }
+
+            updateSseStatus('polling');
+
+            if (job.status === 'running') {
+                // Prefer SSE for live updates if available, fallback to polling
+                if (typeof(EventSource) !== 'undefined') {
+                    startJobEventSource();
+                } else {
+                    fetchTail();
+                }
+            }
+
+            if (job.log) {
+                // Show final log snapshot
+                clearLog();
+                (job.log || '').split('\n').forEach(l => { if (l) appendLogLine(l); });
+                // Apply persisted line number visibility
+                document.querySelectorAll('#job-log .ln').forEach(el => el.style.display = window._jobLogShowLineNumbers ? '' : 'none');
+                // Also ensure metadata is up to date
+                refreshJobInfo();
+            }
             
         } catch (error) {
             content.innerHTML = `<div class="alert alert-danger">Failed to load job details: ${error.message}</div>`;

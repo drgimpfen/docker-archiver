@@ -64,6 +64,9 @@ def manage_settings():
             notify_success = request.form.get('notify_success') == 'on'
             notify_error = request.form.get('notify_error') == 'on'
             notify_html_format = request.form.get('notify_html_format') == 'on'
+            notify_report_verbosity = request.form.get('notify_report_verbosity', 'full')
+            notify_attach_log = request.form.get('notify_attach_log') == 'on'
+            notify_attach_log_on_failure = request.form.get('notify_attach_log_on_failure') == 'on'
             
             # Validate and clean Apprise URLs
             apprise_urls, blocked_count, duplicate_count = validate_apprise_urls(apprise_urls_raw)
@@ -110,6 +113,9 @@ def manage_settings():
                     ('cleanup_log_retention_days', cleanup_log_retention_days),
                     ('cleanup_dry_run', 'true' if cleanup_dry_run else 'false'),
                     ('notify_on_cleanup', 'true' if notify_cleanup else 'false'),
+                    ('notify_report_verbosity', notify_report_verbosity),
+                    ('notify_attach_log', 'true' if notify_attach_log else 'false'),
+                    ('notify_attach_log_on_failure', 'true' if notify_attach_log_on_failure else 'false'),
                 ]
                 
                 for key, value in settings_to_update:

@@ -186,3 +186,91 @@ body.has-sidebar .app-main {
     height: 1rem;
     border-width: 0.2em;
 }
+
+/* Stack badges layout in archives table */
+.stack-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+}
+
+.stack-badges .badge {
+    font-size: 0.82rem;
+    padding: 0.25rem 0.45rem;
+    line-height: 1;
+}
+
+/* Table column sizing */
+th.stacks-col, td.stacks-col {
+    width: 340px; /* allow more room for stacks */
+    max-width: 340px;
+}
+
+th.schedule-col, td.schedule-col {
+    width: 140px; /* narrower schedule column */
+    white-space: nowrap;
+}
+
+/* Small tweak to keep format cell centered */
+td.format-col {
+    white-space: nowrap;
+}
+
+/* Terminal / console styles for job log */
+.console {
+    position: relative;
+    padding-top: 0.25rem; /* header provides the main padding */
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.04);
+    background: linear-gradient(180deg, #0b0f12 0%, #0f1417 100%);
+    box-shadow: 0 8px 28px rgba(2,6,9,0.6);
+}
+
+.console-header {
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:10px 12px;
+    /* Fully opaque solid header to prevent any content bleed through */
+    background-color: #0b0f12 !important;
+    border-bottom: 1px solid rgba(255,255,255,0.04) !important;
+    position: sticky;
+    top: 0;
+    z-index: 9999 !important;
+    opacity: 1 !important;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.7) !important;
+}
+
+.console-controls { display:flex; gap:8px; align-items:center; }
+.console-controls .dot { width:12px; height:12px; border-radius:50%; display:inline-block; box-shadow:0 1px 0 rgba(0,0,0,0.3) inset; }
+.dot-red { background:#ff5f57; }
+.dot-yellow { background:#ffbd2e; }
+.dot-green { background:#28c840; }
+
+.console-title {
+    color: #cbd5da;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-left:6px;
+}
+
+/* Terminal content */
+.console .log-line { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Courier New", monospace; white-space: pre-wrap; padding: 6px 12px; }
+.log-highlight { background: rgba(255,255,255,0.04); border-radius: 3px; }
+.level-ERROR { color: #ff6b6b; font-weight: 600; }
+.level-WARNING { color: #ffb86b; font-weight: 600; }
+.level-INFO { color: #6bc8ff; font-weight: 600; }
+.level-DEBUG { color: #9aa4b2; font-weight: 600; }
+
+/* Scrollbar styling */
+.console::-webkit-scrollbar { width: 11px; }
+.console::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.04); border-radius: 6px; border: 3px solid transparent; background-clip: padding-box; }
+.console::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.06); }
+.console::-webkit-scrollbar-track { background: transparent; }
+
+/* Small adjustments for dark theme */
+[data-bs-theme="dark"] .console-header { background: rgba(255,255,255,0.01); }
+[data-bs-theme="dark"] .console { border-color: rgba(255,255,255,0.03); }
+

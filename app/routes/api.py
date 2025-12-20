@@ -9,7 +9,7 @@ import threading
 from functools import wraps
 from datetime import datetime, timedelta
 from pathlib import Path
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, request, jsonify, send_file, Response, stream_with_context
 from app.auth import login_required, get_current_user
 from app.db import get_db
 from app import utils
@@ -157,7 +157,7 @@ def download_log(job_id):
     
     with get_db() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT j.log, a.name as archive_name FROM jobs j LEFT JOIN archives a ON j.archive_id = a.id WHERE j.id = %s;", (job_id,))
+        cur.execute("SELECT j.log, a.name as archive_name, j.status FROM jobs j LEFT JOIN archives a ON j.archive_id = a.id WHERE j.id = %s;", (job_id,))
         result = cur.fetchone()
     
     if not result or not result['log']:
@@ -200,6 +200,145 @@ def download_log(job_id):
     
     return send_file(log_path, as_attachment=True, download_name=log_filename)
 
+
+
+
+@bp.route('/jobs/<int:job_id>/events')
+@api_auth_required
+def job_events(job_id):
+    """SSE endpoint for job events. Streams JSON messages of the form:
+    {"type": "log" | "status" | "metrics", "data": {...}}
+    """
+    try:
+        from app.sse import register_event_listener, unregister_event_listener
+    except Exception:
+        return jsonify({'error': 'SSE not available in this deployment'}), 501
+
+    def gen():
+        q = register_event_listener(job_id)
+        try:
+            # Send initial keep-alive comment
+            yield ': connected\n\n'
+            while True:
+                try:
+                    msg = q.get(timeout=15)
+                except Exception:
+                    # keepalive
+                    yield ': keepalive\n\n'
+                    continue
+                # Send as raw data (client will JSON-parse)
+                yield f"data: {msg}\n\n"
+        finally:
+            unregister_event_listener(job_id, q)
+
+    return Response(stream_with_context(gen()), mimetype='text/event-stream')
+
+
+@bp.route('/jobs/<int:job_id>/log/tail')
+@api_auth_required
+def tail_log(job_id):
+    """Return incremental log lines for a job. Query params: last_line (int, default=0), stack (optional filter).
+
+    Uses running ArchiveExecutor's in-memory buffer when available for live logs, otherwise falls back to stored job.log in the DB.
+    Returns JSON: {lines: [...], last_line: <int>, complete: <bool>}"""
+    last_line = request.args.get('last_line', type=int, default=0)
+    stack_name = request.args.get('stack')
+
+    # Try to get live executor
+    try:
+        from app.executor import get_running_executor
+        executor = get_running_executor(job_id)
+    except Exception:
+        executor = None
+
+    lines = []
+    complete = True
+
+    if executor:
+        # Merge DB-stored log and in-memory buffer for robust live-tail across workers.
+        db_lines = []
+        job_status = 'running'
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT j.log, j.status FROM jobs j WHERE j.id = %s;", (job_id,))
+            result = cur.fetchone()
+            if result and result.get('log'):
+                db_lines = result['log'].split('\n')
+                job_status = result.get('status') or job_status
+
+        mem_lines = list(executor.log_buffer)
+
+        # If DB appears to already contain all lines, prefer DB as authoritative
+        if len(db_lines) >= len(mem_lines):
+            lines = db_lines
+        else:
+            # If mem_lines starts with db_lines, append the remaining tail from mem_lines
+            if db_lines and mem_lines[:len(db_lines)] == db_lines:
+                lines = db_lines + mem_lines[len(db_lines):]
+            else:
+                # Best-effort merge: start with db_lines and append mem_lines while avoiding immediate duplicates
+                merged = db_lines.copy()
+                for l in mem_lines:
+                    if not merged or merged[-1] != l:
+                        merged.append(l)
+                lines = merged
+
+        # Job is still running when an executor exists (live logs)
+        complete = False
+    else:
+        # Fallback: read stored log from DB
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT j.log, j.status FROM jobs j WHERE j.id = %s;", (job_id,))
+            result = cur.fetchone()
+            if not result or not result['log']:
+                return jsonify({'lines': [], 'last_line': 0, 'complete': True})
+            lines = result['log'].split('\n')
+            complete = result.get('status') != 'running'
+
+    # If stack filter is requested, filter to that stack section
+    if stack_name:
+        filtered = []
+        in_stack_section = False
+        for line in lines:
+            if f"--- Starting backup for stack: {stack_name} ---" in line:
+                in_stack_section = True
+            elif f"--- Finished backup for stack: {stack_name} ---" in line:
+                filtered.append(line)
+                in_stack_section = False
+            elif "--- Starting backup for stack:" in line and f"stack: {stack_name} ---" not in line:
+                in_stack_section = False
+
+            if in_stack_section:
+                filtered.append(line)
+        lines = filtered
+
+    total_lines = len(lines)
+
+    # Ensure last_line is not out of range
+    if last_line < 0:
+        last_line = 0
+    if last_line > total_lines:
+        last_line = total_lines
+
+    new_lines = lines[last_line:]
+    new_last_line = total_lines
+
+    # Also return minimal job metadata so clients can update UI without an extra request
+    job_meta = {}
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, status, start_time, end_time, duration_seconds, total_size_bytes, reclaimed_bytes FROM jobs WHERE id = %s;", (job_id,))
+        row = cur.fetchone()
+        if row:
+            job_meta = dict(row)
+
+    return jsonify({
+        'lines': new_lines,
+        'last_line': new_last_line,
+        'complete': complete,
+        'job': job_meta
+    })
 
 
 

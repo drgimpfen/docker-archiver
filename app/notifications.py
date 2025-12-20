@@ -3,6 +3,7 @@ Notification system using Apprise.
 """
 import os
 from app.db import get_db
+from app.utils import format_bytes, format_duration
 
 
 def get_setting(key, default=''):
@@ -122,9 +123,8 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
         success_count = sum(1 for m in stack_metrics if m['status'] == 'success')
         failed_count = stack_count - success_count
         
-        size_mb = total_size / (1024 * 1024)
-        size_gb = total_size / (1024 * 1024 * 1024)
-        size_str = f"{size_gb:.2f}GB" if size_gb >= 1 else f"{size_mb:.1f}MB"
+        # Use shared formatting for human-readable sizes so all sizes are consistent
+        size_str = format_bytes(total_size)
         
         duration_min = duration // 60
         duration_sec = duration % 60
@@ -137,66 +137,233 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
         # Check if any stacks have named volumes
         stacks_with_volumes = [m for m in stack_metrics if m.get('named_volumes')]
         
-        body = f"""<h2>Archive job completed for: {archive_name}</h2>
-<p>
-<strong>Stacks:</strong> {success_count}/{stack_count} successful<br>
-<strong>Total size:</strong> {size_str}<br>
-<strong>Duration:</strong> {duration_str}
-</p>
-<h3>Stacks processed:</h3>
-<ul>
+        # Header & visual styles
+        css = """
+        <style>
+        .da-table { width: 100%; border-collapse: collapse; font-family: monospace; }
+        .da-table th, .da-table td { padding: 6px 8px; border-bottom: 1px solid #eee; text-align: left; }
+        .da-badge-ok { color: #155724; background: #d4edda; padding: 2px 6px; border-radius: 4px; }
+        .da-badge-fail { color: #721c24; background: #f8d7da; padding: 2px 6px; border-radius: 4px; }
+        .da-small { font-size: 90%; color: #666; }
+        </style>
+        """
+
+        body = f"""
+{css}
+<div style='font-family: Arial, Helvetica, sans-serif; max-width:800px; margin:0; text-align:left; color:#222;'>
+  <h2 style='margin-bottom:6px;'>{status_emoji} Archive job completed: <strong>{archive_name}</strong></h2>
+  <p class='da-small'><strong>Stacks:</strong> {success_count}/{stack_count} successful &nbsp;|&nbsp; <strong>Total size:</strong> {size_str} &nbsp;|&nbsp; <strong>Duration:</strong> {duration_str}</p>
 """
-        
+
+        # Created archives table (alphabetical by filename)
+        created_archives = []
+        for m in stack_metrics:
+            path = m.get('archive_path')
+            size = m.get('archive_size_bytes') or 0
+            if path:
+                created_archives.append({'path': str(path), 'size': size})
+
+        if created_archives:
+            created_archives.sort(key=lambda x: x['path'].split('/')[-1].lower())
+            body += """
+  <h3>SUMMARY OF CREATED ARCHIVES</h3>
+  <table class='da-table'>
+    <thead><tr><th style='width:110px;'>Size</th><th>Filename</th></tr></thead>
+    <tbody>
+"""
+            for a in created_archives:
+                body += f"    <tr><td>{format_bytes(a['size'])}</td><td><code>{a['path']}</code></td></tr>\n"
+            body += f"  </tbody></table>\n  <p class='da-small'><strong>Total:</strong> {format_bytes(total_size)}</p>\n"
+        else:
+            body += "  <p><em>No archives were created.</em></p>\n"
+
+        # Disk usage
+        try:
+            from app import utils as _utils
+            disk = _utils.get_disk_usage('/archives')
+            if disk and disk['total']:
+                body += """
+  <h3>DISK USAGE (on /archives)</h3>
+  <p class='da-small'>
+"""
+                body += f"    Total: <strong>{format_bytes(disk['total'])}</strong> &nbsp; Used: <strong>{format_bytes(disk['used'])}</strong> ({disk['percent']:.0f}% used)\n"
+                try:
+                    import os
+                    total_archives_size = 0
+                    for root, dirs, files in os.walk('/archives'):
+                        for fn in files:
+                            fp = os.path.join(root, fn)
+                            try:
+                                total_archives_size += os.path.getsize(fp)
+                            except Exception:
+                                continue
+                    body += f"  <br>Backup Content Size (/archives): <strong>{format_bytes(total_archives_size)}</strong>\n"
+                except Exception:
+                    pass
+                body += "  </p>\n"
+        except Exception:
+            pass
+
+        # Retention summary
+        try:
+            with get_db() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT reclaimed_bytes, log FROM jobs WHERE id = %s;", (job_id,))
+                job_row = cur.fetchone()
+                reclaimed = job_row.get('reclaimed_bytes') if job_row else None
+                job_log = job_row.get('log') if job_row else ''
+
+            body += """
+  <h3>RETENTION SUMMARY</h3>
+  <p class='da-small'>
+"""
+            if reclaimed is None:
+                body += "    No retention information available.\n"
+            elif reclaimed == 0:
+                import re
+                m = re.search(r"Local cleanup finished\.[^\n]*", job_log or '')
+                if m:
+                    body += f"    {m.group(0)}\n"
+                else:
+                    body += "    No files older than configured retention were deleted.\n"
+            else:
+                body += f"    Freed space: <strong>{format_bytes(reclaimed)}</strong>\n"
+            body += "  </p>\n"
+        except Exception:
+            pass
+
+        # Stacks processed table
+        body += """
+  <h3>STACKS PROCESSED</h3>
+  <table class='da-table'>
+    <thead><tr><th>Stack</th><th>Status</th><th>Size</th><th>Archive</th></tr></thead>
+    <tbody>
+"""
         for metric in stack_metrics:
             stack_name = metric['stack_name']
-            status_icon = "✓" if metric['status'] == 'success' else "✗"
-            stack_size_mb = metric['archive_size_bytes'] / (1024 * 1024)
-            
-            # Add volume warning if present
-            volume_warning = ""
-            if metric.get('named_volumes'):
-                volumes = metric['named_volumes']
-                volume_warning = f" <span style='color: orange;'>⚠️ {len(volumes)} named volume(s) not backed up</span>"
-            
-            body += f"<li>{status_icon} {stack_name} ({stack_size_mb:.1f}MB){volume_warning}</li>\n"
-        
-        body += f"""</ul>"""
-        
-        # Add global warning about named volumes
+            status_ok = metric['status'] == 'success'
+            status_html = f"<span class='{'da-badge-ok' if status_ok else 'da-badge-fail'}'>{'✓' if status_ok else '✗'}</span>"
+            stack_size_str = format_bytes(metric.get('archive_size_bytes') or 0)
+            archive_path = metric.get('archive_path') or ''
+            body += f"    <tr><td>{stack_name}</td><td>{status_html}</td><td>{stack_size_str}</td><td><code>{archive_path or 'N/A'}</code></td></tr>\n"
+        body += "  </tbody></table>\n"
+
+        # Named volumes warning block
         if stacks_with_volumes:
-            body += f"""
-<hr>
-<p style='color: orange;'><strong>⚠️ Named Volumes Warning</strong></p>
-<p>The following stacks use named volumes that are <strong>NOT included</strong> in the backup archives:</p>
-<ul>
+            body += """
+  <hr>
+  <h4 style='color:orange;'>⚠️ Named Volumes Warning</h4>
+  <p class='da-small'>Named volumes are NOT included in the backup archives. Consider backing them up separately.</p>
+  <ul>
 """
             for metric in stacks_with_volumes:
                 volumes = metric['named_volumes']
-                body += f"<li><strong>{metric['stack_name']}:</strong> {', '.join(volumes)}</li>\n"
-            
-            body += """</ul>
-<p>Named volumes require separate backup using tools like <code>docker volume backup</code> or similar.</p>
-<hr>
-"""
+                body += f"    <li><strong>{metric['stack_name']}:</strong> {', '.join(volumes)}</li>\n"
+            body += "  </ul>\n"
+
+        # Full log (always expanded unless log will be attached)
+        try:
+            if job_row and job_row.get('log'):
+                # Determine if the log will be attached instead of inlined
+                attach_log_setting = get_setting('notify_attach_log', 'false').lower() == 'true'
+                attach_on_failure_setting = get_setting('notify_attach_log_on_failure', 'false').lower() == 'true'
+                should_attach_log = attach_log_setting or (attach_on_failure_setting and failed_count > 0)
+
+                if not should_attach_log:
+                    body += """
+  <hr>
+  <h3>Full job log</h3>
+  <pre style='background:#f7f7f7;padding:10px;border-radius:6px;white-space:pre-wrap;'>\n"""
+                    body += (job_row.get('log') or '') + "\n"
+                    body += "  </pre>\n"
+                else:
+                    # If log will be attached, omit the inline log to avoid duplication
+                    body += "\n"
+        except Exception:
+            pass
+
+        # Footer
+        body += f"<p class='da-small'><a href=\"{base_url}/history?job={job_id}\">View details</a> &nbsp;|&nbsp; Docker Archiver: <a href=\"{base_url}\">{base_url}</a></p>"
         
-        body += f"""<p><a href="{base_url}/history?job={job_id}">View details</a></p>
-<hr>
-<p><small>Docker Archiver: <a href="{base_url}">{base_url}</a></small></p>"""
-        
-        # Get format preference
+        # Get format preference and user settings
         body_format = get_notification_format()
-        
+        verbosity = get_setting('notify_report_verbosity', 'full')
+        attach_log_setting = get_setting('notify_attach_log', 'false').lower() == 'true'
+        attach_on_failure_setting = get_setting('notify_attach_log_on_failure', 'false').lower() == 'true'
+
+        # If user chose short verbosity, construct compact message
+        if verbosity == 'short':
+            short_body = f"<h2>{status_emoji} Archive: <strong>{archive_name}</strong></h2>\n"
+            short_body += f"<p class='da-small'><strong>Stacks:</strong> {success_count}/{stack_count} successful &nbsp;|&nbsp; <strong>Total:</strong> {size_str} &nbsp;|&nbsp; <strong>Duration:</strong> {format_duration(duration)}</p>\n"
+            # concise per-stack list
+            short_body += "<p>"
+            short_body += ", ".join([f"{m['stack_name']} ({format_bytes(m.get('archive_size_bytes') or 0)})" for m in stack_metrics])
+            short_body += "</p>\n"
+            short_body += f"<p><a href=\"{base_url}/history?job={job_id}\">View details</a></p>\n"
+            body_to_send = short_body
+        else:
+            body_to_send = body
+
         # Convert to plain text if needed
         import apprise
         if body_format == apprise.NotifyFormat.TEXT:
-            body = strip_html_tags(body)
-        
-        # Send notification
-        apobj.notify(
-            body=body,
-            title=title,
-            body_format=body_format
-        )
+            send_body = strip_html_tags(body_to_send)
+        else:
+            send_body = body_to_send
+
+        # Optionally attach full job log as a file instead of inlining it
+        attach_path = None
+        try:
+            # Decide whether to attach the log based on settings and job outcome
+            should_attach = False
+            if attach_log_setting:
+                should_attach = True
+            elif attach_on_failure_setting and failed_count > 0:
+                should_attach = True
+
+            if should_attach:
+                # Fetch job log from DB (best-effort)
+                with get_db() as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT log FROM jobs WHERE id = %s;", (job_id,))
+                    row = cur.fetchone()
+                    job_log = row.get('log') if row else ''
+
+                if job_log:
+                    import tempfile, os
+                    tf = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.log', prefix=f'job_{job_id}_')
+                    try:
+                        tf.write(job_log)
+                        tf.flush()
+                        attach_path = tf.name
+                    finally:
+                        tf.close()
+        except Exception as e:
+            print(f"[WARNING] Failed to prepare log attachment: {e}")
+
+        # Send notification (with optional attachment)
+        try:
+            if attach_path:
+                apobj.notify(
+                    body=send_body,
+                    title=title,
+                    body_format=body_format,
+                    attach=attach_path
+                )
+            else:
+                apobj.notify(
+                    body=send_body,
+                    title=title,
+                    body_format=body_format
+                )
+        finally:
+            # Cleanup temporary file if used
+            try:
+                import os
+                if attach_path and os.path.exists(attach_path):
+                    os.unlink(attach_path)
+            except Exception:
+                pass
         
     except Exception as e:
         print(f"[WARNING] Failed to send notification: {e}")

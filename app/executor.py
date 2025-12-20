@@ -12,9 +12,19 @@ from app.db import get_db
 from app import utils
 from app.stacks import validate_stack, find_compose_file
 from app import utils
+# SSE/event utilities (best-effort import; if missing, provide no-op)
+try:
+    from app.sse import send_event
+except Exception:
+    def send_event(job_id, event_type, payload):
+        pass
 
 
 ARCHIVE_BASE = '/archives'
+
+
+# Registry of running executors (job_id -> executor instance)
+RUNNING_EXECUTORS = {}
 
 
 class ArchiveExecutor:
@@ -38,6 +48,70 @@ class ArchiveExecutor:
     
     def _get_host_path_from_container(self, stack_name, stack_dir):
         """
+        Get the host path for a stack directory.
+        
+        First tries to determine from mount configuration (DOCKER_STACK_PATHS),
+        then falls back to inspecting running containers.
+        
+        Args:
+            stack_name: Name of the stack
+            stack_dir: Path to stack directory inside this container
+            
+        Returns:
+            Tuple of (host_path, volume_names) where:
+            - host_path: Host path for the stack directory
+            - volume_names: List of named volumes found
+        """
+        # First try: Use mount configuration
+        host_path = self._get_host_path_from_mount_config(stack_dir)
+        if host_path != stack_dir:
+            # If mount config resolved to a different (host) path, ensure it's accessible in container
+            try:
+                if not Path(str(host_path)).exists():
+                    self.log('DEBUG', f"Mount config returned host path {host_path} which is not accessible in container; falling back to container inspection")
+                    # Fall back to container inspection
+                    return self._get_host_path_from_container_inspect(stack_name, stack_dir)
+            except Exception:
+                # If any error checking path, fallback to container inspection
+                return self._get_host_path_from_container_inspect(stack_name, stack_dir)
+
+            self.log('INFO', f"Found host path from mount config: {host_path}")
+            # Still need to check for named volumes from containers
+            named_volumes = self._get_named_volumes_from_container(stack_name)
+            return host_path, named_volumes
+        
+        # Fallback: Try container inspection (old method)
+        self.log('DEBUG', f"Mount config didn't help, trying container inspection")
+        return self._get_host_path_from_container_inspect(stack_name, stack_dir)
+    
+    def _get_host_path_from_mount_config(self, container_path):
+        """
+        Get the host path by checking if container_path is in STACKS_DIR.
+        Since we assume host and container paths are identical, we just verify
+        the path is configured in STACKS_DIR.
+        """
+        from app.stacks import get_stack_mount_paths
+        
+        stack_paths = get_stack_mount_paths()
+        container_path = Path(container_path)
+        
+        # Check if container_path is under any configured stack directory
+        for stack_dir in stack_paths:
+            stack_dir_path = Path(stack_dir)
+            try:
+                # Check if container_path is under this stack directory
+                container_path.relative_to(stack_dir_path)
+                # If we get here, it's under the stack directory
+                # Since host and container paths are identical, return as-is
+                return container_path
+            except ValueError:
+                continue
+        
+        # Not under any configured stack directory, return as-is (backward compatibility)
+        return container_path
+    
+    def _get_host_path_from_container_inspect(self, stack_name, stack_dir):
+        """
         Get the host path for a stack directory by inspecting running containers.
         
         This finds containers from the stack and checks their bind mounts to determine
@@ -48,7 +122,9 @@ class ArchiveExecutor:
             stack_dir: Path to stack directory inside this container
             
         Returns:
-            Tuple of (host_path, volume_names) where volume_names is a list of named volumes found
+            Tuple of (host_path, volume_names) where:
+            - host_path: Host path for the stack directory
+            - volume_names: List of named volumes found
         """
         try:
             # Get list of containers for this stack
@@ -80,7 +156,8 @@ class ArchiveExecutor:
                 if not inspect_data:
                     continue
                 
-                mounts = inspect_data[0].get('Mounts', [])
+                container_data = inspect_data[0]
+                mounts = container_data.get('Mounts', [])
                 
                 # Check all mounts
                 for mount in mounts:
@@ -119,7 +196,16 @@ class ArchiveExecutor:
             if found_host_path:
                 self.log('INFO', f"Found host path from container inspect: {found_host_path}")
             else:
-                self.log('DEBUG', f"Could not determine host path from container mounts, using: {stack_dir}")
+                # Fallback: Try to determine host path from /proc/self/mountinfo
+                self.log('DEBUG', f"No bind mounts found in containers, checking /proc/self/mountinfo")
+                found_host_path = self._get_host_path_from_proc(stack_dir)
+
+            # Ensure the found host path is accessible within the container; if not, fall back to container path
+            try:
+                if found_host_path and str(found_host_path) != str(stack_dir) and not Path(str(found_host_path)).exists():
+                    self.log('DEBUG', f"Host path {found_host_path} is not accessible inside container; using container path {stack_dir}")
+                    found_host_path = stack_dir
+            except Exception:
                 found_host_path = stack_dir
             
             if named_volumes:
@@ -133,14 +219,152 @@ class ArchiveExecutor:
             self.log('WARNING', f"Error inspecting containers for host path: {e}")
             return stack_dir, []
     
+    def _get_host_path_from_proc(self, container_path):
+        """
+        Fallback method to get host path by reading /proc/self/mountinfo.
+        Used when no bind mounts are found in container inspection.
+        
+        Args:
+            container_path: Path as seen inside this container
+            
+        Returns:
+            Host path if found, otherwise returns container_path unchanged
+        """
+        container_path = Path(container_path).resolve()
+        container_path_str = str(container_path)
+        
+        try:
+            with open('/proc/self/mountinfo', 'r') as f:
+                mounts = []
+                for line in f:
+                    parts = line.split()
+                    if len(parts) < 10:
+                        continue
+                    
+                    # Skip special filesystems
+                    fs_type = parts[8] if len(parts) > 8 else ''
+                    if fs_type in ['overlay', 'tmpfs', 'proc', 'sysfs', 'devpts', 'devtmpfs', 'cgroup', 'cgroup2']:
+                        continue
+                    
+                    mount_point = parts[4]  # Where it's mounted in container
+                    
+                    # Find the source field (after the '-' separator)
+                    separator_idx = parts.index('-') if '-' in parts else -1
+                    if separator_idx > 0 and len(parts) > separator_idx + 2:
+                        source = parts[separator_idx + 2]
+                        mounts.append((mount_point, source))
+                
+                # Sort by mount point length (longest first) to match most specific path
+                mounts.sort(key=lambda x: len(x[0]), reverse=True)
+                
+                # Find matching mount
+                for mount_point, source in mounts:
+                    if container_path_str.startswith(mount_point):
+                        # Calculate relative path from mount point
+                        relative = container_path_str[len(mount_point):].lstrip('/')
+                        # Combine with host source
+                        host_path = Path(source) / relative if relative else Path(source)
+                        self.log('INFO', f"Found host path from /proc/self/mountinfo: {host_path}")
+                        return host_path
+                
+                # No matching mount found
+                self.log('DEBUG', f"No mount mapping found in /proc/self/mountinfo for {container_path}")
+                return container_path
+                
+        except Exception as e:
+            self.log('WARNING', f"Could not read /proc/self/mountinfo: {e}")
+            return container_path
+    
+    def _get_named_volumes_from_container(self, stack_name):
+        """
+        Get named volumes used by containers in a stack.
+        
+        Args:
+            stack_name: Name of the stack
+            
+        Returns:
+            List of named volume names
+        """
+        try:
+            # Get list of containers for this stack
+            result = subprocess.run(
+                ['docker', 'ps', '-q', '-f', f'label=com.docker.compose.project={stack_name}'],
+                capture_output=True, text=True, timeout=10
+            )
+            
+            if result.returncode != 0 or not result.stdout.strip():
+                return []
+            
+            container_ids = result.stdout.strip().split('\n')
+            named_volumes = []
+            
+            # Inspect containers to find named volumes
+            for container_id in container_ids:
+                inspect_result = subprocess.run(
+                    ['docker', 'inspect', container_id],
+                    capture_output=True, text=True, timeout=10
+                )
+                
+                if inspect_result.returncode != 0:
+                    continue
+                
+                inspect_data = json.loads(inspect_result.stdout)
+                if not inspect_data:
+                    continue
+                
+                container_data = inspect_data[0]
+                mounts = container_data.get('Mounts', [])
+                
+                # Collect named volumes
+                for mount in mounts:
+                    mount_type = mount.get('Type', '')
+                    if mount_type == 'volume':
+                        volume_name = mount.get('Name', '')
+                        if volume_name and volume_name not in named_volumes:
+                            named_volumes.append(volume_name)
+            
+            return named_volumes
+            
+        except Exception as e:
+            self.log('WARNING', f"Error inspecting containers for named volumes: {e}")
+            return []
+    
     def log(self, level, message):
-        """Add log entry with timestamp."""
+        """Add log entry with timestamp and persist to DB for live tailing across processes.
+
+        Logs are appended to the in-memory buffer (for fast local access) and also
+        appended to the jobs.log column in the database so other web worker
+        processes can stream the log while the job is still running.
+        """
         timestamp = utils.local_now().strftime('%Y-%m-%d %H:%M:%S')
         prefix = "[SIMULATION] " if self.is_dry_run else ""
         log_line = f"[{timestamp}] [{level}] {prefix}{message}"
+        # Append to in-memory buffer
         self.log_buffer.append(log_line)
         print(log_line)
-    
+
+        # Emit SSE event for live listeners (best-effort)
+        try:
+            if self.job_id:
+                send_event(self.job_id, 'log', {'line': log_line})
+        except Exception:
+            pass
+
+        # Also persist incrementally to the DB (append). Guard against any DB errors.
+        try:
+            if self.job_id:
+                with get_db() as conn:
+                    cur = conn.cursor()
+                    cur.execute("""
+                        UPDATE jobs
+                        SET log = log || %s
+                        WHERE id = %s;
+                    """, (log_line + "\n", self.job_id))
+                    conn.commit()
+        except Exception:
+            # Don't let logging failures interrupt the job
+            pass
+
     def run(self, triggered_by='manual'):
         """Execute archive job with all phases."""
         start_time = utils.now()
@@ -148,7 +372,29 @@ class ArchiveExecutor:
         
         # Create job record
         self.job_id = self._create_job_record(start_time, triggered_by)
-        
+        # Register executor for live log access
+        try:
+            RUNNING_EXECUTORS[self.job_id] = self
+        except Exception:
+            pass
+
+        # Quick sanity check: ensure at least one configured stack resolves to a valid path
+        try:
+            valid_stacks = []
+            for s in self.config.get('stacks', []):
+                try:
+                    if self._find_stack_path(s):
+                        valid_stacks.append(s)
+                except Exception:
+                    # Ignore errors while resolving
+                    continue
+            if not valid_stacks:
+                self.log('ERROR', 'No valid stacks found for this archive — bind mounts are mandatory and host:container paths must be identical. Aborting job. See README "How Stack Discovery Works" and dashboard warnings for troubleshooting.')
+                self._update_job_status('failed', error='No valid stacks found (bind mounts mandatory; host:container paths must match)')
+                return self.job_id
+        except Exception:
+            pass
+
         try:
             # Phase 0: Initialize directories
             self._phase_0_init()
@@ -169,9 +415,16 @@ class ArchiveExecutor:
             self.log('ERROR', f"Archive job failed: {str(e)}")
             self._update_job_status('failed', error=str(e))
             raise
-    
+        finally:
+            # Ensure we deregister executor when finished so API stops pulling live logs
+            try:
+                if self.job_id and self.job_id in RUNNING_EXECUTORS:
+                    del RUNNING_EXECUTORS[self.job_id]
+            except Exception:
+                pass
+
     def _create_job_record(self, start_time, triggered_by):
-        """Create initial job record in database."""
+        """Create initial job record in database (inline implementation)."""
         with get_db() as conn:
             cur = conn.cursor()
             cur.execute("""
@@ -188,8 +441,37 @@ class ArchiveExecutor:
             job_id = cur.fetchone()['id']
             conn.commit()
             return job_id
+
+
+def get_running_executor(job_id):
+    """Return a running ArchiveExecutor instance for a job id, if available."""
+    return RUNNING_EXECUTORS.get(job_id)
+
+
+def _create_job_record_impl(self, start_time, triggered_by):
+    """Module-level implementation of job record creation (bound to class for safety)."""
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO jobs (
+                archive_id, job_type, status, start_time, 
+                is_dry_run, dry_run_config, triggered_by, log
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) 
+            RETURNING id;
+        """, (
+            self.config['id'], 'archive', 'running', start_time,
+            self.is_dry_run, json.dumps(self.dry_run_config) if self.dry_run_config else None,
+            triggered_by, ''
+        ))
+        job_id = cur.fetchone()['id']
+        conn.commit()
+        return job_id
+
+# Bind implementation to class so instances always have the method
+ArchiveExecutor._create_job_record = _create_job_record_impl
+
     
-    def _phase_0_init(self):
+def _phase_0_init(self):
         """Phase 0: Initialize directories."""
         self.log('INFO', '### Phase 0: Initializing directories ###')
         
@@ -202,7 +484,7 @@ class ArchiveExecutor:
         else:
             self.log('INFO', f"Would ensure archive directory exists: {base_dir}")
     
-    def _phase_1_process_stacks(self):
+def _phase_1_process_stacks(self):
         """Phase 1: Process each stack sequentially."""
         self.log('INFO', '### Phase 1: Processing stacks sequentially (Stop -> Archive -> Start) ###')
         
@@ -220,7 +502,7 @@ class ArchiveExecutor:
         
         return stack_metrics
     
-    def _process_single_stack(self, stack_name, stop_containers):
+def _process_single_stack(self, stack_name, stop_containers):
         """Process a single stack: stop -> archive -> start."""
         stack_start = utils.now()
         self.log('INFO', f"--- Starting backup for stack: {stack_name} ---")
@@ -277,7 +559,7 @@ class ArchiveExecutor:
             archive_path=archive_path, archive_size=archive_size, duration=duration
         )
     
-    def _find_stack_path(self, stack_name):
+def _find_stack_path(self, stack_name):
         """Find the full path for a stack by name."""
         from app.stacks import discover_stacks
         stacks = discover_stacks()
@@ -286,7 +568,7 @@ class ArchiveExecutor:
                 return stack['path']
         return None
     
-    def _is_stack_running(self, stack_name, stack_path):
+def _is_stack_running(self, stack_name, stack_path):
         """Check if any containers in the stack are running."""
         try:
             compose_file = find_compose_file(stack_path)
@@ -323,13 +605,14 @@ class ArchiveExecutor:
             self.log('WARNING', f"Could not check running state for {stack_name}: {e}")
             return False
     
-    def _stop_stack(self, stack_name, compose_path):
+def _stop_stack(self, stack_name, compose_path):
         """Stop a docker compose stack."""
         stack_dir = compose_path.parent
         self.log('INFO', f"Stopping stack in {stack_dir}...")
         
-        # Get host path by inspecting running containers before stopping
-        # Also detects any named volumes that won't be backed up
+        # Inspect containers before stopping to:
+        # 1. Detect named volumes for warnings
+        # 2. Find host path for later restart
         host_stack_dir, named_volumes = self._get_host_path_from_container(stack_name, stack_dir)
         
         # Cache the host path and volumes for use when restarting and reporting
@@ -339,16 +622,22 @@ class ArchiveExecutor:
                 self.stack_volumes = {}
             self.stack_volumes[stack_name] = named_volumes
         
-        cmd_parts = ['docker', 'compose', '--project-directory', str(host_stack_dir), '-f', str(compose_path), 'down']
+        # Execute docker compose in the host stack directory
+        # This way .env and compose.yml are automatically found
+        cmd_parts = ['docker', 'compose', 'down']
         self.log('INFO', f"Starting command: Stopping {stack_name} (docker compose down)")
         
         if self.is_dry_run:
-            self.log('INFO', f"Would execute: docker compose --project-directory {stack_dir} -f {compose_path} down")
+            self.log('INFO', f"Would execute in {host_stack_dir}: {' '.join(cmd_parts)}")
             return True
         
         try:
             result = subprocess.run(
-                cmd_parts, capture_output=True, text=True, timeout=120
+                cmd_parts, 
+                cwd=str(host_stack_dir),  # Execute in host stack directory (now mounted as /opt/stacks)
+                capture_output=True, 
+                text=True, 
+                timeout=120
             )
             if result.returncode == 0:
                 self.log('INFO', f"Successfully finished: Stopping {stack_name}")
@@ -360,7 +649,7 @@ class ArchiveExecutor:
             self.log('ERROR', f"Exception stopping {stack_name}: {e}")
             return False
     
-    def _start_stack(self, stack_name, compose_path):
+def _start_stack(self, stack_name, compose_path):
         """Start a docker compose stack."""
         stack_dir = compose_path.parent
         self.log('INFO', f"Starting stack in {stack_dir}...")
@@ -369,16 +658,25 @@ class ArchiveExecutor:
         # If not cached (e.g., stack wasn't running), use container path
         host_stack_dir = self.stack_host_paths.get(stack_name, stack_dir)
         
-        cmd_parts = ['docker', 'compose', '--project-directory', str(host_stack_dir), '-f', str(compose_path), 'up', '-d']
+        # Execute docker compose in the host stack directory
+        # Docker Compose will automatically:
+        # - Load .env file from current directory
+        # - Find compose.yml/docker-compose.yml in current directory
+        # - Load compose.override.yml if it exists
+        cmd_parts = ['docker', 'compose', 'up', '-d']
         self.log('INFO', f"Starting command: Starting {stack_name} (docker compose up -d)")
         
         if self.is_dry_run:
-            self.log('INFO', f"Would execute: docker compose --project-directory {stack_dir} -f {compose_path} up -d")
+            self.log('INFO', f"Would execute in {host_stack_dir}: {' '.join(cmd_parts)}")
             return True
         
         try:
             result = subprocess.run(
-                cmd_parts, capture_output=True, text=True, timeout=120
+                cmd_parts,
+                cwd=str(host_stack_dir),  # Execute in host stack directory (now mounted as /opt/stacks)
+                capture_output=True,
+                text=True,
+                timeout=120
             )
             if result.returncode == 0:
                 self.log('INFO', f"Successfully finished: Starting {stack_name}")
@@ -390,7 +688,7 @@ class ArchiveExecutor:
             self.log('ERROR', f"Exception starting {stack_name}: {e}")
             return False
     
-    def _create_archive(self, stack_name, stack_path):
+def _create_archive(self, stack_name, stack_path):
         """Create archive of stack directory."""
         timestamp = utils.local_now().strftime('%Y%m%d_%H%M%S')
         output_format = self.config.get('output_format', 'tar')
@@ -413,10 +711,9 @@ class ArchiveExecutor:
         output_dir = Path(ARCHIVE_BASE) / archive_name / stack_name
         
         if ext:
-            output_file = output_dir / f"{stack_name}_{timestamp}.{ext}"
+            output_file = output_dir / f"{timestamp}_{stack_name}.{ext}"
         else:
-            output_file = output_dir / f"{stack_name}_{timestamp}"
-        
+            output_file = output_dir / f"{timestamp}_{stack_name}"
         # Skip archive creation if disabled in dry run
         if self.is_dry_run and not self.dry_run_config.get('create_archive', True):
             self.log('INFO', f"Skipping archive creation for '{stack_name}' (dry run disabled)")
@@ -499,13 +796,13 @@ class ArchiveExecutor:
                 self.log('ERROR', f"Exception copying folder: {e}")
                 return None, 0
     
-    def _should_run_retention(self):
+def _should_run_retention(self):
         """Check if retention should run."""
         if self.is_dry_run:
             return self.dry_run_config.get('run_retention', True)
         return True
     
-    def _phase_2_retention(self):
+def _phase_2_retention(self):
         """Phase 2: Run retention cleanup."""
         self.log('INFO', '### Phase 2: Running local retention cleanup ###')
         
@@ -531,7 +828,7 @@ class ArchiveExecutor:
         except Exception as e:
             self.log('ERROR', f"Retention failed: {e}")
     
-    def _phase_3_finalize(self, start_time, stack_metrics):
+def _phase_3_finalize(self, start_time, stack_metrics):
         """Phase 3: Finalize job and send notifications."""
         self.log('INFO', '### Phase 3: Finalizing report and sending notification ###')
         
@@ -557,7 +854,7 @@ class ArchiveExecutor:
         
         self.log('INFO', f"Archive job completed successfully in {duration}s")
     
-    def _log_disk_usage(self):
+def _log_disk_usage(self):
         """Log disk usage for archives directory."""
         cmd_parts = ['df', '-h', '--output=size,used,avail,pcent,target', ARCHIVE_BASE]
         self.log('INFO', f"Checking disk usage...")
@@ -582,7 +879,7 @@ class ArchiveExecutor:
         except Exception as e:
             self.log('WARNING', f"Exception checking disk usage: {e}")
     
-    def _create_stack_metric(self, stack_name, status, start_time, was_running=None, 
+def _create_stack_metric(self, stack_name, status, start_time, was_running=None, 
                             archive_path=None, archive_size=0, duration=0, error=None):
         """Create stack metric dict."""
         # Check if stack has named volumes
@@ -602,7 +899,7 @@ class ArchiveExecutor:
             'named_volumes': named_volumes  # List of volume names or None
         }
     
-    def _save_stack_metrics(self, stack_metrics):
+def _save_stack_metrics(self, stack_metrics):
         """Save stack metrics to database."""
         with get_db() as conn:
             cur = conn.cursor()
@@ -627,10 +924,20 @@ class ArchiveExecutor:
                     metric.get('error')
                 ))
             conn.commit()
+
+        # Emit metrics event for listeners (best-effort)
+        try:
+            send_event(self.job_id, 'metrics', stack_metrics)
+        except Exception:
+            pass
     
-    def _update_job_status(self, status, end_time=None, duration=None, total_size=None, error=None):
+def _update_job_status(self, status, end_time=None, duration=None, total_size=None, error=None):
         """Update job status in database."""
         log_text = '\n'.join(self.log_buffer)
+        # Ensure the persisted log ends with a newline so subsequent incremental
+        # appends do not concatenate with the final lines.
+        if log_text and not log_text.endswith('\n'):
+            log_text = log_text + '\n'
         
         with get_db() as conn:
             cur = conn.cursor()
@@ -645,11 +952,45 @@ class ArchiveExecutor:
                 WHERE id = %s;
             """, (status, end_time, duration, total_size, error, log_text, self.job_id))
             conn.commit()
+
+        # Emit status/job metadata update for live clients
+        try:
+            job_meta = {
+                'id': self.job_id,
+                'status': status,
+                'start_time': None,
+                'end_time': end_time,
+                'duration_seconds': duration,
+                'total_size_bytes': total_size,
+                'reclaimed_bytes': None,
+            }
+            send_event(self.job_id, 'status', job_meta)
+        except Exception:
+            pass
     
-    def _send_notification(self, stack_metrics, duration, total_size):
+def _send_notification(self, stack_metrics, duration, total_size):
         """Send notification via Apprise."""
         try:
             from app.notifications import send_archive_notification
             send_archive_notification(self.config, self.job_id, stack_metrics, duration, total_size)
         except Exception as e:
             self.log('WARNING', f"Failed to send notification: {e}")
+
+# Bind module-level implementations to ArchiveExecutor class so instance methods resolve correctly
+ArchiveExecutor._create_job_record = _create_job_record_impl
+ArchiveExecutor._phase_0_init = _phase_0_init
+ArchiveExecutor._phase_1_process_stacks = _phase_1_process_stacks
+ArchiveExecutor._process_single_stack = _process_single_stack
+ArchiveExecutor._find_stack_path = _find_stack_path
+ArchiveExecutor._is_stack_running = _is_stack_running
+ArchiveExecutor._stop_stack = _stop_stack
+ArchiveExecutor._start_stack = _start_stack
+ArchiveExecutor._create_archive = _create_archive
+ArchiveExecutor._should_run_retention = _should_run_retention
+ArchiveExecutor._phase_2_retention = _phase_2_retention
+ArchiveExecutor._phase_3_finalize = _phase_3_finalize
+ArchiveExecutor._log_disk_usage = _log_disk_usage
+ArchiveExecutor._create_stack_metric = _create_stack_metric
+ArchiveExecutor._save_stack_metrics = _save_stack_metrics
+ArchiveExecutor._update_job_status = _update_job_status
+ArchiveExecutor._send_notification = _send_notification

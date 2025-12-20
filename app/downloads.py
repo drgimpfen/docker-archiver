@@ -117,18 +117,18 @@ def cleanup_expired_tokens():
     with get_db() as conn:
         cur = conn.cursor()
         
-        # Get expired tokens with temp files
+        # Get expired tokens with temp files (archive_path is the current column name)
         cur.execute("""
-            SELECT file_path FROM download_tokens 
+            SELECT archive_path FROM download_tokens 
             WHERE expires_at <= CURRENT_TIMESTAMP
-            AND file_path LIKE '%_download_%';
+            AND archive_path LIKE '%_download_%';
         """)
         temp_files = cur.fetchall()
         
         # Delete temp files
         deleted_count = 0
         for row in temp_files:
-            file_path = Path(row['file_path'])
+            file_path = Path(row['archive_path'])
             if file_path.exists() and '_download_' in file_path.name:
                 try:
                     file_path.unlink()

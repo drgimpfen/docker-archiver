@@ -16,10 +16,10 @@
         <thead>
             <tr>
                 <th style="width: 180px;">Name</th>
-                <th style="width: 200px;">Stacks</th>
-                <th>Schedule</th>
+                <th class="stacks-col">Stacks</th>
+                <th class="schedule-col">Schedule</th>
                 <th style="width: 110px;">Retention</th>
-                <th style="width: 80px;">Format</th>
+                <th style="width: 120px;">Format</th>
                 <th style="width: 160px;">Actions</th>
             </tr>
         </thead>
@@ -34,25 +34,30 @@
                     <i class="bi bi-play-circle text-success ms-2" title="Keeps containers running"></i>
                     {% endif %}
                 </td>
-                <td>
-                    {% for stack in archive.stacks[:3] %}
-                    <span class="badge" style="background-color: {{ stack|stack_color }}; color: white;">{{ stack }}</span>
-                    {% endfor %}
-                    {% if archive.stacks|length > 3 %}
-                    <span class="badge bg-secondary">+{{ archive.stacks|length - 3 }}</span>
-                    {% endif %}
+                <td class="stacks-col">
+                    <div class="stack-badges">
+                        {% set st = archive.stacks | sort %}
+                        {% for stack in st[:3] %}
+                        <span class="badge" style="background-color: {{ stack|stack_color }}; color: white;">{{ stack }}</span>
+                        {% endfor %}
+                        {% if st|length > 3 %}
+                        <span class="badge bg-secondary">+{{ st|length - 3 }}</span>
+                        {% endif %}
+                    </div>
                 </td>
-                <td>
+                <td class="schedule-col">
                     {% if archive.schedule_enabled and archive.schedule_cron %}
                     <span class="badge bg-primary">
-                        <i class="bi bi-clock me-1"></i> {{ archive.schedule_cron }}
+                        <i class="bi bi-clock me-1"></i>
+                        <small class="d-inline-block text-truncate" style="max-width: 100px; vertical-align: middle;">{{ archive.schedule_cron }}</small>
                     </span>
                     {% if archive.next_run %}
-                    <small class="text-muted ms-2" data-next-run="{{ archive.next_run.isoformat() }}">(<span class="time-until"></span>)</small>
+                    <small class="text-muted ms-2 d-none d-lg-inline" data-next-run="{{ archive.next_run.isoformat() }}">(<span class="time-until"></span>)</small>
                     {% endif %}
                     {% elif archive.schedule_enabled %}
                     <span class="badge bg-warning">
-                        <i class="bi bi-exclamation-triangle me-1"></i> No schedule set
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        <small class="d-inline-block text-truncate" style="max-width: 100px; vertical-align: middle;">No schedule set</small>
                     </span>
                     {% else %}
                     <span class="badge bg-secondary">Manual</span>
@@ -66,7 +71,25 @@
                         {% endif %}
                     </small>
                 </td>
-                <td><code>{{ archive.output_format }}</code></td>
+                <td class="format-col">
+                    {% set fmt = archive.output_format %}
+                    {% if fmt == 'folder' %}
+                        <i class="bi bi-folder me-1 text-primary" title="Folder"></i>
+                        <small class="text-muted">Folder</small>
+                    {% elif fmt == 'tar' %}
+                        <i class="bi bi-archive me-1 text-secondary" title="Tar archive"></i>
+                        <small class="text-muted">tar (no compression)</small>
+                    {% elif fmt == 'tar.gz' %}
+                        <i class="bi bi-archive me-1 text-info" title="Tar + gzip"></i>
+                        <small class="text-muted">tar.gz (gzip)</small>
+                    {% elif fmt == 'tar.zst' %}
+                        <i class="bi bi-archive me-1 text-success" title="Tar + zstd"></i>
+                        <small class="text-muted">tar.zst (zstd)</small>
+                    {% else %}
+                        <i class="bi bi-file-earmark me-1 text-muted" title="{{ fmt }}"></i>
+                        <small class="text-muted">{{ fmt }}</small>
+                    {% endif %}
+                </td>
                 <td>
                     <button class="btn btn-sm btn-outline-primary" onclick="editArchive({{ archive.id }})" title="Edit Archive">
                         <i class="bi bi-pencil me-1"></i>Edit
@@ -94,7 +117,7 @@
                 <h5 class="modal-title">Create Archive</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form method="POST" action="{{ url_for('archives.create') }}">
+            <form method="POST" action="{{ url_for('archives.create') }}" id="createArchiveForm">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <div class="modal-body">
                     <div class="mb-3">
@@ -103,7 +126,7 @@
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label">Select Stacks</label>
+                        <label class="form-label">Select Stacks <small class="text-muted">(required)</small></label>
                         <div class="border rounded p-3" style="max-height: 200px; overflow-y: auto;">
                             {% for stack in stacks %}
                             <div class="form-check">
@@ -219,7 +242,7 @@
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label">Select Stacks</label>
+                        <label class="form-label">Select Stacks <small class="text-muted">(required)</small></label>
                         <div class="border rounded p-3" style="max-height: 200px; overflow-y: auto;" id="editStacksList">
                             {% for stack in stacks %}
                             <div class="form-check">
@@ -363,6 +386,17 @@ function deleteArchive(archiveId, archiveName) {
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = `/archives/${archiveId}/delete`;
+        
+        // Add CSRF token
+        const csrfToken = document.querySelector('meta[name="csrf-token"]');
+        if (csrfToken) {
+            const csrfInput = document.createElement('input');
+            csrfInput.type = 'hidden';
+            csrfInput.name = 'csrf_token';
+            csrfInput.value = csrfToken.content;
+            form.appendChild(csrfInput);
+        }
+        
         document.body.appendChild(form);
         form.submit();
     }
@@ -405,6 +439,37 @@ document.addEventListener('DOMContentLoaded', function() {
     if (archiveId) {
         localStorage.removeItem('openEditModal');
         editArchive(parseInt(archiveId));
+    }
+
+    // Client-side validation: ensure at least one stack is selected when creating or editing an archive
+    function hasSelectedStacks(containerSelector) {
+        const checkboxes = document.querySelectorAll(containerSelector + ' input[type="checkbox"][name="stacks"]');
+        for (const cb of checkboxes) {
+            if (cb.checked) return true;
+        }
+        return false;
+    }
+
+    const createForm = document.getElementById('createArchiveForm');
+    if (createForm) {
+        createForm.addEventListener('submit', function(e) {
+            if (!hasSelectedStacks('#createArchiveModal')) {
+                e.preventDefault();
+                alert('Please select at least one stack for the archive.');
+                return false;
+            }
+        });
+    }
+
+    const editForm = document.getElementById('editArchiveForm');
+    if (editForm) {
+        editForm.addEventListener('submit', function(e) {
+            if (!hasSelectedStacks('#editStacksList')) {
+                e.preventDefault();
+                alert('Please select at least one stack for the archive.');
+                return false;
+            }
+        });
     }
 });
 </script>
