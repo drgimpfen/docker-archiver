@@ -490,7 +490,44 @@ async function pollRunningJobs() {
 }
 
 // Start Jobs SSE on dashboard load to receive new job events
-startJobsEventSource();
+try {
+    if (typeof startJobsEventSource === 'function') {
+        startJobsEventSource();
+    } else {
+        console.warn('startJobsEventSource is not defined; SSE will be disabled for this page.');
+    }
+} catch (e) {
+    console.error('Error invoking startJobsEventSource:', e);
+}
+
+// Fallback: ensure Run Now buttons work even if base scripts failed to initialize
+document.querySelectorAll('.start-archive-btn').forEach(function(b) {
+    b.addEventListener('click', async function(ev) {
+        try {
+            ev.preventDefault();
+            ev.stopPropagation();
+            const archiveId = b.getAttribute('data-archive-id');
+            console.log('Fallback Run Now invoked for', archiveId);
+            const resp = await fetch(`/api/archives/${archiveId}/run`, { method: 'POST' });
+            const data = await resp.json();
+            console.log('Fallback run response', data);
+            if (data && data.success) {
+                // Try to insert a pending row if function exists, otherwise reload to show the new job
+                if (typeof addPendingJobRow === 'function') {
+                    addPendingJobRow(archiveId, b.getAttribute('data-archive-name') || 'Archive');
+                } else {
+                    // Fallback: reload to reflect the new job
+                    window.location.reload();
+                }
+            } else {
+                alert('Failed to start archive: ' + (data && data.error ? data.error : 'unknown'));
+            }
+        } catch (e) {
+            console.error('Fallback Run Now failed:', e);
+            alert('Failed to start archive: ' + e);
+        }
+    });
+});
 
 // Periodically check for newly started running jobs and start polling if needed
 setInterval(() => {
