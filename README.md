@@ -18,7 +18,7 @@
 - 🔄 **GFS Retention** - Grandfather-Father-Son retention policy (keep X days/weeks/months/years)
 - 🧹 **Automatic Cleanup** - Scheduled cleanup of orphaned archives, old logs, and temp files
 - 🎯 **Dry Run Mode** - Test archive operations without making changes
-- 📊 **Job History & Live Logs** - Detailed logs and metrics for all archive/retention runs; **Job Details** includes live log tailing (polls `/api/jobs/<id>/log/tail`) and supports EventSource streaming for near real-time updates. The modal offers terminal-like controls (search, **Pause/Resume**, **Copy**, **Download**, **Line numbers**, **Follow**) for easier log inspection and troubleshooting.
+- 📊 **Job History & Live Logs** - Detailed logs and metrics for all archive/retention runs; **Job Details** includes live log tailing (polls `/api/jobs/<id>/log/tail`) and supports EventSource streaming for near real-time updates. The modal offers terminal-like controls (search, **Pause/Resume**, **Copy**, **Download**, **Line numbers**) for easier log inspection and troubleshooting.
 - 🔔 **Smart Notifications** - Apprise integration with customizable subject tags and HTML/text format
 - 🌓 **Dark/Light Mode** - Modern Bootstrap UI with theme toggle
 - 🔐 **User Authentication** - Secure login system (role-based access coming soon)

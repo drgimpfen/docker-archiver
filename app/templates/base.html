@@ -108,27 +108,6 @@
             }
         })();
 
-        // LocalStorage helpers for 'follow' feature
-        function getFollowedJobs() {
-            try { return JSON.parse(localStorage.getItem('followedJobs') || '[]'); } catch (e) { return []; }
-        }
-        function setFollowedJobs(list) {
-            try { localStorage.setItem('followedJobs', JSON.stringify(list)); } catch (e) {}
-        }
-        function isJobFollowed(jobId) {
-            return getFollowedJobs().includes(String(jobId));
-        }
-        function setJobFollowed(jobId, value) {
-            const list = getFollowedJobs().filter(x=>x);
-            const s = String(jobId);
-            const exists = list.includes(s);
-            if (value && !exists) list.push(s);
-            if (!value && exists) {
-                const idx = list.indexOf(s); if (idx !== -1) list.splice(idx,1);
-            }
-            setFollowedJobs(list);
-        }
-
         // Persisted Line Number setting
         function getShowLineNumbers() {
             try { return localStorage.getItem('showLineNumbers') === 'true'; } catch (e) { return false; }
@@ -137,32 +116,7 @@
             try { localStorage.setItem('showLineNumbers', v ? 'true' : 'false'); } catch (e) {}
         }
 
-        // Global follow toggle for index rows
-        function toggleFollow(jobId) {
-            const row = document.getElementById(`job-row-${jobId}`);
-            if (!row) return;
-            const current = row.getAttribute('data-follow') === 'true';
-            const newVal = !current;
-            row.setAttribute('data-follow', newVal.toString());
-            // Persist
-            setJobFollowed(jobId, newVal);
-            // Update any modal or index follow buttons
-            document.querySelectorAll(`#job-follow-toggle-${jobId}`).forEach(btn => btn.classList.toggle('btn-success', newVal));
-            // If following and the job is running, open details
-            if (newVal && row.getAttribute('data-job-status') === 'running') {
-                showJobDetails(jobId);
-            }
-        }
 
-        // Initialize follow state on page load
-        document.addEventListener('DOMContentLoaded', ()=>{
-            const followed = getFollowedJobs();
-            followed.forEach(id => {
-                const row = document.getElementById(`job-row-${id}`);
-                if (row) row.setAttribute('data-follow','true');
-                document.querySelectorAll(`#job-follow-toggle-${id}`).forEach(btn => btn.classList.add('btn-success'));
-            });
-        });
         
         // Bootstrap 5 native theme toggle
         (function(){
@@ -401,7 +355,7 @@
                     <button id="job-log-toggle-autoscroll-${job.id}" class="btn btn-sm btn-outline-primary">Pause</button>
                     <button id="job-log-clear-${job.id}" class="btn btn-sm btn-outline-danger">Clear</button>
                     <button id="job-log-toggle-linenos-${job.id}" class="btn btn-sm btn-outline-secondary">Line #</button>
-                    <button id="job-follow-toggle-${job.id}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-bullseye"></i> Follow</button>
+
                     <span id="job-sse-status-${job.id}" class="badge bg-secondary ms-2">Polling</span>
                     <span id="job-paused-indicator-${job.id}" class="paused-indicator" style="display:none;">PAUSED</span>
                 </div>
@@ -651,7 +605,7 @@
                     tr.id = `job-row-${job.id}`;
                     tr.setAttribute('data-job-id', job.id);
                     tr.setAttribute('data-job-status', job.status || 'running');
-                    tr.setAttribute('data-follow', 'false');
+
                     tr.style.cursor = 'pointer';
                     // Inline safe onclick for classic behavior
                     tr.setAttribute('onclick', "(function(e){ (e||window.event||{}).stopPropagation && (e||window.event).stopPropagation(); try { if (typeof showJobDetails === 'function') showJobDetails(" + job.id + "); } catch(err){ console.error(err); } })(event)");
@@ -662,7 +616,7 @@
                         <td class="align-middle" style="white-space: nowrap;">
                             <div class="d-inline-flex align-items-center">
                                 <strong class="me-2">#${job.id}</strong>
-                                <button class="btn btn-sm btn-outline-secondary" onclick="(function(e){ e.stopPropagation(); toggleFollow(${job.id}); }).call(this)"><i class="bi bi-bullseye"></i></button>
+
                             </div>
                         </td>
                         <td><span class="badge ${job.status === 'success' ? 'bg-success' : (job.status === 'running' ? 'bg-info' : 'bg-danger')}">${job.status}</span></td>
@@ -886,7 +840,7 @@
                         <td class="align-middle" style="white-space: nowrap;">
                             <div class="d-inline-flex align-items-center">
                                 <strong class="me-2">#${job.id}</strong>
-                                <button class="btn btn-sm btn-outline-secondary" onclick="(function(e){ (e||window.event||{}).stopPropagation && (e||window.event).stopPropagation(); toggleFollow('${job.id}'); })(event)"><i class="bi bi-bullseye"></i></button>
+
                             </div>
                         </td>
                         <td><span class="badge bg-info">starting</span></td>
@@ -1230,12 +1184,7 @@
                 lineBtn.textContent = window._jobLogShowLineNumbers ? 'Hide #' : 'Line #';
                 lineBtn.classList.toggle('btn-success', window._jobLogShowLineNumbers);
             }
-            const followBtn = document.getElementById(`job-follow-toggle-${job.id}`);
-            if (followBtn) {
-                // Reflect persisted follow state
-                try { followBtn.classList.toggle('btn-success', isJobFollowed(job.id)); } catch (e) {}
-                followBtn.addEventListener('click', ()=> toggleFollow(job.id));
-            }
+
 
             // SSE status helper
             function updateSseStatus(state) {

@@ -295,11 +295,11 @@
                             </thead>
                             <tbody>
                                 {% for job in recent_jobs %}
-                                <tr id="job-row-{{ job.id }}" data-job-id="{{ job.id }}" data-job-status="{{ job.status }}" data-follow="false" style="cursor: pointer;" class="{% if job.is_dry_run %}table-secondary{% endif %}" onclick="(function(e){ (e||window.event||{}).stopPropagation && (e||window.event).stopPropagation(); try { if (typeof showJobDetails === 'function') showJobDetails({{ job.id }}); } catch(err){ console.error(err); } })(event)">
+                                <tr id="job-row-{{ job.id }}" data-job-id="{{ job.id }}" data-job-status="{{ job.status }}" style="cursor: pointer;" class="{% if job.is_dry_run %}table-secondary{% endif %}" onclick="(function(e){ (e||window.event||{}).stopPropagation && (e||window.event).stopPropagation(); try { if (typeof showJobDetails === 'function') showJobDetails({{ job.id }}); } catch(err){ console.error(err); } })(event)">
                                     <td class="align-middle" style="white-space: nowrap;">
                                         <div class="d-inline-flex align-items-center">
                                             <strong class="me-2">#{{ job.id }}</strong>
-                                            <button class="btn btn-sm btn-outline-secondary" onclick="(function(e){ (e||window.event||{}).stopPropagation && (e||window.event).stopPropagation(); toggleFollow({{ job.id }}); })(event)"><i class="bi bi-bullseye"></i></button>
+                                            
                                         </div>
                                     </td>
                                     <td>
