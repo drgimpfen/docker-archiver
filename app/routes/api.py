@@ -459,13 +459,8 @@ def run_archive(archive_id):
         if not archive:
             return jsonify({'error': 'Archive not found'}), 404
 
-        # Prevent starting duplicate archive runs concurrently
-        from app.db import is_archive_running
-        if is_archive_running(archive_id):
-            return jsonify({'error': 'Archive already has a running job'}), 409
-        
-        # Create a job record immediately so the UI can observe it and so the
-        # detached subprocess can attach to the precreated job.
+        # Create a job record atomically to prevent race conditions where
+        # two concurrent requests could both insert a running job.
         from app import utils as u
         from app.sse import send_global_event
         with get_db() as conn:
@@ -473,10 +468,17 @@ def run_archive(archive_id):
             start_time = u.now()
             cur.execute("""
                 INSERT INTO jobs (archive_id, job_type, status, start_time, triggered_by, log)
-                VALUES (%s, 'archive', 'running', %s, 'api', '')
+                SELECT %s, 'archive', 'running', %s, 'api', ''
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM jobs WHERE archive_id = %s AND status = 'running'
+                )
                 RETURNING id;
-            """, (archive_id, start_time))
-            job_id = cur.fetchone()['id']
+            """, (archive_id, start_time, archive_id))
+            row = cur.fetchone()
+            if not row:
+                # Another running job exists
+                return jsonify({'error': 'Archive already has a running job'}), 409
+            job_id = row['id']
             conn.commit()
 
             # Publish a lightweight global job event so any connected dashboards

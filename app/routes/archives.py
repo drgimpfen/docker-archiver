@@ -371,17 +371,24 @@ def run(archive_id):
             flash('Archive not found', 'danger')
             return redirect(url_for('index'))
         
-        # Create a job record immediately so the UI can observe it
+        # Create a job record atomically to prevent duplicate starts
         from app import utils as u
         with get_db() as conn:
             cur = conn.cursor()
             start_time = u.now()
             cur.execute("""
                 INSERT INTO jobs (archive_id, job_type, status, start_time, triggered_by, log)
-                VALUES (%s, 'archive', 'running', %s, 'manual', '')
+                SELECT %s, 'archive', 'running', %s, 'manual', ''
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM jobs WHERE archive_id = %s AND status = 'running'
+                )
                 RETURNING id;
-            """, (archive_id, start_time))
-            job_id = cur.fetchone()['id']
+            """, (archive_id, start_time, archive_id))
+            row = cur.fetchone()
+            if not row:
+                flash('Archive already has a running job', 'warning')
+                return redirect(url_for('index'))
+            job_id = row['id']
             conn.commit()
 
         # Start archive as detached subprocess and log to file
