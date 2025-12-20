@@ -233,13 +233,14 @@ td.format-col {
     align-items:center;
     gap:10px;
     padding:10px 12px;
-    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
-    border-bottom: 1px solid rgba(255,255,255,0.03);
+    /* More solid header so content doesn't show through */
+    background: rgba(8,10,12,0.96);
+    border-bottom: 1px solid rgba(255,255,255,0.04);
     position: sticky;
     top: 0;
     z-index: 3;
-    backdrop-filter: blur(4px);
-    box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+    /* Remove heavy backdrop blur to avoid visible content bleed */
+    box-shadow: 0 6px 18px rgba(0,0,0,0.6);
 }
 
 .console-controls { display:flex; gap:8px; align-items:center; }
