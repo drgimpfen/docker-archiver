@@ -419,6 +419,22 @@
             }
 
             function appendLogLine(line) {
+                // Normalize and split if the incoming line contains multiple timestamped entries
+                if (!line) return;
+                const tsGlobal = /\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]/g;
+                const matches = Array.from(line.matchAll(tsGlobal));
+                if (matches.length > 1) {
+                    // Split into chunks that each start with a timestamp
+                    const parts = [];
+                    for (let i = 0; i < matches.length; i++) {
+                        const start = matches[i].index;
+                        const end = (i + 1 < matches.length) ? matches[i + 1].index : line.length;
+                        parts.push(line.slice(start, end).trim());
+                    }
+                    parts.forEach(p => appendLogLine(p));
+                    return;
+                }
+
                 // Ensure container
                 const container = document.getElementById('job-log');
                 if (!container) return;
@@ -432,19 +448,41 @@
                 const text = document.createElement('div');
                 text.className = 'text';
 
+                // Try to extract a leading timestamp
+                let tsMatch = line.match(/^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s*/);
+                if (!tsMatch) {
+                    // If no leading timestamp, try to find one anywhere and trim preceding garbage
+                    const anyTs = line.match(/\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]/);
+                    if (anyTs && anyTs.index !== undefined) {
+                        line = line.slice(anyTs.index);
+                        tsMatch = line.match(/^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s*/);
+                    }
+                }
+
+                if (tsMatch) {
+                    const ts = tsMatch[0];
+                    const tsSpan = document.createElement('span');
+                    tsSpan.className = 'ts me-2 text-muted';
+                    tsSpan.textContent = ts;
+                    text.appendChild(tsSpan);
+                    line = line.slice(tsMatch[0].length);
+                }
+
                 // Parse level prefix like [ERROR], [WARNING], [INFO], [DEBUG]
-                const m = line.match(/\[(ERROR|WARNING|INFO|DEBUG)\]\s*/);
+                const m = line.match(/^(\[(ERROR|WARNING|INFO|DEBUG)\])\s*/);
                 if (m) {
-                    const lvl = m[1];
+                    const lvlToken = m[1];
+                    const lvl = m[2];
                     const levelSpan = document.createElement('span');
                     levelSpan.className = `level-${lvl}`;
-                    levelSpan.textContent = m[0];
+                    levelSpan.textContent = lvlToken + ' ';
                     text.appendChild(levelSpan);
                     // Append rest
                     const rest = document.createTextNode(line.slice(m[0].length));
                     text.appendChild(rest);
                 } else {
-                    text.textContent = line;
+                    // No explicit level at start - append the full line
+                    text.appendChild(document.createTextNode(line));
                 }
 
                 div.appendChild(ln);
