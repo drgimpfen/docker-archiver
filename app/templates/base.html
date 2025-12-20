@@ -129,6 +129,14 @@
             setFollowedJobs(list);
         }
 
+        // Persisted Line Number setting
+        function getShowLineNumbers() {
+            try { return localStorage.getItem('showLineNumbers') === 'true'; } catch (e) { return false; }
+        }
+        function setShowLineNumbers(v) {
+            try { localStorage.setItem('showLineNumbers', v ? 'true' : 'false'); } catch (e) {}
+        }
+
         // Global follow toggle for index rows
         function toggleFollow(jobId) {
             const row = document.getElementById(`job-row-${jobId}`);
@@ -397,6 +405,8 @@
 
             // Auto-scroll toggle (default: on)
             window._jobLogAutoScroll = true;
+            // Line numbers persisted setting
+            window._jobLogShowLineNumbers = getShowLineNumbers();
 
             function toggleAutoScroll() {
                 window._jobLogAutoScroll = !window._jobLogAutoScroll;
@@ -406,9 +416,43 @@
                 if (badge) badge.style.display = window._jobLogAutoScroll ? 'none' : '';
             }
 
+            function toggleLineNumbers() {
+                window._jobLogShowLineNumbers = !window._jobLogShowLineNumbers;
+                // Persist
+                setShowLineNumbers(window._jobLogShowLineNumbers);
+                // Toggle display for existing lines
+                document.querySelectorAll('#job-log .ln').forEach(el => el.style.display = window._jobLogShowLineNumbers ? '' : 'none');
+                // Update button UI
+                const btn = document.getElementById(`job-log-toggle-linenos-${job.id}`);
+                if (btn) {
+                    btn.textContent = window._jobLogShowLineNumbers ? 'Hide #' : 'Line #';
+                    btn.classList.toggle('btn-success', window._jobLogShowLineNumbers);
+                }
+            }
+
+            function ensureConsoleHeader(container) {
+                if (!container) return;
+                if (!container.querySelector('.console-header')) {
+                    const header = document.createElement('div');
+                    header.className = 'console-header';
+                    header.innerHTML = `
+                        <div class="console-controls" aria-hidden="true">
+                            <span class="dot dot-red"></span>
+                            <span class="dot dot-yellow"></span>
+                            <span class="dot dot-green"></span>
+                        </div>
+                        <div class="console-title">Terminal</div>
+                    `;
+                    container.insertBefore(header, container.firstChild);
+                }
+            }
+
             function clearLog() {
                 const container = document.getElementById('job-log');
-                if (container) container.innerHTML = '';
+                if (container) {
+                    // Remove only log-line children so header remains
+                    container.querySelectorAll('.log-line').forEach(el => el.remove());
+                }
                 lastLine = 0;
                 window._jobLogLineCount = 0;
             }
@@ -438,6 +482,8 @@
                 // Ensure container
                 const container = document.getElementById('job-log');
                 if (!container) return;
+                // Ensure header exists (so modal opened later still shows it)
+                ensureConsoleHeader(container);
                 window._jobLogLineCount = (window._jobLogLineCount || 0) + 1;
                 const div = document.createElement('div');
                 div.className = 'log-line';
@@ -800,59 +846,65 @@
                 }
             }
 
+            // Setup controls for both running and completed jobs (attach listeners and initialize UI)
+            const copyBtn = document.getElementById(`job-log-copy-${job.id}`);
+            if (copyBtn) copyBtn.addEventListener('click', ()=> navigator.clipboard.writeText(Array.from(document.querySelectorAll('#job-log .text')).map(e=>e.textContent).join('\n')).catch(()=>{}));
+            const downloadBtn = document.getElementById(`job-log-download-${job.id}`);
+            if (downloadBtn) downloadBtn.addEventListener('click', ()=> downloadLog(job.id));
+            const autoBtn = document.getElementById(`job-log-toggle-autoscroll-${job.id}`);
+            if (autoBtn) autoBtn.addEventListener('click', toggleAutoScroll);
+            const clearBtn = document.getElementById(`job-log-clear-${job.id}`);
+            if (clearBtn) clearBtn.addEventListener('click', clearLog);
+            const lineBtn = document.getElementById(`job-log-toggle-linenos-${job.id}`);
+            if (lineBtn) {
+                lineBtn.addEventListener('click', toggleLineNumbers);
+                // Initialize label and active state
+                lineBtn.textContent = window._jobLogShowLineNumbers ? 'Hide #' : 'Line #';
+                lineBtn.classList.toggle('btn-success', window._jobLogShowLineNumbers);
+            }
+            const followBtn = document.getElementById(`job-follow-toggle-${job.id}`);
+            if (followBtn) {
+                // Reflect persisted follow state
+                try { followBtn.classList.toggle('btn-success', isJobFollowed(job.id)); } catch (e) {}
+                followBtn.addEventListener('click', ()=> toggleFollow(job.id));
+            }
+
+            // SSE status helper
+            function updateSseStatus(state) {
+                const s = document.getElementById(`job-sse-status-${job.id}`);
+                if (!s) return;
+                if (state === 'live') {
+                    s.textContent = 'Live';
+                    s.className = 'badge bg-success ms-2';
+                    s.title = 'Connected via SSE (live updates)';
+                } else if (state === 'stopped') {
+                    s.textContent = 'Stopped';
+                    s.className = 'badge bg-secondary ms-2';
+                    s.title = 'Stream stopped';
+                } else {
+                    s.textContent = 'Polling';
+                    s.className = 'badge bg-secondary ms-2';
+                    s.title = 'Using polling fallback';
+                }
+            }
+
+            updateSseStatus('polling');
+
             if (job.status === 'running') {
-                // Setup controls (event listeners)
-                const copyBtn = document.getElementById(`job-log-copy-${job.id}`);
-                if (copyBtn) copyBtn.addEventListener('click', ()=> navigator.clipboard.writeText(Array.from(document.querySelectorAll('#job-log .text')).map(e=>e.textContent).join('\n')).catch(()=>{}));
-                const downloadBtn = document.getElementById(`job-log-download-${job.id}`);
-                if (downloadBtn) downloadBtn.addEventListener('click', ()=> downloadLog(job.id));
-                const autoBtn = document.getElementById(`job-log-toggle-autoscroll-${job.id}`);
-                if (autoBtn) autoBtn.addEventListener('click', toggleAutoScroll);
-                const clearBtn = document.getElementById(`job-log-clear-${job.id}`);
-                if (clearBtn) clearBtn.addEventListener('click', clearLog);
-                const lineBtn = document.getElementById(`job-log-toggle-linenos-${job.id}`);
-                if (lineBtn) lineBtn.addEventListener('click', toggleLineNumbers);
-                const followBtn = document.getElementById(`job-follow-toggle-${job.id}`);
-                if (followBtn) {
-                    // Reflect persisted follow state
-                    try { followBtn.classList.toggle('btn-success', isJobFollowed(job.id)); } catch (e) {}
-                    followBtn.addEventListener('click', ()=> toggleFollow(job.id));
-                }
-
                 // Prefer SSE for live updates if available, fallback to polling
-                // Initial SSE status (default to Polling until SSE opens)
-                function updateSseStatus(state) {
-                    const s = document.getElementById(`job-sse-status-${job.id}`);
-                    if (!s) return;
-                    if (state === 'live') {
-                        s.textContent = 'Live';
-                        s.className = 'badge bg-success ms-2';
-                        s.title = 'Connected via SSE (live updates)';
-                    } else if (state === 'stopped') {
-                        s.textContent = 'Stopped';
-                        s.className = 'badge bg-secondary ms-2';
-                        s.title = 'Stream stopped';
-                    } else {
-                        s.textContent = 'Polling';
-                        s.className = 'badge bg-secondary ms-2';
-                        s.title = 'Using polling fallback';
-                    }
-                }
-
-                updateSseStatus('polling');
-
                 if (typeof(EventSource) !== 'undefined') {
                     startJobEventSource();
                 } else {
                     fetchTail();
                 }
-                // Also refresh initial metadata periodically
-                refreshJobInfo();
-            } else if (job.log) {
+            }
+
+            if (job.log) {
                 // Show final log snapshot
-                // Render job.log as lines
                 clearLog();
                 (job.log || '').split('\n').forEach(l => { if (l) appendLogLine(l); });
+                // Apply persisted line number visibility
+                document.querySelectorAll('#job-log .ln').forEach(el => el.style.display = window._jobLogShowLineNumbers ? '' : 'none');
                 // Also ensure metadata is up to date
                 refreshJobInfo();
             }
