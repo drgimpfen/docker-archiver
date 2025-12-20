@@ -116,10 +116,12 @@ def run_startup_discovery():
                 def _cleanup_stale():
                     try:
                         from app.db import mark_stale_running_jobs
-                        # Use a fixed default threshold to keep behavior deterministic
-                        minutes = 30
-                        print(f"[Startup] Running stale job cleanup (threshold {minutes} minutes)")
-                        mark_stale_running_jobs(minutes)
+                        # On startup mark any running jobs without end_time as failed to avoid
+                        # stuck running states and UI confusion.
+                        print(f"[Startup] Running stale job cleanup (marking running jobs without end_time as failed)")
+                        marked = mark_stale_running_jobs(None)
+                        if marked and int(marked) > 0:
+                            print(f"[Startup] Marked {marked} running jobs as failed on startup")
                     except Exception as se:
                         print(f"[Startup] Stale job cleanup failed: {se}")
                 t = threading.Thread(target=_cleanup_stale, daemon=True)

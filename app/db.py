@@ -260,11 +260,15 @@ def is_archive_running(archive_id):
         return bool(row and row.get('cnt', 0) > 0)
 
 
-def mark_stale_running_jobs(threshold_minutes=30):
-    """Mark jobs that are still 'running' but started before threshold as failed.
+def mark_stale_running_jobs(threshold_minutes=None):
+    """Mark running jobs as failed at startup.
 
-    This function is safe to call at startup; it marks jobs with start_time < NOW() - threshold_minutes
-    as failed, sets end_time, duration_seconds, and appends an error/log entry explaining the action.
+    If ``threshold_minutes`` is ``None`` (default) this function will mark *all* jobs with
+    ``status = 'running'`` and ``end_time IS NULL`` as ``failed`` (sets ``end_time`` and
+    ``duration_seconds`` where available). If ``threshold_minutes`` is provided, it will only
+    mark jobs whose ``start_time`` is older than the threshold (legacy behavior).
+
+    Returns the number of jobs that were marked as failed.
     """
     try:
         from app import utils
@@ -272,20 +276,41 @@ def mark_stale_running_jobs(threshold_minutes=30):
             cur = conn.cursor()
             msg = 'Marked failed on server startup (stale running job)'
             log_line = f"[{utils.local_now().strftime('%Y-%m-%d %H:%M:%S')}] [ERROR] Job marked failed due to server restart\n"
-            cur.execute("""
-                UPDATE jobs
-                SET status = 'failed',
-                    end_time = NOW(),
-                    duration_seconds = EXTRACT(EPOCH FROM (NOW() - start_time))::INTEGER,
-                    error = COALESCE(error, '') || %s,
-                    log = COALESCE(log, '') || %s
-                WHERE status = 'running'
-                  AND start_time < NOW() - (%s || ' minutes')::interval;
-            """, (msg, log_line, str(threshold_minutes)))
-            conn.commit()
-            print(f"[DB] Marked stale running jobs older than {threshold_minutes} minutes as failed")
+
+            if threshold_minutes is None:
+                # Mark any running jobs missing an end_time as failed
+                cur.execute("""
+                    UPDATE jobs
+                    SET status = 'failed',
+                        end_time = NOW(),
+                        duration_seconds = CASE WHEN start_time IS NOT NULL
+                            THEN EXTRACT(EPOCH FROM (NOW() - start_time))::INTEGER
+                            ELSE NULL END,
+                        error = COALESCE(error, '') || %s,
+                        log = COALESCE(log, '') || %s
+                    WHERE status = 'running' AND end_time IS NULL;
+                """, (msg, log_line))
+                count = cur.rowcount
+                conn.commit()
+                return count
+            else:
+                # Legacy: mark only jobs older than threshold
+                cur.execute("""
+                    UPDATE jobs
+                    SET status = 'failed',
+                        end_time = NOW(),
+                        duration_seconds = EXTRACT(EPOCH FROM (NOW() - start_time))::INTEGER,
+                        error = COALESCE(error, '') || %s,
+                        log = COALESCE(log, '') || %s
+                    WHERE status = 'running'
+                      AND start_time < NOW() - (%s || ' minutes')::interval;
+                """, (msg, log_line, str(threshold_minutes)))
+                count = cur.rowcount
+                conn.commit()
+                return count
     except Exception as e:
         print(f"[DB] Failed to mark stale running jobs: {e}")
+        return 0
 
 
 if __name__ == '__main__':

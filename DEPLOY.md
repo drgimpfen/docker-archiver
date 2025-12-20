@@ -224,7 +224,7 @@ sudo chmod 666 /var/run/docker.sock
 
 ### Cleanup Old Jobs
 
-> **Note:** On startup the app will automatically mark jobs still in `running` state that started more than **30 minutes** earlier as `failed` to avoid stuck running states and UI confusion.
+> **Note:** On startup the app will automatically mark jobs still in `running` state that **do not have an `end_time`** as `failed` to avoid stuck running states and UI confusion.
 
 ```sql
 -- Connect to database
