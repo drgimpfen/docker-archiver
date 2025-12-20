@@ -419,6 +419,7 @@ function updateJobRowFromJob(job) {
     if (!row) return;
     row.setAttribute('data-job-status', job.status);
 
+
     // Update status badge
     const badge = row.querySelector('td:nth-child(2) .badge');
     if (badge) {
@@ -476,14 +477,8 @@ async function pollRunningJobs() {
             }
         }
 
-        // Auto-open modal for followed jobs that are running
-        document.querySelectorAll('tr[data-follow="true"]').forEach(row => {
-            const jobId = row.getAttribute('data-job-id');
-            const status = row.getAttribute('data-job-status');
-            if (status === 'running' && String(window._currentJobId) !== jobId) {
-                showJobDetails(parseInt(jobId));
-            }
-        });
+        // Auto-open of Job Details disabled by user preference
+        // (Users can still click a job row to open details manually.)
     } catch (err) {
         console.error('Failed to poll running jobs:', err);
     }

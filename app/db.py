@@ -280,7 +280,7 @@ def mark_stale_running_jobs(threshold_minutes=30):
                     error = COALESCE(error, '') || %s,
                     log = COALESCE(log, '') || %s
                 WHERE status = 'running'
-                  AND start_time < NOW() - INTERVAL %s || ' minutes';
+                  AND start_time < NOW() - (%s || ' minutes')::interval;
             """, (msg, log_line, str(threshold_minutes)))
             conn.commit()
             print(f"[DB] Marked stale running jobs older than {threshold_minutes} minutes as failed")

@@ -224,6 +224,8 @@ sudo chmod 666 /var/run/docker.sock
 
 ### Cleanup Old Jobs
 
+> **Note:** On startup the app will automatically mark jobs still in `running` state that started more than **30 minutes** earlier as `failed` to avoid stuck running states and UI confusion.
+
 ```sql
 -- Connect to database
 docker compose exec db psql -U archiver docker_archiver
@@ -231,7 +233,6 @@ docker compose exec db psql -U archiver docker_archiver
 -- Delete jobs older than 90 days
 DELETE FROM jobs WHERE start_time < NOW() - INTERVAL '90 days';
 ```
-
 ### Cleanup Expired Tokens
 
 Runs automatically daily at 2 AM, or manually:

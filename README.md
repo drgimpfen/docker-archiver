@@ -264,6 +264,9 @@ For more details and troubleshooting tips, see the dashboard warning messages or
 
 > **Note:** If you deploy with multiple workers (Gunicorn, etc.) and want real-time SSE events to work across workers, configure `REDIS_URL` and install the `redis` Python package (already optional in `requirements.txt`).
 
+> **Note:** On startup the app will mark any jobs still in `running` state that started more than **30 minutes** earlier as `failed` to avoid stuck jobs and UI confusion; this behavior is automatic and not configurable via environment variables.
+
+
 ### Retention Policy
 
 **GFS (Grandfather-Father-Son)**:

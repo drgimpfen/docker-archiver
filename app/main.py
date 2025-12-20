@@ -116,7 +116,8 @@ def run_startup_discovery():
                 def _cleanup_stale():
                     try:
                         from app.db import mark_stale_running_jobs
-                        minutes = int(os.environ.get('STALE_JOB_MINUTES', '30'))
+                        # Use a fixed default threshold to keep behavior deterministic
+                        minutes = 30
                         print(f"[Startup] Running stale job cleanup (threshold {minutes} minutes)")
                         mark_stale_running_jobs(minutes)
                     except Exception as se:
