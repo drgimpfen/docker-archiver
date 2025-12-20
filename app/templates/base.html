@@ -762,13 +762,11 @@
             });
 
             // Handle Run Now buttons with optimistic UI insertion
-            document.addEventListener('click', async function(ev) {
+            async function runArchiveFromButton(btn) {
                 try {
-                    const btn = ev.target.closest && ev.target.closest('.start-archive-btn');
-                    if (!btn) return;
-                    ev.preventDefault();
                     const archiveId = btn.getAttribute('data-archive-id');
                     const archiveName = btn.getAttribute('data-archive-name') || 'Archive';
+                    console.log('Run Now invoked for archive', archiveId, archiveName);
                     // Disable button briefly
                     btn.disabled = true;
                     const oldHtml = btn.innerHTML;
@@ -806,8 +804,33 @@
                         btn.innerHTML = oldHtml;
                     }
                 } catch (e) {
-                    console.error('Failed to handle Run Now click:', e);
+                    console.error('Failed to handle Run Now click (runArchiveFromButton):', e);
                 }
+            }
+
+            document.addEventListener('click', function(ev) {
+                try {
+                    const btn = ev.target.closest && ev.target.closest('.start-archive-btn');
+                    if (!btn) return;
+                    ev.preventDefault();
+                    // Call the shared function
+                    runArchiveFromButton(btn);
+                } catch (e) {
+                    console.error('Failed to handle Run Now click (delegated):', e);
+                }
+            });
+
+            // Also attach direct listeners to existing buttons (covers some edge cases)
+            document.querySelectorAll('.start-archive-btn').forEach(function(b) {
+                b.addEventListener('click', function(ev) {
+                    try {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        runArchiveFromButton(b);
+                    } catch (e) {
+                        console.error('Failed to handle Run Now click (direct):', e);
+                    }
+                });
             });
 
             function addPendingJobRow(archiveId, archiveName) {
@@ -867,8 +890,78 @@
                     window._jobsEventSource = null;
                 }
             }
-                            tableBadge.className = `badge ${cls}`;
+
+            // Handle incoming SSE payloads for the Job Details modal
+            function handleSseEvent(payload) {
+                if (!payload || !payload.type) return;
+
+                // Log lines
+                if (payload.type === 'log') {
+                    const data = payload.data;
+                    if (Array.isArray(data)) {
+                        data.forEach(l => appendLogLine(l));
+                    } else if (typeof data === 'string') {
+                        appendLogLine(data);
+                    } else if (data && data.lines) {
+                        data.lines.forEach(l => appendLogLine(l));
+                    }
+                    return;
+                }
+
+                // Job/status updates
+                if (payload.type === 'job' || payload.type === 'status') {
+                    const j = payload.data || {};
+                    // Merge incoming job fields
+                    try { job = Object.assign({}, job || {}, j); } catch (e) {}
+
+                    // Update status badge
+                    const statusBadge = document.getElementById('job-status-badge');
+                    if (statusBadge) {
+                        const cls = job.status === 'success' ? 'success' : (job.status === 'running' ? 'info' : 'danger');
+                        statusBadge.className = `badge bg-${cls}`;
+                        statusBadge.textContent = job.status;
+                    }
+
+                    // Update timing & size fields
+                    const elStart = document.getElementById('job-start-time');
+                    const elEnd = document.getElementById('job-end-time');
+                    const elDuration = document.getElementById('job-duration');
+                    const elTotal = document.getElementById('job-total-size');
+                    const elReclaimed = document.getElementById('job-reclaimed');
+
+                    if (elStart) elStart.textContent = job.start_time || 'N/A';
+                    if (elEnd) elEnd.textContent = job.end_time || 'N/A';
+                    if (elDuration) elDuration.textContent = (job.duration_seconds !== null && job.duration_seconds !== undefined) ? job.duration_seconds + 's' : 'N/A';
+                    if (elTotal) elTotal.textContent = job.total_size_bytes ? formatBytes(job.total_size_bytes) : 'N/A';
+                    if (elReclaimed) elReclaimed.textContent = job.reclaimed_bytes ? formatBytes(job.reclaimed_bytes) : 'N/A';
+
+                    // Update dashboard row if present
+                    const dashboardRow = document.getElementById(`job-row-${job.id}`);
+                    if (dashboardRow) {
+                        dashboardRow.setAttribute('data-job-status', job.status);
+                        const tableBadge = dashboardRow.querySelector('td:nth-child(2) .badge');
+                        if (tableBadge) {
+                            const cls = job.status === 'success' ? 'success' : (job.status === 'running' ? 'info' : 'danger');
+                            tableBadge.className = `badge bg-${cls}`;
                             tableBadge.textContent = job.status;
+                        }
+
+                        const startEl = document.getElementById(`row-job-start-${job.id}`);
+                        const endEl = document.getElementById(`row-job-end-${job.id}`);
+                        const durEl = document.getElementById(`row-job-duration-${job.id}`);
+                        const sizeEl = document.getElementById(`row-job-size-${job.id}`);
+
+                        if (startEl) startEl.textContent = job.start_time || 'N/A';
+                        if (endEl) endEl.textContent = job.end_time || 'N/A';
+                        if (durEl) durEl.textContent = (job.duration_seconds !== null && job.duration_seconds !== undefined) ? job.duration_seconds + 's' : 'N/A';
+                        if (sizeEl) {
+                            if (job.job_type === 'archive' && job.total_size_bytes) {
+                                sizeEl.innerHTML = `<span class="text-success">+${formatBytes(job.total_size_bytes)}</span>`;
+                            } else if ((job.job_type === 'retention' || job.job_type === 'cleanup') && (job.reclaimed_bytes || job.reclaimed_size_bytes)) {
+                                sizeEl.innerHTML = `<span class="text-warning">-${formatBytes(job.reclaimed_size_bytes || job.reclaimed_bytes)}</span>`;
+                            } else {
+                                sizeEl.innerHTML = `<span class="text-muted">N/A</span>`;
+                            }
                         }
                     }
 
@@ -878,8 +971,12 @@
                         try { updateSseStatus('stopped'); } catch (e) {}
                         if (window._jobLogPoller) { clearTimeout(window._jobLogPoller); window._jobLogPoller = null; }
                     }
-                } else if (payload.type === 'metrics') {
-                    // Replace metrics table
+
+                    return;
+                }
+
+                // Metrics updates
+                if (payload.type === 'metrics') {
                     const tbody = document.getElementById('job-metrics-body');
                     if (tbody && Array.isArray(payload.data)) {
                         tbody.innerHTML = '';
