@@ -934,6 +934,10 @@ def _save_stack_metrics(self, stack_metrics):
 def _update_job_status(self, status, end_time=None, duration=None, total_size=None, error=None):
         """Update job status in database."""
         log_text = '\n'.join(self.log_buffer)
+        # Ensure the persisted log ends with a newline so subsequent incremental
+        # appends do not concatenate with the final lines.
+        if log_text and not log_text.endswith('\n'):
+            log_text = log_text + '\n'
         
         with get_db() as conn:
             cur = conn.cursor()
