@@ -217,3 +217,29 @@ td.format-col {
     white-space: nowrap;
 }
 
+/* Terminal / console styles for job log */
+.console {
+    position: relative;
+    padding-top: 0.75rem;
+    border-radius: 6px;
+    overflow: hidden;
+}
+.console::before {
+    content: '';
+    position: absolute;
+    top: 8px;
+    left: 12px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    box-shadow: 18px 0 0 #f6c6c6, 36px 0 0 #f0d7a6;
+    background: #ef6f6f;
+    opacity: 0.9;
+}
+.console .log-line { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Courier New", monospace; white-space: pre-wrap; }
+.log-highlight { background: rgba(255,255,255,0.06); border-radius: 3px; }
+.level-ERROR { color: #ff6b6b; font-weight: 600; }
+.level-WARNING { color: #ffb86b; font-weight: 600; }
+.level-INFO { color: #7bd389; font-weight: 600; }
+.level-DEBUG { color: #9aa8ff; font-weight: 600; }
+

@@ -108,19 +108,53 @@
             }
         })();
 
+        // LocalStorage helpers for 'follow' feature
+        function getFollowedJobs() {
+            try { return JSON.parse(localStorage.getItem('followedJobs') || '[]'); } catch (e) { return []; }
+        }
+        function setFollowedJobs(list) {
+            try { localStorage.setItem('followedJobs', JSON.stringify(list)); } catch (e) {}
+        }
+        function isJobFollowed(jobId) {
+            return getFollowedJobs().includes(String(jobId));
+        }
+        function setJobFollowed(jobId, value) {
+            const list = getFollowedJobs().filter(x=>x);
+            const s = String(jobId);
+            const exists = list.includes(s);
+            if (value && !exists) list.push(s);
+            if (!value && exists) {
+                const idx = list.indexOf(s); if (idx !== -1) list.splice(idx,1);
+            }
+            setFollowedJobs(list);
+        }
+
         // Global follow toggle for index rows
         function toggleFollow(jobId) {
             const row = document.getElementById(`job-row-${jobId}`);
             if (!row) return;
             const current = row.getAttribute('data-follow') === 'true';
-            row.setAttribute('data-follow', (!current).toString());
+            const newVal = !current;
+            row.setAttribute('data-follow', newVal.toString());
+            // Persist
+            setJobFollowed(jobId, newVal);
             // Update any modal or index follow buttons
-            document.querySelectorAll(`#job-follow-toggle-${jobId}`).forEach(btn => btn.classList.toggle('btn-success', !current));
+            document.querySelectorAll(`#job-follow-toggle-${jobId}`).forEach(btn => btn.classList.toggle('btn-success', newVal));
             // If following and the job is running, open details
-            if (!current && row.getAttribute('data-job-status') === 'running') {
+            if (newVal && row.getAttribute('data-job-status') === 'running') {
                 showJobDetails(jobId);
             }
         }
+
+        // Initialize follow state on page load
+        document.addEventListener('DOMContentLoaded', ()=>{
+            const followed = getFollowedJobs();
+            followed.forEach(id => {
+                const row = document.getElementById(`job-row-${id}`);
+                if (row) row.setAttribute('data-follow','true');
+                document.querySelectorAll(`#job-follow-toggle-${id}`).forEach(btn => btn.classList.add('btn-success'));
+            });
+        });
         
         // Bootstrap 5 native theme toggle
         (function(){
@@ -334,9 +368,10 @@
                     <button id="job-log-clear-${job.id}" class="btn btn-sm btn-outline-danger">Clear</button>
                     <button id="job-log-toggle-linenos-${job.id}" class="btn btn-sm btn-outline-secondary">Line #</button>
                     <button id="job-follow-toggle-${job.id}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-bullseye"></i> Follow</button>
+                    <span id="job-sse-status-${job.id}" class="badge bg-secondary ms-2">Polling</span>
                     <span id="job-paused-indicator-${job.id}" class="paused-indicator" style="display:none;">PAUSED</span>
                 </div>
-                <div id="job-log" class="bg-dark text-light p-3 mb-2 log" style="max-height: 400px; overflow-y: auto;"></div>
+                <div id="job-log" class="bg-dark text-light p-3 mb-2 log console" style="max-height: 400px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Courier New", monospace; border-radius:6px; box-shadow: 0 6px 18px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.04); background: linear-gradient(180deg, #0b0f12 0%, #0f1417 100%);">
             `;
 
             content.innerHTML = html;
@@ -421,6 +456,10 @@
                 try {
                     window._jobEventSource = new EventSource(`/api/jobs/${job.id}/events`);
 
+                    window._jobEventSource.onopen = function() {
+                        try { updateSseStatus('live'); } catch (e) {}
+                    };
+
                     window._jobEventSource.onmessage = function(e) {
                         try {
                             const payload = JSON.parse(e.data);
@@ -435,9 +474,11 @@
                         console.error('SSE error for job', job.id, err);
                         try { window._jobEventSource.close(); } catch (e) {}
                         window._jobEventSource = null;
+                        try { updateSseStatus('polling'); } catch (e) {}
                     };
                 } catch (err) {
                     console.error('Failed to start SSE:', err);
+                    try { updateSseStatus('polling'); } catch (e) {}
                 }
             }
 
@@ -494,6 +535,7 @@
                     // If job finished, stop SSE and any polling
                     if (job.status !== 'running') {
                         stopJobEventSource();
+                        try { updateSseStatus('stopped'); } catch (e) {}
                         if (window._jobLogPoller) { clearTimeout(window._jobLogPoller); window._jobLogPoller = null; }
                     }
                 } else if (payload.type === 'metrics') {
@@ -635,6 +677,9 @@
                     }
                     lastLine = data.last_line || lastLine;
 
+                    // Indicate we're using polling (fallback)
+                    try { updateSseStatus('polling'); } catch (e) {}
+
                     // If API returned job metadata with the tail, update modal and dashboard immediately
                     if (data.job) {
                         job = data.job;
@@ -722,9 +767,34 @@
                 const lineBtn = document.getElementById(`job-log-toggle-linenos-${job.id}`);
                 if (lineBtn) lineBtn.addEventListener('click', toggleLineNumbers);
                 const followBtn = document.getElementById(`job-follow-toggle-${job.id}`);
-                if (followBtn) followBtn.addEventListener('click', ()=> toggleFollow(job.id));
+                if (followBtn) {
+                    // Reflect persisted follow state
+                    try { followBtn.classList.toggle('btn-success', isJobFollowed(job.id)); } catch (e) {}
+                    followBtn.addEventListener('click', ()=> toggleFollow(job.id));
+                }
 
                 // Prefer SSE for live updates if available, fallback to polling
+                // Initial SSE status (default to Polling until SSE opens)
+                function updateSseStatus(state) {
+                    const s = document.getElementById(`job-sse-status-${job.id}`);
+                    if (!s) return;
+                    if (state === 'live') {
+                        s.textContent = 'Live';
+                        s.className = 'badge bg-success ms-2';
+                        s.title = 'Connected via SSE (live updates)';
+                    } else if (state === 'stopped') {
+                        s.textContent = 'Stopped';
+                        s.className = 'badge bg-secondary ms-2';
+                        s.title = 'Stream stopped';
+                    } else {
+                        s.textContent = 'Polling';
+                        s.className = 'badge bg-secondary ms-2';
+                        s.title = 'Using polling fallback';
+                    }
+                }
+
+                updateSseStatus('polling');
+
                 if (typeof(EventSource) !== 'undefined') {
                     startJobEventSource();
                 } else {
