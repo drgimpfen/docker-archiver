@@ -462,6 +462,7 @@ def run_archive(archive_id):
         # Create a job record immediately so the UI can observe it and so the
         # detached subprocess can attach to the precreated job.
         from app import utils as u
+        from app.sse import send_global_event
         with get_db() as conn:
             cur = conn.cursor()
             start_time = u.now()
@@ -472,6 +473,27 @@ def run_archive(archive_id):
             """, (archive_id, start_time))
             job_id = cur.fetchone()['id']
             conn.commit()
+
+            # Publish a lightweight global job event so any connected dashboards
+            # immediately see the new job (avoids needing a manual refresh)
+            try:
+                cur.execute("""
+                    SELECT j.id, j.archive_id, j.job_type, j.status, j.start_time, a.name as archive_name
+                    FROM jobs j
+                    LEFT JOIN archives a ON j.archive_id = a.id
+                    WHERE j.id = %s;
+                """, (job_id,))
+                job_row = cur.fetchone()
+                if job_row:
+                    payload = dict(job_row)
+                    try:
+                        send_global_event('job', payload)
+                    except Exception:
+                        # best-effort; do not fail the API if SSE publish fails
+                        pass
+            except Exception:
+                # ignore any errors when trying to fetch/publish job summary
+                pass
 
         # Start archive job in a detached subprocess and write stdout/stderr to a log
         import sys
