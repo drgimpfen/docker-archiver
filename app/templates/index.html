@@ -510,27 +510,7 @@ document.querySelectorAll('tr[data-job-id]').forEach(function(tr) {
     }
 });
 
-// Fallback: ensure Run Now buttons work even if base scripts failed to initialize
-document.querySelectorAll('.start-archive-btn').forEach(function(b) {
-    b.addEventListener('click', async function(ev) {
-        try {
-            ev.preventDefault();
-            ev.stopPropagation();
-            const archiveId = b.getAttribute('data-archive-id');
-            const resp = await fetch(`/api/archives/${archiveId}/run`, { method: 'POST' });
-            const data = await resp.json();
-            if (data && data.success) {
-                // Rely on SSE to show the new job; display a transient toast instead of optimistic insertion
-                // Rely on SSE to show the new job; do not show modal/popup to avoid duplication.
-            } else {
-                alert('Failed to start archive: ' + (data && data.error ? data.error : 'unknown'));
-            }
-        } catch (e) {
-            console.error('Fallback Run Now failed:', e);
-            alert('Failed to start archive: ' + e);
-        }
-    });
-});
+
 
 // Periodically check for newly started running jobs and start polling if needed
 setInterval(() => {

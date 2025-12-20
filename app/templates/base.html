@@ -841,17 +841,7 @@
                 }
             }
 
-            document.addEventListener('click', function(ev) {
-                try {
-                    const btn = ev.target.closest && ev.target.closest('.start-archive-btn');
-                    if (!btn) return;
-                    ev.preventDefault();
-                    // Call the shared function
-                    runArchiveFromButton(btn);
-                } catch (e) {
-                    console.error('Failed to handle Run Now click (delegated):', e);
-                }
-            });
+
 
             // Also attach direct listeners to existing buttons (covers some edge cases)
             document.querySelectorAll('.start-archive-btn').forEach(function(b) {
