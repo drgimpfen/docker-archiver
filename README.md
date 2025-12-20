@@ -18,7 +18,7 @@
 - 🔄 **GFS Retention** - Grandfather-Father-Son retention policy (keep X days/weeks/months/years)
 - 🧹 **Automatic Cleanup** - Scheduled cleanup of orphaned archives, old logs, and temp files
 - 🎯 **Dry Run Mode** - Test archive operations without making changes
-- 📊 **Job History** - Detailed logs and metrics for all archive/retention runs
+- 📊 **Job History & Live Logs** - Detailed logs and metrics for all archive/retention runs; **Job Details** includes live log tailing (polls `/api/jobs/<id>/log/tail`) so you can follow running jobs in real time.
 - 🔔 **Smart Notifications** - Apprise integration with customizable subject tags and HTML/text format
 - 🌓 **Dark/Light Mode** - Modern Bootstrap UI with theme toggle
 - 🔐 **User Authentication** - Secure login system (role-based access coming soon)
@@ -70,6 +70,16 @@ docker compose up -d
 ```
 
 The application will be available at **http://localhost:8080**
+
+> **Recommended update workflow (pull & restart app service)**
+>
+> On development/test VMs it's convenient to use a compact, robust one-liner that pulls the repo, updates images, rebuilds the `app` service and tails recent logs:
+>
+> ```bash
+> git pull --ff-only && sudo docker compose pull && sudo docker compose up -d --build --no-deps --remove-orphans app && sudo docker compose logs -f --tail=200 app
+> ```
+>
+> **Note:** `--ff-only` prevents accidental merge commits; `--no-deps` + service target (`app`) limits disruption to other services.
 
 > **Note:** Stack directories must be configured in `docker-compose.yml` as volume mounts (see below).
 
@@ -184,6 +194,8 @@ Why this matters:
 - Docker Archiver runs `docker compose` commands inside the container and expects to find the stack's compose files at the same path it discovered. If the host and container paths differ, the app tries to infer the host path from mounts, but this can lead to ambiguities or failures when running `docker compose` (e.g., when the host path is not accessible inside the container).
 - Using identical paths avoids edge cases and ensures that archive and docker-compose commands run from the correct working directory.
 
+**Bind-mount mismatch detection:** The archiver will now detect bind-mount mismatches (host path != container path). When mismatches are detected, the dashboard shows a prominent warning and those mounts may be ignored for discovery; if an archive job resolves to no valid stacks because of ignored mounts, the job will abort early and be marked as failed with a clear log message ("No valid stacks found"). To avoid this, prefer identical host:container bind mounts.
+
 Examples:
 
 - Recommended: `- /opt/stacks:/opt/stacks` (host and container paths match)
@@ -262,6 +274,12 @@ Docker Archiver uses [Apprise](https://github.com/caronc/apprise) for notificati
 6. Test your configuration with the "Send Test Notification" button
 7. Save settings
 
+**Notification options**
+
+- **Report verbosity** — Choose between **Full** (default) and **Short** reports. Full includes the detailed HTML report with tables and (optionally) the full job log; Short sends a concise summary suitable for chat notifications.
+- **Attach full job log** — When enabled, the full job log will be attached as a downloadable `.log` file instead of inlining it in the email. Useful for very large logs or when you prefer attachments.
+- **Attach log on failures only** — If enabled, the log will only be attached when the job had failures (overrides attaching-on-success behavior). These settings are configurable on the Notifications settings page and default to `Full` verbosity with no attachment.
+
 **Option 2: SMTP/Email (Automatic)**
 1. Configure SMTP in `.env` file (see Environment Variables above)
 2. Add email address in **Profile** page
@@ -297,6 +315,7 @@ Authorization: Bearer <your-api-token>
 | `/api/jobs/<id>` | GET | Token/Session | Get job details with stack metrics |
 | `/api/jobs/<id>/download` | POST | Token/Session | Request archive download (generates token) |
 | `/api/jobs/<id>/log` | GET | Token/Session | Download job log file |
+| `/api/jobs/<id>/log/tail` | GET | Token/Session | Return incremental log lines for a job (query params: `last_line`, optional `stack`), supports live in-memory buffer and DB fallback for multi-worker setups |
 | **Stacks** |
 | `/api/stacks` | GET | Token/Session | List discovered Docker Compose stacks |
 | **Downloads** |
@@ -434,16 +453,6 @@ Docker-Archiver/
 - **download_tokens** - Temporary download tokens (24h expiry)
 - **settings** - Application settings (key-value)
 
-## Roadmap
-
-- [ ] Role-based access control (Admin/User/View-only)
-- [ ] Email reports (scheduled summaries)
-- [ ] Archive encryption
-- [ ] Remote storage (S3, SFTP, etc.)
-- [ ] Archive verification/testing
-- [ ] Multi-language support
-- [ ] REST API with token authentication
-- [ ] Webhook triggers
 
 ## License
 
