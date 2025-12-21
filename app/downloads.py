@@ -222,16 +222,31 @@ def startup_rescan_downloads():
                     candidate = Path(row['archive_path'])
                     if candidate.exists():
                         # If it's a file, copy it into DOWNLOADS_PATH
-                        try:
-                            new_name = f"{utils.local_now().strftime('%Y%m%d_%H%M%S')}_download_{utils.filename_safe(candidate.name)}{candidate.suffix}"
-                            dest = DOWNLOADS_PATH / new_name
-                            shutil.copy2(str(candidate), str(dest))
-                            cur.execute("UPDATE download_tokens SET archive_path = %s WHERE token = %s;", (str(dest), token))
-                            conn.commit()
-                            print(f"[Downloads] Restored download for token {token} from job metric: {dest}")
-                            continue
-                        except Exception as e:
-                            print(f"[Downloads] Failed to restore file for token {token} from {candidate}: {e}")
+                        if candidate.is_file():
+                            try:
+                                new_name = f"{utils.local_now().strftime('%Y%m%d_%H%M%S')}_download_{utils.filename_safe(candidate.name)}{candidate.suffix}"
+                                dest = DOWNLOADS_PATH / new_name
+                                shutil.copy2(str(candidate), str(dest))
+                                cur.execute("UPDATE download_tokens SET archive_path = %s WHERE token = %s;", (str(dest), token))
+                                conn.commit()
+                                print(f"[Downloads] Restored download for token {token} from job metric: {dest}")
+                                continue
+                            except Exception as e:
+                                print(f"[Downloads] Failed to restore file for token {token} from {candidate}: {e}")
+
+                        # If it's a directory, create an archive for download
+                        if candidate.is_dir():
+                            try:
+                                print(f"[Downloads] Found directory for token {token}, creating archive...")
+                                # Prefer compressed zstd archives for downloads when creating from folders
+                                new_path, should_cleanup = prepare_archive_for_download(str(candidate), output_format='tar.zst')
+                                if new_path:
+                                    cur.execute("UPDATE download_tokens SET archive_path = %s, is_folder = false WHERE token = %s;", (str(new_path), token))
+                                    conn.commit()
+                                    print(f"[Downloads] Created archive {new_path} for token {token} from directory {candidate}")
+                                    continue
+                            except Exception as e:
+                                print(f"[Downloads] Failed to create archive for token {token} from directory {candidate}: {e}")
 
             # Could not regenerate; optionally mark token as invalid by expiring it
             try:
