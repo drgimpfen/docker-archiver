@@ -86,11 +86,16 @@
     <main class="app-main mt-4">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
+                {% set _seen = namespace(vals=[]) %}
                 {% for category, message in messages %}
-                    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    </div>
+                    {% set key = category ~ '::' ~ message %}
+                    {% if key not in _seen.vals %}
+                        <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                        {% do _seen.vals.append(key) %}
+                    {% endif %}
                 {% endfor %}
             {% endif %}
         {% endwith %}
@@ -217,6 +222,18 @@
     <script>
     // Global Jobs SSE disabled — dashboard relies on polling now.
 
+    // Format ISO 8601 / Z timestamps into a user-friendly local datetime string
+    function formatDateTime(isoStr){
+        if(!isoStr) return 'N/A';
+        try{
+            const d = new Date(isoStr);
+            if (isNaN(d.getTime())) return isoStr;
+            return `${d.toLocaleString()} <small class="text-muted">(${d.toISOString().replace('T',' ').replace('Z',' UTC')})</small>`;
+        } catch (e){
+            return isoStr;
+        }
+    }
+
     // Shared job details modal function
     async function showJobDetails(jobId) {
         try {
@@ -293,8 +310,8 @@
                     <div class="col-md-6">
                         <h6>Timing & Size</h6>
                         <table class="table table-sm">
-                            <tr><th width="150">Start Time:</th><td id="job-start-time">${job.start_time || 'N/A'}</td></tr>
-                            <tr><th>End Time:</th><td id="job-end-time">${job.end_time || 'N/A'}</td></tr>
+                            <tr><th width="150">Start Time:</th><td id="job-start-time" data-start="${job.start_time || ''}">${job.start_time ? formatDateTime(job.start_time) : 'N/A'}</td></tr>
+                            <tr><th>End Time:</th><td id="job-end-time" data-end="${job.end_time || ''}">${job.end_time ? formatDateTime(job.end_time) : 'N/A'}</td></tr>
                             <tr><th>Duration:</th><td id="job-duration">${job.duration_seconds !== null && job.duration_seconds !== undefined ? job.duration_seconds + 's' : 'N/A'}</td></tr>
                             <tr><th>Total Size:</th><td id="job-total-size">${job.total_size_bytes ? formatBytes(job.total_size_bytes) : 'N/A'}</td></tr>
                             <tr><th>Reclaimed:</th><td id="job-reclaimed">${job.reclaimed_bytes ? formatBytes(job.reclaimed_bytes) : 'N/A'}</td></tr>
