@@ -322,6 +322,25 @@
     </div>
 </div>
 
+<!-- Confirm Delete Modal -->
+<div class="modal fade" id="confirmDeleteModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Confirm Delete</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p id="confirmDeleteMessage">Are you sure?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" id="confirmDeleteBtn" class="btn btn-danger" onclick="performDelete()">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Edit Archive Modal -->
 <div class="modal fade" id="editArchiveModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
@@ -771,24 +790,61 @@ function setEditCron(cron) {
     document.getElementById('editScheduleCron').value = cron;
 }
 
-function deleteArchive(archiveId, archiveName) {
-    if (confirm(`Delete archive "${archiveName}"? This will also delete all associated job history.`)) {
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = `/archives/${archiveId}/delete`;
-        
-        // Add CSRF token
-        const csrfToken = document.querySelector('meta[name="csrf-token"]');
-        if (csrfToken) {
-            const csrfInput = document.createElement('input');
-            csrfInput.type = 'hidden';
-            csrfInput.name = 'csrf_token';
-            csrfInput.value = csrfToken.content;
-            form.appendChild(csrfInput);
+// Open confirm modal for deletion (removed browser confirm)
+function openDeleteModal(archiveId, archiveName){
+    window._pendingDelete = {id: archiveId, name: archiveName};
+    const msg = document.getElementById('confirmDeleteMessage');
+    if (msg) msg.textContent = `Delete archive "${archiveName}"? This will also delete all associated job history.`;
+    const modalEl = document.getElementById('confirmDeleteModal');
+    if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal){
+        new bootstrap.Modal(modalEl).show();
+    }
+}
+
+async function performDelete(){
+    if (!window._pendingDelete) return;
+    const {id} = window._pendingDelete;
+    const url = `/archives/${id}/delete`;
+    try {
+        const resp = await fetch(url, {method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}});
+        if (!resp.ok) {
+            let err = 'Failed to delete archive';
+            try { const data = await resp.json(); if (data && data.message) err = data.message; } catch(e){}
+            showAlert(err, 'danger');
+            return;
         }
-        
-        document.body.appendChild(form);
-        form.submit();
+        const data = await resp.json();
+        if (data && data.status === 'success'){
+            const wrapper = document.getElementById(`archive-card-${data.archive_id}`);
+            if (wrapper){
+                wrapper.classList.add('fade-out');
+                setTimeout(()=>{ wrapper.remove(); }, 300);
+            }
+            // Update archives-data
+            try{
+                const adEl = document.getElementById('archives-data');
+                if (adEl){
+                    const arr = JSON.parse(adEl.dataset.archives || '[]');
+                    const idx = arr.findIndex(a => a.id === data.archive_id);
+                    if (idx >= 0) arr.splice(idx,1);
+                    adEl.dataset.archives = JSON.stringify(arr);
+                    if (typeof archivesData !== 'undefined'){
+                        const idx2 = archivesData.findIndex(a => a.id === data.archive_id);
+                        if (idx2 >= 0) archivesData.splice(idx2,1);
+                    }
+                }
+            }catch(e){}
+
+            try { const modalEl = document.getElementById('confirmDeleteModal'); const m = bootstrap.Modal.getInstance(modalEl); if (m) m.hide(); } catch(e){}
+            showAlert('Archive deleted', 'success');
+            window._pendingDelete = null;
+        } else {
+            let err = (data && data.message) ? data.message : 'Failed to delete archive';
+            showAlert(err, 'danger');
+        }
+    } catch (err){
+        console.error('Delete failed', err);
+        showAlert('Delete failed', 'danger');
     }
 }
 

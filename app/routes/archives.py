@@ -371,10 +371,15 @@ def delete(archive_id):
         
         reload_schedules()
         
+        if _is_ajax_request():
+            return jsonify({'status': 'success', 'archive_id': archive_id}), 200
+
         flash('Archive deleted successfully!', 'success')
         return redirect(url_for('dashboard.index'))
         
     except Exception as e:
+        if _is_ajax_request():
+            return jsonify({'status': 'error', 'message': str(e)}), 500
         flash(f'Error deleting archive: {e}', 'danger')
         return redirect(url_for('dashboard.index'))
 

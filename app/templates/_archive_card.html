@@ -92,12 +92,9 @@
                         <button type="button" class="btn btn-outline-primary btn-sm" title="Edit Archive" onclick="editArchive({{ archive.id }})">
                             <i class="bi bi-pencil"></i>
                         </button>
-                        <form method="POST" action="{{ url_for('archives.delete', archive_id=archive.id) }}" onsubmit="return confirm('Delete archive? This will also delete all associated job history.');" style="display:inline;">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                            <button type="submit" class="btn btn-outline-danger btn-sm" title="Delete Archive">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </form>
+                        <button type="button" class="btn btn-outline-danger btn-sm" title="Delete Archive" onclick="openDeleteModal({{ archive.id }}, {{ archive.name|tojson }})">
+                            <i class="bi bi-trash"></i>
+                        </button>
                     </div>
                 </div>
             </div>
