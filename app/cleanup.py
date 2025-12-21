@@ -300,15 +300,23 @@ def cleanup_temp_files(is_dry_run=False, log_callback=None):
                     reference_info = f" (DB lookup failed: {e})"
 
                 # Determine display path to include archive name when available
+                rel = str(stack_dir.relative_to(archive_base))
                 if archive_label:
-                    display_path = f"{archive_label}/{stack_dir.relative_to(archive_base)}"
+                    # Avoid duplicating the archive name if it's already present at the start
+                    if rel.startswith(f"{archive_label}/") or rel == archive_label:
+                        display_path = rel
+                    else:
+                        display_path = f"{archive_label}/{rel}"
                 else:
                     # Fallback: infer archive name from path (parent directory)
                     try:
                         inferred = stack_dir.parent.name
-                        display_path = f"{inferred}/{stack_dir.relative_to(archive_base)}"
+                        if rel.startswith(f"{inferred}/") or rel == inferred:
+                            display_path = rel
+                        else:
+                            display_path = f"{inferred}/{rel}"
                     except Exception:
-                        display_path = f"{stack_dir.relative_to(archive_base)}"
+                        display_path = rel
 
                 if is_dry_run:
                     log(f"Would delete empty stack directory: {display_path}{reference_info}")
