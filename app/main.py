@@ -145,10 +145,13 @@ def run_startup_discovery():
                 if verbose and ignored:
                     logger.info("Ignoring stacks under destinations: %s", ignored)
             except Exception as e:
-                if verbose:
+                    if verbose:
                         logger.debug("Could not detect bind mismatches: %s", e)
+        except Exception as e:
             if verbose:
                 logger.exception("Startup mount/stack detection failed: %s", e)
+            else:
+                logger.debug("Startup mount/stack detection failed: %s", e)
         finally:
             # Start asynchronous cleanup of stale 'running' jobs to avoid UI confusion.
             try:

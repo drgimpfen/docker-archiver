@@ -222,58 +222,6 @@ def init_db():
             END $$;
         """)
         
-        # Migrate naive TIMESTAMP columns to TIMESTAMPTZ (preserve value as UTC)
-        import os
-        if os.environ.get('MIGRATE_TIMESTAMPTZ', '').lower() in ('1','true','yes'):
-            logger.info('[DB] MIGRATE_TIMESTAMPTZ enabled: applying TIMESTAMP -> TIMESTAMPTZ migrations (this may take a while)')
-            # Perform migration per-column with explicit debug output so progress can be tracked.
-            import time
-            cols_to_migrate = [
-                ('users', 'created_at'), ('users', 'updated_at'), ('users', 'last_login'),
-                ('archives', 'created_at'), ('archives', 'updated_at'),
-                ('jobs', 'start_time'), ('jobs', 'end_time'),
-                ('job_stack_metrics', 'start_time'), ('job_stack_metrics', 'end_time'), ('job_stack_metrics', 'deleted_at'),
-                ('download_tokens', 'created_at'), ('download_tokens', 'expires_at'),
-                ('api_tokens', 'created_at'), ('api_tokens', 'expires_at'), ('api_tokens', 'last_used_at'),
-                ('settings', 'updated_at')
-            ]
-
-            migrated = []
-            skipped = []
-            failed = []
-
-            for table, col in cols_to_migrate:
-                try:
-                    cur.execute("SELECT data_type FROM information_schema.columns WHERE table_name = %s AND column_name = %s;", (table, col))
-                    row = cur.fetchone()
-                    if not row:
-                        logger.debug("[DB MIGRATE] Skipping %s.%s: column not found", table, col)
-                        skipped.append((table, col, 'not found'))
-                        continue
-                    if row.get('data_type') != 'timestamp without time zone':
-                        logger.debug("[DB MIGRATE] Skipping %s.%s: already %s", table, col, row.get('data_type'))
-                        skipped.append((table, col, row.get('data_type')))
-                        continue
-
-                    logger.info("[DB MIGRATE] Altering %s.%s -> timestamptz (interpreting existing values as UTC)...", table, col)
-                    start_t = time.time()
-                    try:
-                        cur.execute(f"ALTER TABLE {table} ALTER COLUMN {col} TYPE timestamptz USING {col} AT TIME ZONE 'UTC';")
-                        conn.commit()
-                        duration = time.time() - start_t
-                        logger.info("[DB MIGRATE] Success: %s.%s altered (took %.2fs)", table, col, duration)
-                        migrated.append((table, col))
-                    except Exception as e:
-                        conn.rollback()
-                        logger.exception("[DB MIGRATE] FAILED to alter %s.%s: %s", table, col, e)
-                        failed.append((table, col, str(e)))
-                except Exception as e:
-                    logger.exception("[DB MIGRATE] Error checking %s.%s: %s", table, col, e)
-                    failed.append((table, col, str(e)))
-
-            logger.info("[DB MIGRATE] Complete. Migrated: %d; Skipped: %d; Failed: %d", len(migrated), len(skipped), len(failed))
-        else:
-            logger.info('[DB] MIGRATE_TIMESTAMPTZ not enabled; skipping timestamptz migration. Set MIGRATE_TIMESTAMPTZ=true to enable.')
 
         # Ensure download_tokens has an is_preparing column for in-progress generation
         cur.execute("""
