@@ -60,7 +60,10 @@
                     <h6 class="card-subtitle text-muted mb-0">Archive Storage</h6>
                     <i class="bi bi-hdd-fill fs-4 text-{{ disk_status }}"></i>
                 </div>
-                <h3 class="mb-2" id="total-archives-size">{{ format_bytes(total_archives_size) }}</h3>
+                <h3 class="mb-2" id="total-archives-size"><span title="Net = sum of archived sizes minus reclaimed bytes (from job reports)">{{ format_bytes(total_archives_size) }}</span></h3>
+                {% if on_disk_archives_size is not none %}
+                <div><small class="text-muted">On-disk: {{ format_bytes(on_disk_archives_size) }}</small></div>
+                {% endif %}
                 <div class="progress mb-2" style="height: 10px;">
                     <div class="progress-bar bg-{{ disk_status }}" 
                          role="progressbar" 
@@ -158,7 +161,7 @@
                                             <i class="bi bi-stack me-1"></i>{{ archive.stacks|length }} stack(s)
                                         </small>
                                         <small class="text-muted d-block">
-                                            <i class="bi bi-hdd me-1"></i>{{ format_bytes(archive.total_size) }}
+                                            <i class="bi bi-hdd me-1"></i><span title="Net = archived - reclaimed (job reports)">{{ format_bytes(archive.total_size) }}</span>
                                         </small>
                                     </div>
 

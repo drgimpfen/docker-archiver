@@ -498,7 +498,7 @@ def run_archive(archive_id):
 
         return jsonify({
             'success': True,
-            'message': f"Archive '{archive['name']}' started (detached)",
+            'message': f"Archive '{archive['name']}' started",
             'archive_id': archive_id,
             'job_id': job_id,
             'log_path': log_path
@@ -549,7 +549,7 @@ def dry_run_archive(archive_id):
 
         return jsonify({
             'success': True,
-            'message': f"Dry run for '{archive['name']}' started (detached)",
+            'message': f"Dry run for '{archive['name']}' started",
             'archive_id': archive_id,
             'dry_run_config': dry_run_config,
             'log_path': log_path

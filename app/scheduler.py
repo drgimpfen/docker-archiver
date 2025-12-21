@@ -179,7 +179,7 @@ def run_scheduled_archive(archive_config):
         cmd = [sys.executable, '-m', 'app.run_job', '--archive-id', str(archive_config['id'])]
         with open(log_path, 'ab') as fh:
             subprocess.Popen(cmd, stdout=fh, stderr=fh, start_new_session=True)
-        print(f"[Scheduler] Enqueued scheduled archive {archive_config['name']} (detached)")
+        print(f"[Scheduler] Enqueued scheduled archive {archive_config['name']}")
     except Exception as e:
         print(f"[Scheduler] Archive failed: {e}")
         from app.notifications import send_error_notification

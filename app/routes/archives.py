@@ -400,9 +400,9 @@ def run(archive_id):
         try:
             with open(log_path, 'ab') as fh:
                 subprocess.Popen(cmd, stdout=fh, stderr=fh, start_new_session=True)
-            flash(f'Archive job for "{archive["name"]}" started (detached)', 'info')
+            flash(f'Archive job for "{archive["name"]}" started', 'info')
         except Exception as e:
-            flash(f'Failed to start detached job: {e}', 'danger')
+            flash(f'Failed to start job: {e}', 'danger')
         return redirect(url_for('index'))
         
     except Exception as e:
@@ -448,9 +448,9 @@ def dry_run(archive_id):
         try:
             with open(log_path, 'ab') as fh:
                 subprocess.Popen(cmd, stdout=fh, stderr=fh, start_new_session=True)
-            flash(f'Dry run for "{archive["name"]}" started (detached)', 'info')
+            flash(f'Dry run for "{archive["name"]}" started', 'info')
         except Exception as e:
-            flash(f'Failed to start detached dry run: {e}', 'danger')
+            flash(f'Failed to start dry run: {e}', 'danger')
 
         return redirect(url_for('index'))
         

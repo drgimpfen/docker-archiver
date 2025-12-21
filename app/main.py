@@ -264,13 +264,33 @@ def index():
                 if next_run and (not next_scheduled or next_run < next_scheduled):
                     next_scheduled = next_run
         
-        # Total archives size
+        # Total archives size (net = archived bytes - reclaimed bytes)
         cur.execute("""
-            SELECT SUM(total_size_bytes) as total FROM jobs 
-            WHERE job_type = 'archive' AND status = 'success';
+            SELECT
+                COALESCE(SUM(CASE WHEN job_type = 'archive' THEN total_size_bytes ELSE 0 END),0) as total_archived,
+                COALESCE(SUM(reclaimed_bytes),0) as total_reclaimed
+            FROM jobs
+            WHERE status = 'success';
         """)
         result = cur.fetchone()
-        total_archives_size = result['total'] if result and result['total'] else 0
+        total_archives_size = (result['total_archived'] - result['total_reclaimed']) if result else 0
+
+        # Optionally calculate on-disk size (toggle with environment variable SHOW_ONDISK_ARCHIVE_SIZE)
+        on_disk_archives_size = None
+        try:
+            if os.environ.get('SHOW_ONDISK_ARCHIVE_SIZE') == '1':
+                archives_path = os.environ.get('ARCHIVES_PATH', '/archives')
+                total = 0
+                for root, dirs, files in os.walk(archives_path):
+                    for f in files:
+                        try:
+                            fp = os.path.join(root, f)
+                            total += os.path.getsize(fp)
+                        except Exception:
+                            pass
+                on_disk_archives_size = total
+        except Exception:
+            on_disk_archives_size = None
         
         # Enrich archives with stats
         archive_list = []
@@ -300,13 +320,16 @@ def index():
             else:
                 archive_dict['next_run'] = None
             
-            # Get total size
+            # Get total archived size and reclaimed size for this archive (net = archived - reclaimed)
             cur.execute("""
-                SELECT SUM(total_size_bytes) as total FROM jobs 
-                WHERE archive_id = %s AND job_type = 'archive' AND status = 'success';
+                SELECT
+                    COALESCE(SUM(CASE WHEN job_type = 'archive' THEN total_size_bytes ELSE 0 END), 0) AS total_archived,
+                    COALESCE(SUM(reclaimed_bytes), 0) AS total_reclaimed
+                FROM jobs
+                WHERE archive_id = %s AND status = 'success';
             """, (archive['id'],))
             result = cur.fetchone()
-            archive_dict['total_size'] = result['total'] if result and result['total'] else 0
+            archive_dict['total_size'] = (result['total_archived'] - result['total_reclaimed']) if result else 0
             
             archive_list.append(archive_dict)
         
@@ -338,6 +361,7 @@ def index():
         disk=disk,
         disk_status=disk_status,
         total_archives_size=total_archives_size,
+        on_disk_archives_size=on_disk_archives_size,  # may be None if not calculated
         total_archives_configured=total_archives_configured,
         active_schedules=active_schedules,
         jobs_last_24h=jobs_last_24h,
