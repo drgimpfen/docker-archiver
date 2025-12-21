@@ -120,7 +120,7 @@ def run_cleanup(dry_run_override=None):
         
         # Send notification if enabled
         if notify_cleanup:
-            send_cleanup_notification(orphaned_stats, log_stats, temp_stats, uf_stats, total_reclaimed, is_dry_run)
+            send_cleanup_notification(orphaned_stats, log_stats, temp_stats, uf_stats, total_reclaimed, is_dry_run, job_id=job_id)
             
     except Exception as e:
         log_message('ERROR', f"Cleanup failed: {str(e)}")
@@ -544,8 +544,8 @@ def cleanup_unreferenced_files(is_dry_run=False, log_callback=None):
 
     deleted_count = 0
     reclaimed = 0
-    candidate_count = 0
-    potential_reclaimed = 0
+    unreferenced_count = 0
+    potential_unreferenced_reclaimed = 0
 
     # Iterate archive dirs that are known in DB
     with get_db() as conn:
@@ -559,8 +559,8 @@ def cleanup_unreferenced_files(is_dry_run=False, log_callback=None):
         if archive_dir.name not in db_archives:
             continue
 
-        # Collect candidates for this archive dir
-        candidates = []
+        # Collect unreferenced files for this archive dir
+        unreferenced_files = []
         for entry in archive_dir.iterdir():
             try:
                 if entry.is_file():
@@ -571,21 +571,21 @@ def cleanup_unreferenced_files(is_dry_run=False, log_callback=None):
                         r = cur.fetchone()
                         if not r:
                             size = entry.stat().st_size if entry.exists() else 0
-                            candidates.append({'archive': archive_dir.name, 'path': entry, 'size': size})
-                            candidate_count += 1
-                            potential_reclaimed += size
+                            unreferenced_files.append({'archive': archive_dir.name, 'path': entry, 'size': size})
+                            unreferenced_count += 1
+                            potential_unreferenced_reclaimed += size
             except Exception as e:
                 log(f"Error inspecting {entry}: {e}")
 
-        # Report or delete candidates for this archive dir
+        # Report or delete unreferenced files for this archive dir
         if is_dry_run:
-            if candidates:
-                log(f"Unreferenced files in {archive_dir.name}: {len(candidates)}")
-                for u in candidates:
-                    log(f"Unreferenced file: {u['archive']}/{u['path'].name} (no DB reference)")
+            if unreferenced_files:
+                log(f"Unreferenced files in {archive_dir.name}: {len(unreferenced_files)}")
+                for uf in unreferenced_files:
+                    log(f"Unreferenced file: {uf['archive']}/{uf['path'].name} (no DB reference)")
         else:
-            for u in candidates:
-                path = u['path']
+            for uf in unreferenced_files:
+                path = uf['path']
                 try:
                     # Re-check DB before deleting
                     with get_db() as conn:
@@ -594,37 +594,37 @@ def cleanup_unreferenced_files(is_dry_run=False, log_callback=None):
                         r = cur.fetchone()
                         if not r:
                             try:
-                                size = u['size']
+                                size = uf['size']
                                 path.unlink()
                                 deleted_count += 1
                                 reclaimed += size
-                                log(f"Deleted unreferenced file: {u['archive']}/{path.name} ({format_bytes(size)})")
+                                log(f"Deleted unreferenced file: {uf['archive']}/{path.name} ({format_bytes(size)})")
                             except Exception as de:
                                 log(f"Failed to delete unreferenced file {path}: {de}")
                         else:
-                            log(f"Skipping deletion, file now referenced: {u['archive']}/{path.name}")
+                            log(f"Skipping deletion, file now referenced: {uf['archive']}/{path.name}")
                 except Exception as dbe:
                     log(f"DB check failed before deleting {path}: {dbe}")
 
     # Per-check summary
-    if candidate_count == 0:
+    if unreferenced_count == 0:
         log("No unreferenced files found")
     else:
         if is_dry_run:
-            log(f"Found {candidate_count} unreferenced file(s), {format_bytes(potential_reclaimed)} to reclaim")
+            log(f"Found {unreferenced_count} unreferenced file(s), {format_bytes(potential_unreferenced_reclaimed)} to reclaim")
         else:
-            log(f"Found {deleted_count} unreferenced file(s) deleted, {format_bytes(reclaimed)} reclaimed (candidates: {candidate_count})")
+            log(f"Found {deleted_count} unreferenced file(s) deleted, {format_bytes(reclaimed)} reclaimed (candidates: {unreferenced_count})")
 
     # Return aggregated stats
-    return {'count': candidate_count, 'deleted': deleted_count if not is_dry_run else 0, 'reclaimed': (reclaimed if not is_dry_run else potential_reclaimed)}
+    return {'count': unreferenced_count, 'deleted': deleted_count if not is_dry_run else 0, 'reclaimed': (reclaimed if not is_dry_run else potential_unreferenced_reclaimed)}
 
 
 # remove generate_cleanup_report and CLI usage - report not needed per config
 
 
 
-def send_cleanup_notification(orphaned_stats, log_stats, temp_stats, uf_stats, total_reclaimed, is_dry_run):
-    """Send notification about cleanup results."""
+def send_cleanup_notification(orphaned_stats, log_stats, temp_stats, uf_stats, total_reclaimed, is_dry_run, job_id=None):
+    """Send notification about cleanup results. Includes job log when available."""
     try:
         # Create Apprise instance using shared logic so SMTP env vars are honoured
         from app.notifications import get_apprise_instance, get_setting, get_subject_with_tag
@@ -636,7 +636,7 @@ def send_cleanup_notification(orphaned_stats, log_stats, temp_stats, uf_stats, t
         if not apobj:
             print("[Cleanup] No apprise URLs or SMTP configured; skipping notification")
             return
-        
+
         import apprise
         mode = "🧪 DRY RUN" if is_dry_run else "✅"
         
@@ -665,6 +665,27 @@ def send_cleanup_notification(orphaned_stats, log_stats, temp_stats, uf_stats, t
 <hr>
 <p><small>Docker Archiver: <a href="{base_url}">{base_url}</a></small></p>"""
         
+        # Append full job log if available
+        job_log = ''
+        if job_id:
+            try:
+                with get_db() as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT log FROM jobs WHERE id = %s;", (job_id,))
+                    row = cur.fetchone()
+                    job_log = row.get('log') if row else ''
+            except Exception:
+                job_log = ''
+
+        if job_log:
+            try:
+                import html
+                escaped = html.escape(job_log)
+                body += "\n<h3>Full Cleanup Log</h3>\n<pre style='white-space:pre-wrap;background:#f8f8f8;padding:8px;border-radius:4px;'>" + escaped + "</pre>\n"
+            except Exception:
+                # Fallback: attach as plain text
+                body += "\n\nFull Cleanup Log:\n" + job_log
+
         # Get format preference from notifications module
         from app.notifications import get_notification_format, strip_html_tags
         body_format = get_notification_format()
