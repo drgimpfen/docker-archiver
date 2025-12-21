@@ -73,13 +73,23 @@ def _enrich_archive(cur, archive):
                 prev_run_utc = prev_run.astimezone(timezone.utc)
             except Exception:
                 prev_run_utc = prev_run
-            if prev_run_utc < now_utc:
+            # Do not mark as overdue if the missed run is within a short grace window
+            try:
+                from datetime import timedelta
+                grace_seconds = int(os.environ.get('SCHEDULE_MISFIRE_GRACE', '300'))
+            except Exception:
+                from datetime import timedelta
+                grace_seconds = 300
+
+            if prev_run_utc + timedelta(seconds=grace_seconds) < now_utc:
                 if not last_run_utc or last_run_utc < prev_run_utc:
                     is_overdue = True
 
         archive_dict['is_overdue'] = is_overdue
         archive_dict['next_run'] = next_run
-        archive_dict['next_run_display'] = prev_run if is_overdue else next_run
+        # Always display the upcoming next run; track the missed run separately when overdue
+        archive_dict['missed_run'] = prev_run if is_overdue else None
+        archive_dict['next_run_display'] = next_run
     else:
         archive_dict['next_run'] = None
         archive_dict['next_run_display'] = None
@@ -222,6 +232,8 @@ def create():
             archive_resp['last_run'] = to_iso_z(archive_resp.get('last_run'))
             archive_resp['next_run'] = to_iso_z(archive_resp.get('next_run'))
             archive_resp['next_run_display'] = to_iso_z(archive_resp.get('next_run_display'))
+            archive_resp['missed_run'] = to_iso_z(archive_resp.get('missed_run'))
+            archive_resp['is_overdue'] = bool(archive_resp.get('is_overdue'))
             return jsonify({'status': 'success', 'html': wrapped, 'archive_id': archive_id, 'archive': archive_resp})
 
         flash(f'Archive "{name}" created successfully!', 'success')
@@ -343,6 +355,8 @@ def edit(archive_id):
             archive_resp['last_run'] = to_iso_z(archive_resp.get('last_run'))
             archive_resp['next_run'] = to_iso_z(archive_resp.get('next_run'))
             archive_resp['next_run_display'] = to_iso_z(archive_resp.get('next_run_display'))
+            archive_resp['missed_run'] = to_iso_z(archive_resp.get('missed_run'))
+            archive_resp['is_overdue'] = bool(archive_resp.get('is_overdue'))
             return jsonify({'status': 'success', 'html': wrapped, 'archive_id': archive_id, 'archive': archive_resp})
 
         flash(f'Archive "{archive_name}" updated successfully!', 'success')

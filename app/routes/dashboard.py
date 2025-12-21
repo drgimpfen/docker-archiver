@@ -136,7 +136,9 @@ def index():
                 # Display previous run time when overdue, otherwise show next run
                 archive_dict['is_overdue'] = is_overdue
                 archive_dict['next_run'] = next_run
-                archive_dict['next_run_display'] = prev_run if is_overdue else next_run
+                # Keep a record of the missed run when overdue, but always display the upcoming next run
+                archive_dict['missed_run'] = prev_run if is_overdue else None
+                archive_dict['next_run_display'] = next_run
             else:
                 archive_dict['next_run'] = None
                 archive_dict['next_run_display'] = None
@@ -167,27 +169,17 @@ def index():
         """)
         recent_jobs = cur.fetchall()
 
-    # Determine overall next scheduled (prefer overdue occurrences if any)
+    # Determine overall next scheduled (pick the earliest upcoming next_run)
     next_dt = None
-    next_dt_overdue = False
     for a in archive_list:
-        dt = a.get('next_run_display')
+        dt = a.get('next_run')
         if not dt:
             continue
-        if a.get('is_overdue'):
-            if not next_dt or not next_dt_overdue or dt < next_dt:
-                next_dt = dt
-                next_dt_overdue = True
-        else:
-            if not next_dt:
-                next_dt = dt
-                next_dt_overdue = False
-            elif not next_dt_overdue and dt < next_dt:
-                next_dt = dt
-                next_dt_overdue = False
+        if not next_dt or dt < next_dt:
+            next_dt = dt
 
     if next_dt:
-        next_scheduled = {'time': next_dt, 'overdue': next_dt_overdue}
+        next_scheduled = {'time': next_dt, 'overdue': False}
     else:
         next_scheduled = None
 

@@ -53,10 +53,15 @@
 
             <div class="mb-2 next-run">
                 <small class="text-muted">Next run:</small><br>
-                {% if archive.next_run_display %}
-                <small data-next-run="{{ archive.next_run_display|iso_z }}">
-                    {{ archive.next_run_display|datetime('%Y-%m-%d %H:%M') }}
-                    <span class="text-info">(<span class="time-until">{% if archive.is_overdue %}overdue{% endif %}</span>)</span>
+                {% if archive.next_run %}
+                <small data-next-run="{{ archive.next_run|iso_z }}">
+                    {{ archive.next_run|datetime('%Y-%m-%d %H:%M') }}
+                    <span class="text-info">(<span class="time-until"></span>)</span>
+                    {% if archive.is_overdue and archive.missed_run %}
+                        <span class="text-danger"> (missed {{ archive.missed_run|datetime('%Y-%m-%d %H:%M') }})</span>
+                    {% elif archive.is_overdue %}
+                        <span class="text-danger"> (overdue)</span>
+                    {% endif %}
                 </small>
                 {% else %}
                 <small class="text-muted" aria-hidden="true">&nbsp;</small>
