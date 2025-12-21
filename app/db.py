@@ -219,73 +219,52 @@ def init_db():
         import os
         if os.environ.get('MIGRATE_TIMESTAMPTZ', '').lower() in ('1','true','yes'):
             print('[DB] MIGRATE_TIMESTAMPTZ enabled: applying TIMESTAMP -> TIMESTAMPTZ migrations (this may take a while)')
-            cur.execute("""
-                DO $$
-                BEGIN
-                    -- Users
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='created_at' AND data_type='timestamp without time zone') THEN
-                        EXECUTE 'ALTER TABLE users ALTER COLUMN created_at TYPE timestamptz USING created_at AT TIME ZONE ''UTC''';
-                    END IF;
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='updated_at' AND data_type='timestamp without time zone') THEN
-                        EXECUTE 'ALTER TABLE users ALTER COLUMN updated_at TYPE timestamptz USING updated_at AT TIME ZONE ''UTC''';
-                    END IF;
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='last_login' AND data_type='timestamp without time zone') THEN
-                        EXECUTE 'ALTER TABLE users ALTER COLUMN last_login TYPE timestamptz USING last_login AT TIME ZONE ''UTC''';
-                    END IF;
+            # Perform migration per-column with explicit debug output so progress can be tracked.
+            import time
+            cols_to_migrate = [
+                ('users', 'created_at'), ('users', 'updated_at'), ('users', 'last_login'),
+                ('archives', 'created_at'), ('archives', 'updated_at'),
+                ('jobs', 'start_time'), ('jobs', 'end_time'),
+                ('job_stack_metrics', 'start_time'), ('job_stack_metrics', 'end_time'), ('job_stack_metrics', 'deleted_at'),
+                ('download_tokens', 'created_at'), ('download_tokens', 'expires_at'),
+                ('api_tokens', 'created_at'), ('api_tokens', 'expires_at'), ('api_tokens', 'last_used_at'),
+                ('settings', 'updated_at')
+            ]
 
-                    -- Archives
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='archives' AND column_name='created_at' AND data_type='timestamp without time zone') THEN
-                        EXECUTE 'ALTER TABLE archives ALTER COLUMN created_at TYPE timestamptz USING created_at AT TIME ZONE ''UTC''';
-                    END IF;
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='archives' AND column_name='updated_at' AND data_type='timestamp without time zone') THEN
-                        EXECUTE 'ALTER TABLE archives ALTER COLUMN updated_at TYPE timestamptz USING updated_at AT TIME ZONE ''UTC''';
-                    END IF;
+            migrated = []
+            skipped = []
+            failed = []
 
-                    -- Jobs
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='jobs' AND column_name='start_time' AND data_type='timestamp without time zone') THEN
-                        EXECUTE 'ALTER TABLE jobs ALTER COLUMN start_time TYPE timestamptz USING start_time AT TIME ZONE ''UTC''';
-                    END IF;
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='jobs' AND column_name='end_time' AND data_type='timestamp without time zone') THEN
-                        EXECUTE 'ALTER TABLE jobs ALTER COLUMN end_time TYPE timestamptz USING end_time AT TIME ZONE ''UTC''';
-                    END IF;
+            for table, col in cols_to_migrate:
+                try:
+                    cur.execute("SELECT data_type FROM information_schema.columns WHERE table_name = %s AND column_name = %s;", (table, col))
+                    row = cur.fetchone()
+                    if not row:
+                        print(f"[DB MIGRATE] Skipping {table}.{col}: column not found")
+                        skipped.append((table, col, 'not found'))
+                        continue
+                    if row.get('data_type') != 'timestamp without time zone':
+                        print(f"[DB MIGRATE] Skipping {table}.{col}: already {row.get('data_type')}")
+                        skipped.append((table, col, row.get('data_type')))
+                        continue
 
-                    -- job_stack_metrics
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='job_stack_metrics' AND column_name='start_time' AND data_type='timestamp without time zone') THEN
-                        EXECUTE 'ALTER TABLE job_stack_metrics ALTER COLUMN start_time TYPE timestamptz USING start_time AT TIME ZONE ''UTC''';
-                    END IF;
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='job_stack_metrics' AND column_name='end_time' AND data_type='timestamp without time zone') THEN
-                        EXECUTE 'ALTER TABLE job_stack_metrics ALTER COLUMN end_time TYPE timestamptz USING end_time AT TIME ZONE ''UTC''';
-                    END IF;
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='job_stack_metrics' AND column_name='deleted_at' AND data_type='timestamp without time zone') THEN
-                        EXECUTE 'ALTER TABLE job_stack_metrics ALTER COLUMN deleted_at TYPE timestamptz USING deleted_at AT TIME ZONE ''UTC''';
-                    END IF;
+                    print(f"[DB MIGRATE] Altering {table}.{col} -> timestamptz (interpreting existing values as UTC)...")
+                    start_t = time.time()
+                    try:
+                        cur.execute(f"ALTER TABLE {table} ALTER COLUMN {col} TYPE timestamptz USING {col} AT TIME ZONE 'UTC';")
+                        conn.commit()
+                        duration = time.time() - start_t
+                        print(f"[DB MIGRATE] Success: {table}.{col} altered (took {duration:.2f}s)")
+                        migrated.append((table, col))
+                    except Exception as e:
+                        conn.rollback()
+                        print(f"[DB MIGRATE] FAILED to alter {table}.{col}: {e}")
+                        failed.append((table, col, str(e)))
+                except Exception as e:
+                    print(f"[DB MIGRATE] Error checking {table}.{col}: {e}")
+                    failed.append((table, col, str(e)))
 
-                    -- download_tokens
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='download_tokens' AND column_name='created_at' AND data_type='timestamp without time zone') THEN
-                        EXECUTE 'ALTER TABLE download_tokens ALTER COLUMN created_at TYPE timestamptz USING created_at AT TIME ZONE ''UTC''';
-                    END IF;
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='download_tokens' AND column_name='expires_at' AND data_type='timestamp without time zone') THEN
-                        EXECUTE 'ALTER TABLE download_tokens ALTER COLUMN expires_at TYPE timestamptz USING expires_at AT TIME ZONE ''UTC''';
-                    END IF;
-
-                    -- api_tokens
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='api_tokens' AND column_name='created_at' AND data_type='timestamp without time zone') THEN
-                        EXECUTE 'ALTER TABLE api_tokens ALTER COLUMN created_at TYPE timestamptz USING created_at AT TIME ZONE ''UTC''';
-                    END IF;
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='api_tokens' AND column_name='expires_at' AND data_type='timestamp without time zone') THEN
-                        EXECUTE 'ALTER TABLE api_tokens ALTER COLUMN expires_at TYPE timestamptz USING expires_at AT TIME ZONE ''UTC''';
-                    END IF;
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='api_tokens' AND column_name='last_used_at' AND data_type='timestamp without time zone') THEN
-                        EXECUTE 'ALTER TABLE api_tokens ALTER COLUMN last_used_at TYPE timestamptz USING last_used_at AT TIME ZONE ''UTC''';
-                    END IF;
-
-                    -- settings
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='settings' AND column_name='updated_at' AND data_type='timestamp without time zone') THEN
-                        EXECUTE 'ALTER TABLE settings ALTER COLUMN updated_at TYPE timestamptz USING updated_at AT TIME ZONE ''UTC''';
-                    END IF;
-
-                END $$;
-            """)
+            print(f"[DB MIGRATE] Complete. Migrated: {len(migrated)}; Skipped: {len(skipped)}; Failed: {len(failed)}")
         else:
             print('[DB] MIGRATE_TIMESTAMPTZ not enabled; skipping timestamptz migration. Set MIGRATE_TIMESTAMPTZ=true to enable.')
 
