@@ -160,14 +160,17 @@ async function requestDownload(jobId, stackName, archivePath) {
         
         if (data.success) {
             if (data.is_folder) {
-                // Show notification that archive is being prepared
-                alert(data.message);
+                // Show a modal informing the user that archive preparation has started
+                const modalEl = document.getElementById('downloadPrepModal');
+                const msgEl = document.getElementById('downloadPrepMessage');
+                if (msgEl) msgEl.textContent = data.message || 'The archive is being prepared; you will receive a notification when it is ready.';
+                try { if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) new bootstrap.Modal(modalEl).show(); else alert(data.message); } catch(e){ alert(data.message); }
             } else {
                 // Open download link
                 window.open(data.download_url, '_blank');
             }
         } else {
-            alert('Error: ' + (data.error || 'Unknown error'));
+            try { showAlert('Error: ' + (data.error || 'Unknown error'), 'danger'); } catch(e){ alert('Error: ' + (data.error || 'Unknown error')); }
         }
     } catch (error) {
         alert('Error requesting download: ' + error.message);

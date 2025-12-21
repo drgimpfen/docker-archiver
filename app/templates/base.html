@@ -218,6 +218,24 @@
             </div>
         </div>
     </div>
+
+    <!-- Download Preparation Modal (used when a requested archive is being prepared) -->
+    <div class="modal fade" id="downloadPrepModal" tabindex="-1">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Download preparation</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p id="downloadPrepMessage">The archive is being prepared; you will receive a notification when it's ready.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
     
     <script>
     // Global Jobs SSE disabled — dashboard relies on polling now.
@@ -1244,12 +1262,16 @@
             
             if (data.success) {
                 if (data.is_folder) {
-                    alert(data.message);
+                    // Show a modal informing the user that archive preparation has started
+                    const modalEl = document.getElementById('downloadPrepModal');
+                    const msgEl = document.getElementById('downloadPrepMessage');
+                    if (msgEl) msgEl.textContent = data.message || 'The archive is being prepared; you will receive a notification when it is ready.';
+                    try { if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) new bootstrap.Modal(modalEl).show(); else alert(data.message); } catch(e){ alert(data.message); }
                 } else {
                     window.open(data.download_url, '_blank');
                 }
             } else {
-                alert('Error: ' + (data.error || 'Unknown error'));
+                try { showAlert('Error: ' + (data.error || 'Unknown error'), 'danger'); } catch(e){ alert('Error: ' + (data.error || 'Unknown error')); }
             }
         } catch (error) {
             alert('Error requesting download: ' + error.message);

@@ -116,8 +116,30 @@ def request_download(job_id):
         stack_name = data.get('stack_name')
         archive_path = data.get('archive_path')
         
-        if not archive_path or not os.path.exists(archive_path):
+        # Allow archive_path to be absolute or relative to ARCHIVES_PATH; normalize and check both
+        candidate_paths = []
+        if archive_path:
+            candidate_paths.append(archive_path)
+            # If archive_path looks relative or doesn't exist, try under ARCHIVES_PATH
+            archives_root = os.environ.get('ARCHIVES_PATH', '/archives')
+            candidate_paths.append(os.path.join(archives_root, archive_path.lstrip('/')))
+            # Also try realpath of each
+            candidate_paths = [os.path.realpath(p) for p in candidate_paths]
+
+        found_path = None
+        for p in candidate_paths:
+            try:
+                if p and os.path.exists(p):
+                    found_path = p
+                    break
+            except Exception:
+                continue
+
+        if not archive_path or not found_path:
             return jsonify({'error': 'Archive not found'}), 404
+
+        # Use the resolved absolute path
+        archive_path = found_path
         
         # Check if it's a folder - if yes, we need to create an archive
         is_folder = os.path.isdir(archive_path)
@@ -149,7 +171,7 @@ def request_download(job_id):
             })
         else:
             # File is ready, return download link
-            base_url = _get_base_url()
+            base_url = _get_base_url().rstrip('/')
             download_url = f"{base_url}/download/{token}"
             return jsonify({
                 'success': True,
@@ -419,7 +441,7 @@ def _prepare_folder_download(token, folder_path, stack_name, user_email):
                 mailto_url = f"mailtos://{smtp_user}:{smtp_password}@{smtp_server}:{smtp_port}/?from={smtp_from}&to={user_email}"
                 apobj.add(mailto_url)
                 
-                base_url = _get_base_url()
+                base_url = _get_base_url().rstrip('/')
                 download_url = f"{base_url}/download/{token}"
                 
                 apobj.notify(
