@@ -5,6 +5,11 @@ import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
+from app.utils import setup_logging, get_logger
+
+# Configure logging using centralized setup so LOG_LEVEL is respected
+setup_logging()
+logger = get_logger(__name__)
 
 
 def get_db_url():
@@ -220,7 +225,7 @@ def init_db():
         # Migrate naive TIMESTAMP columns to TIMESTAMPTZ (preserve value as UTC)
         import os
         if os.environ.get('MIGRATE_TIMESTAMPTZ', '').lower() in ('1','true','yes'):
-            print('[DB] MIGRATE_TIMESTAMPTZ enabled: applying TIMESTAMP -> TIMESTAMPTZ migrations (this may take a while)')
+            logger.info('[DB] MIGRATE_TIMESTAMPTZ enabled: applying TIMESTAMP -> TIMESTAMPTZ migrations (this may take a while)')
             # Perform migration per-column with explicit debug output so progress can be tracked.
             import time
             cols_to_migrate = [
@@ -242,33 +247,33 @@ def init_db():
                     cur.execute("SELECT data_type FROM information_schema.columns WHERE table_name = %s AND column_name = %s;", (table, col))
                     row = cur.fetchone()
                     if not row:
-                        print(f"[DB MIGRATE] Skipping {table}.{col}: column not found")
+                        logger.debug("[DB MIGRATE] Skipping %s.%s: column not found", table, col)
                         skipped.append((table, col, 'not found'))
                         continue
                     if row.get('data_type') != 'timestamp without time zone':
-                        print(f"[DB MIGRATE] Skipping {table}.{col}: already {row.get('data_type')}")
+                        logger.debug("[DB MIGRATE] Skipping %s.%s: already %s", table, col, row.get('data_type'))
                         skipped.append((table, col, row.get('data_type')))
                         continue
 
-                    print(f"[DB MIGRATE] Altering {table}.{col} -> timestamptz (interpreting existing values as UTC)...")
+                    logger.info("[DB MIGRATE] Altering %s.%s -> timestamptz (interpreting existing values as UTC)...", table, col)
                     start_t = time.time()
                     try:
                         cur.execute(f"ALTER TABLE {table} ALTER COLUMN {col} TYPE timestamptz USING {col} AT TIME ZONE 'UTC';")
                         conn.commit()
                         duration = time.time() - start_t
-                        print(f"[DB MIGRATE] Success: {table}.{col} altered (took {duration:.2f}s)")
+                        logger.info("[DB MIGRATE] Success: %s.%s altered (took %.2fs)", table, col, duration)
                         migrated.append((table, col))
                     except Exception as e:
                         conn.rollback()
-                        print(f"[DB MIGRATE] FAILED to alter {table}.{col}: {e}")
+                        logger.exception("[DB MIGRATE] FAILED to alter %s.%s: %s", table, col, e)
                         failed.append((table, col, str(e)))
                 except Exception as e:
-                    print(f"[DB MIGRATE] Error checking {table}.{col}: {e}")
+                    logger.exception("[DB MIGRATE] Error checking %s.%s: %s", table, col, e)
                     failed.append((table, col, str(e)))
 
-            print(f"[DB MIGRATE] Complete. Migrated: {len(migrated)}; Skipped: {len(skipped)}; Failed: {len(failed)}")
+            logger.info("[DB MIGRATE] Complete. Migrated: %d; Skipped: %d; Failed: %d", len(migrated), len(skipped), len(failed))
         else:
-            print('[DB] MIGRATE_TIMESTAMPTZ not enabled; skipping timestamptz migration. Set MIGRATE_TIMESTAMPTZ=true to enable.')
+            logger.info('[DB] MIGRATE_TIMESTAMPTZ not enabled; skipping timestamptz migration. Set MIGRATE_TIMESTAMPTZ=true to enable.')
 
         # Ensure download_tokens has an is_preparing column for in-progress generation
         cur.execute("""
@@ -316,7 +321,7 @@ def init_db():
             pass
         
         conn.commit()
-        print("[DB] Database schema initialized successfully")
+        logger.info("[DB] Database schema initialized successfully")
 
 
 def is_archive_running(archive_id):
@@ -377,7 +382,7 @@ def mark_stale_running_jobs(threshold_minutes=None):
                 conn.commit()
                 return count
     except Exception as e:
-        print(f"[DB] Failed to mark stale running jobs: {e}")
+        logger.exception("[DB] Failed to mark stale running jobs: %s", e)
         return 0
 
 

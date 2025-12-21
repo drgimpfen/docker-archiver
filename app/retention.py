@@ -6,6 +6,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from collections import defaultdict
 from app import utils
+from app.utils import setup_logging, get_logger
+
+# Configure logging using centralized setup so LOG_LEVEL is respected
+setup_logging()
+logger = get_logger(__name__)
 
 
 ARCHIVE_BASE = '/archives'
@@ -28,7 +33,12 @@ def run_retention(archive_config, job_id, is_dry_run=False, log_callback=None):
         if log_callback:
             log_callback(level, msg)
         else:
-            print(f"[{level}] {msg}")
+            if level == 'ERROR':
+                logger.error("%s", msg)
+            elif level == 'WARNING':
+                logger.warning("%s", msg)
+            else:
+                logger.info("%s", msg)
     
     archive_name = archive_config['name']
     keep_days = archive_config.get('retention_keep_days', 7)
@@ -158,6 +168,7 @@ def run_retention(archive_config, job_id, is_dry_run=False, log_callback=None):
                     _mark_archive_as_deleted(str(path), 'retention')
                 except Exception as e:
                     log('ERROR', f"Failed to delete {path.name}: {e}")
+                    logger.exception("[Retention] Failed to delete %s: %s", path.name, e)
             else:
                 total_reclaimed += size
                 total_deleted += 1
@@ -299,4 +310,4 @@ def _mark_archive_as_deleted(archive_path, deleted_by='retention'):
             """, (deleted_by, archive_path))
             conn.commit()
     except Exception as e:
-        print(f"[Retention] Failed to mark archive as deleted in DB: {e}")
+        logger.exception("[Retention] Failed to mark archive as deleted in DB: %s", e)

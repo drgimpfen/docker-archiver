@@ -339,7 +339,7 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                     finally:
                         tf.close()
         except Exception as e:
-            print(f"[WARNING] Failed to prepare log attachment: {e}")
+            logger.exception("Failed to prepare log attachment: %s", e)
 
         # Send notification (with optional attachment)
         try:
@@ -366,7 +366,7 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                 pass
         
     except Exception as e:
-        print(f"[WARNING] Failed to send notification: {e}")
+        logger.exception("Failed to send notification: %s", e)
 
 
 def send_retention_notification(archive_name, deleted_count, reclaimed_bytes):
@@ -413,7 +413,7 @@ def send_retention_notification(archive_name, deleted_count, reclaimed_bytes):
         )
         
     except Exception as e:
-        print(f"[WARNING] Failed to send notification: {e}")
+        logger.exception("Failed to send notification: %s", e)
 
 
 def send_error_notification(archive_name, error_message):
@@ -455,7 +455,7 @@ def send_error_notification(archive_name, error_message):
         )
         
     except Exception as e:
-        print(f"[WARNING] Failed to send notification: {e}")
+        logger.exception("Failed to send notification: %s", e)
 
 
 def send_test_notification():

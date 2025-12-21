@@ -5,6 +5,31 @@ import os
 import shutil
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import logging
+
+# Central logging helpers
+def setup_logging():
+    """Configure root logger from environment LOG_LEVEL.
+
+    Intended to be called early during application startup (e.g., from main.py).
+    Uses LOG_LEVEL env var (e.g., DEBUG, INFO, WARNING, ERROR); defaults to INFO.
+    """
+    level_name = os.environ.get('LOG_LEVEL', 'INFO').upper()
+    try:
+        level = getattr(logging, level_name)
+    except Exception:
+        level = logging.INFO
+    # Only configure basicConfig if no handlers are present so tests or other
+    # environments can configure logging differently
+    if not logging.getLogger().handlers:
+        logging.basicConfig(level=level, format='[%(levelname)s] %(asctime)s %(name)s: %(message)s')
+    logging.getLogger().setLevel(level)
+
+
+def get_logger(name=None):
+    """Return a logger for the given name (or the module logger if none)."""
+    return logging.getLogger(name if name else __name__)
+
 
 
 def now():

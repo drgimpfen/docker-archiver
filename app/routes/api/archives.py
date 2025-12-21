@@ -15,9 +15,15 @@ from app.scheduler import reload_schedules, get_next_run_time, publish_reload_si
 from app.utils import format_bytes, format_duration, get_disk_usage, to_iso_z
 from app import utils
 from app.notifications import get_setting
+from app.utils import setup_logging, get_logger
 
+# Configure logging using centralized setup so LOG_LEVEL is respected
+setup_logging()
 
 bp = Blueprint('archives', __name__, url_prefix='/api/archives')
+
+# Module logger
+logger = get_logger(__name__)
 
 
 def _is_ajax_request():
@@ -207,7 +213,7 @@ def create():
             archive_id = cur.fetchone()['id']
             conn.commit()
             try:
-                print(f"[Scheduler DEBUG] Saved archive id={archive_id} schedule_enabled={schedule_enabled} schedule_cron='{schedule_cron}'")
+                logger.debug("[Scheduler DEBUG] Saved archive id=%s schedule_enabled=%s schedule_cron='%s'", archive_id, schedule_enabled, schedule_cron)
             except Exception:
                 pass
         
@@ -331,7 +337,7 @@ def edit(archive_id):
             ))
             conn.commit()
             try:
-                print(f"[Scheduler DEBUG] Updated archive id={archive_id} schedule_enabled={schedule_enabled} schedule_cron='{schedule_cron}'")
+                logger.debug("[Scheduler DEBUG] Updated archive id=%s schedule_enabled=%s schedule_cron='%s'", archive_id, schedule_enabled, schedule_cron)
             except Exception:
                 pass
         
@@ -417,7 +423,7 @@ def run_retention_only(archive_id):
         
         # Run retention in background
         def run_retention_job():
-            print(f"[INFO] Retention thread started for archive_id={archive_id}")
+            logger.info("Retention thread started for archive_id=%s", archive_id)
             try:
                 from app.retention import run_retention
                 from app.db import get_db
@@ -435,9 +441,7 @@ def run_retention_only(archive_id):
                     job_id = cur.fetchone()['id']
                     conn.commit()
             except Exception as e:
-                print(f"[ERROR] Failed to create retention job record: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.exception("Failed to create retention job record: %s", e)
                 return
             
             # Log function
@@ -479,10 +483,7 @@ def run_retention_only(archive_id):
                 send_retention_notification(archive['name'], 0, reclaimed)  # deleted_count not tracked
                 
             except Exception as e:
-                print(f"[ERROR] Manual retention run failed: {e}")
-                import traceback
-                traceback.print_exc()
-                
+                logger.exception("Manual retention run failed: %s", e)
                 log_message('ERROR', f"Retention failed: {str(e)}")
                 
                 with get_db() as conn:
@@ -496,19 +497,17 @@ def run_retention_only(archive_id):
                     """, (end_time, str(e), job_id))
                     conn.commit()
             
-        print(f"[INFO] Creating retention thread for archive: {archive_dict['name']}")
+        logger.info("Creating retention thread for archive: %s", archive_dict['name'])
         thread = threading.Thread(target=run_retention_job)
         thread.daemon = True
         thread.start()
-        print(f"[INFO] Retention thread started: {thread.is_alive()}")
+        logger.info("Retention thread started: %s", thread.is_alive())
         
         flash(f'Retention cleanup started for "{archive_dict["name"]}"', 'success')
         return redirect(url_for('dashboard.index'))
         
     except Exception as e:
-        print(f"[ERROR] Failed to start retention route: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception("Failed to start retention route: %s", e)
         flash(f'Failed to start retention: {str(e)}', 'danger')
         return redirect(url_for('dashboard.index'))
 

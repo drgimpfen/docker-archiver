@@ -8,6 +8,11 @@ from datetime import datetime, timedelta
 from app.db import get_db
 from app.notifications import get_setting
 from app import utils
+from app.utils import setup_logging, get_logger
+
+# Configure logging using centralized setup so LOG_LEVEL is respected
+setup_logging()
+logger = get_logger(__name__)
 
 
 ARCHIVE_BASE = '/archives'
@@ -25,7 +30,7 @@ def run_cleanup(dry_run_override=None, job_id=None):
     # Check if cleanup is enabled
     enabled = get_setting('cleanup_enabled', 'true').lower() == 'true'
     if not enabled:
-        print("[Cleanup] Cleanup task is disabled in settings")
+        logger.info("[Cleanup] Cleanup task is disabled in settings")
         return
     
     is_dry_run = get_setting('cleanup_dry_run', 'false').lower() == 'true'
@@ -46,7 +51,12 @@ def run_cleanup(dry_run_override=None, job_id=None):
         timestamp = utils.local_now().strftime('%Y-%m-%d %H:%M:%S')
         log_line = f"[{timestamp}] [{level}] {message}\n"
         log_lines.append(log_line)
-        print(f"[Cleanup] {message}")
+        if level == 'ERROR':
+            logger.error("[Cleanup] %s", message)
+        elif level == 'WARNING':
+            logger.warning("[Cleanup] %s", message)
+        else:
+            logger.info("[Cleanup] %s", message)
     
     if not job_id:
         try:
@@ -60,7 +70,7 @@ def run_cleanup(dry_run_override=None, job_id=None):
                 job_id = cur.fetchone()['id']
                 conn.commit()
         except Exception as e:
-            print(f"[Cleanup] Failed to create job record: {e}")
+            logger.exception("[Cleanup] Failed to create job record: %s", e)
             # Continue anyway
     
     log_message('INFO', f"Starting cleanup task ({mode})")
@@ -147,7 +157,7 @@ def cleanup_orphaned_archives(is_dry_run=False, log_callback=None):
         if log_callback:
             log_callback('INFO', message)
         else:
-            print(f"[Cleanup] {message}")
+            logger.info("[Cleanup] %s", message)
     
     log("Checking for orphaned archive directories...")
     
@@ -210,7 +220,7 @@ def cleanup_old_logs(retention_days, is_dry_run=False, log_callback=None):
         if log_callback:
             log_callback('INFO', message)
         else:
-            print(f"[Cleanup] {message}")
+            logger.info("[Cleanup] %s", message)
     
     if retention_days <= 0:
         log("Log retention disabled (retention_days <= 0)")
@@ -258,7 +268,7 @@ def cleanup_unreferenced_dirs(is_dry_run=False, log_callback=None):
         if log_callback:
             log_callback('INFO', message)
         else:
-            print(f"[Cleanup] {message}")
+            logger.info("[Cleanup] %s", message)
     
     log("Checking for unreferenced directories...")
     
@@ -496,7 +506,7 @@ def get_directory_size(path):
             if entry.is_file():
                 total += entry.stat().st_size
     except Exception as e:
-        print(f"[Cleanup] Error calculating size for {path}: {e}")
+        logger.exception("[Cleanup] Error calculating size for %s: %s", path, e)
     return total
 
 
@@ -521,7 +531,7 @@ def _mark_archives_as_deleted_by_path(path_prefix, deleted_by='cleanup'):
             """, (deleted_by, f"{path_prefix}%"))
             conn.commit()
     except Exception as e:
-        print(f"[Cleanup] Failed to mark archives as deleted in DB: {e}")
+        logger.exception("[Cleanup] Failed to mark archives as deleted in DB: %s", e)
 
 
 def cleanup_unreferenced_files(is_dry_run=False, log_callback=None):
@@ -533,7 +543,7 @@ def cleanup_unreferenced_files(is_dry_run=False, log_callback=None):
         if log_callback:
             log_callback('INFO', message)
         else:
-            print(f"[Cleanup] {message}")
+            logger.info("[Cleanup] %s", message)
 
     archive_base = Path(ARCHIVE_BASE)
     if not archive_base.exists():
@@ -630,11 +640,11 @@ def send_cleanup_notification(orphaned_stats, log_stats, temp_stats, uf_stats, t
         from app.notifications import get_apprise_instance, get_setting, get_subject_with_tag
 
         # Debug log to assist with dry-run notification troubleshooting
-        print(f"[Cleanup] Sending cleanup notification ({'DRY RUN' if is_dry_run else 'LIVE'})")
+        logger.info("[Cleanup] Sending cleanup notification (%s)", 'DRY RUN' if is_dry_run else 'LIVE')
 
         apobj = get_apprise_instance()
         if not apobj:
-            print("[Cleanup] No apprise URLs or SMTP configured; skipping notification")
+            logger.info("[Cleanup] No apprise URLs or SMTP configured; skipping notification")
             return
 
         import apprise
@@ -701,7 +711,7 @@ def send_cleanup_notification(orphaned_stats, log_stats, temp_stats, uf_stats, t
         )
         
     except Exception as e:
-        print(f"[Cleanup] Failed to send notification: {e}")
+        logger.exception("[Cleanup] Failed to send notification: %s", e)
 
 
 if __name__ == '__main__':
@@ -718,5 +728,5 @@ if __name__ == '__main__':
         run_cleanup(dry_run_override=(True if args.dry_run else False))
     else:
         # No generate report functionality; run cleanup with --run-cleanup
-        print('No report available. Use --run-cleanup to perform a cleanup (add --dry-run for a dry-run).')
+        logger.info('No report available. Use --run-cleanup to perform a cleanup (add --dry-run for a dry-run).')
 

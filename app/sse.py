@@ -13,6 +13,12 @@ import json
 import threading
 import queue
 import os
+import logging
+from app.utils import setup_logging, get_logger
+
+# Configure logging using centralized setup so LOG_LEVEL is respected
+setup_logging()
+logger = get_logger(__name__)
 
 _listeners = defaultdict(list)  # job_id -> list of Queue
 _lock = threading.Lock()
@@ -24,7 +30,7 @@ _redis_global = None  # {'thread': Thread, 'stop': Event}
 _use_redis = False
 
 REDIS_URL = os.environ.get('REDIS_URL')
-JOB_EVENTS_DEBUG = os.environ.get('JOB_EVENTS_DEBUG')
+# Verbose SSE job event debug will be gated by logger.isEnabledFor(logging.DEBUG)
 
 if REDIS_URL:
     try:
@@ -42,8 +48,8 @@ if REDIS_URL:
         _redis_client = None
         _use_redis = False
 
-if JOB_EVENTS_DEBUG:
-    print(f"[SSE] REDIS_URL={'set' if REDIS_URL else 'not-set'}, _use_redis={_use_redis}")
+if logger.isEnabledFor(logging.DEBUG):
+    logger.info("[SSE] REDIS_URL=%s, _use_redis=%s", 'set' if REDIS_URL else 'not-set', _use_redis)
 
 # If Redis not available initially, start a background connector that will
 # attempt to reconnect periodically. This allows late-start Redis or network
@@ -61,12 +67,12 @@ if not _use_redis and REDIS_URL:
                     global _redis_client, _use_redis
                     _redis_client = client
                     _use_redis = True
-                    if JOB_EVENTS_DEBUG:
-                        print(f"[SSE] Redis connected on retry")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.info("[SSE] Redis connected on retry")
                     return
                 except Exception:
-                    if JOB_EVENTS_DEBUG:
-                        print(f"[SSE] Redis not available yet, retrying in 5s")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.info("[SSE] Redis not available yet, retrying in 5s")
                     time.sleep(5)
         except Exception:
             pass
@@ -202,21 +208,17 @@ def send_global_event(event_type, payload):
         try:
             _redis_client.publish('jobs-events', data)
             try:
-                if JOB_EVENTS_DEBUG:
-                    print(f"[SSE] Global event PUBLISHED to Redis: {data}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("[SSE] Global event PUBLISHED to Redis: %s", data)
             except Exception:
                 pass
         except Exception as e:
-            if JOB_EVENTS_DEBUG:
-                print(f"[SSE] Failed to publish global event to Redis: {e}")
-            pass
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.exception("[SSE] Failed to publish global event to Redis: %s", e)
+        pass
     else:
-        if JOB_EVENTS_DEBUG:
-            print("[SSE] Global events are disabled (no Redis configured)")
-
-
-def get_status():
-    """Return useful debug information about SSE internal state (for diagnostics)."""
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.info("[SSE] Global events are disabled (no Redis configured)")
     try:
         status = {
             'use_redis': bool(_use_redis),

@@ -16,6 +16,11 @@ from pathlib import Path
 from app.db import get_db
 from app.executor import ArchiveExecutor
 from app import utils
+from app.utils import setup_logging, get_logger
+
+# Configure logging using centralized setup so LOG_LEVEL is respected
+setup_logging()
+logger = get_logger(__name__)
 
 
 def parse_args(argv):
@@ -41,7 +46,7 @@ def main(argv=None):
         archive = cur.fetchone()
 
     if not archive:
-        print(f"Archive id={args.archive_id} not found", file=sys.stderr)
+        logger.error("Archive id=%s not found", args.archive_id)
         sys.exit(2)
 
     # Build dry run config if requested
@@ -106,12 +111,13 @@ def main(argv=None):
                 with contextlib.redirect_stdout(fh), contextlib.redirect_stderr(fh):
                     executor.run(triggered_by='subprocess', job_id=args.job_id)
     except Exception as e:
-        # Ensure exceptions are visible in the log
+        # Ensure exceptions are visible in the job log and app logs
         try:
             with open(log_path, 'a', encoding='utf-8', errors='replace') as fh:
                 fh.write((str(e) + '\n'))
         except Exception:
             pass
+        logger.exception("Job run for archive id=%s failed", args.archive_id)
         raise
 
 

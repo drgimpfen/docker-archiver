@@ -12,6 +12,11 @@ from app.db import get_db
 from app import utils
 from app.stacks import validate_stack, find_compose_file
 from app import utils
+from app.utils import setup_logging, get_logger
+
+# Configure logging using centralized setup so LOG_LEVEL is respected
+setup_logging()
+logger = get_logger(__name__)
 # SSE/event utilities (best-effort import; if missing, provide no-op)
 try:
     from app.sse import send_event
@@ -341,8 +346,8 @@ class ArchiveExecutor:
         log_line = f"[{timestamp}] [{level}] {prefix}{message}"
         # Append to in-memory buffer
         self.log_buffer.append(log_line)
-        # Ensure immediate flush so redirected stdout/stderr files are written promptly
-        print(log_line, flush=True)
+        # Emit to logger (and let logging handlers decide where to write)
+        logger.info(log_line)
 
         # Emit SSE event for live listeners (best-effort)
         try:
@@ -492,7 +497,7 @@ def _create_job_record_impl(self, start_time, triggered_by):
             try:
                 import os
                 if os.environ.get('JOB_EVENTS_DEBUG'):
-                    print(f"[SSE] Global event SENT (job create) id={job_id} archive_id={self.config['id']} start_time={start_time}")
+                    logger.info("[SSE] Global event SENT (job create) id=%s archive_id=%s start_time=%s", job_id, self.config['id'], start_time)
             except Exception:
                 pass
         except Exception:
@@ -1027,7 +1032,7 @@ def _update_job_status(self, status, end_time=None, duration=None, total_size=No
                 try:
                     import os
                     if os.environ.get('JOB_EVENTS_DEBUG'):
-                        print(f"[SSE] Global event SENT (job status) id={self.job_id} status={status} end_time={end_time} duration={duration} total_size={total_size}")
+                        logger.info("[SSE] Global event SENT (job status) id=%s status=%s end_time=%s duration=%s total_size=%s", self.job_id, status, end_time, duration, total_size)
                 except Exception:
                     pass
             except Exception:

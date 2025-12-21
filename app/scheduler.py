@@ -9,7 +9,12 @@ from app.notifications import get_setting
 import os
 import time
 import threading
+from app.utils import setup_logging, get_logger
 
+# Configure logging using centralized setup so LOG_LEVEL is respected
+setup_logging()
+# Logger for scheduler module
+logger = get_logger(__name__)
 
 scheduler = None
 
@@ -88,7 +93,7 @@ def init_scheduler():
         created = True
 
     if not created:
-        print("[Scheduler] Initialization skipped (scheduler already started by another process)")
+        logger.info("[Scheduler] Initialization skipped (scheduler already started by another process)")
         return None
 
     from app.utils import get_display_timezone
@@ -102,7 +107,7 @@ def init_scheduler():
     try:
         reload_schedules()
     except Exception as e:
-        print(f"[Scheduler] Could not load schedules during init (database might not be ready yet): {e}")
+        logger.exception("[Scheduler] Could not load schedules during init (database might not be ready yet): %s", e)
 
     # Add cleanup job for expired download tokens (runs daily)
     from app.downloads import cleanup_expired_tokens
@@ -122,9 +127,9 @@ def init_scheduler():
     try:
         start_redis_listener()
     except Exception as e:
-        print(f"[Scheduler] Redis listener failed to start: {e}")
+        logger.exception("[Scheduler] Redis listener failed to start: %s", e)
 
-    print("[Scheduler] Initialized and started")
+    logger.info("[Scheduler] Initialized and started")
     return scheduler
 
 
@@ -141,14 +146,14 @@ def schedule_cleanup_task():
         # Remove job if it exists
         if scheduler.get_job('cleanup_task'):
             scheduler.remove_job('cleanup_task')
-            print("[Scheduler] Scheduled cleanup task disabled")
+            logger.info("[Scheduler] Scheduled cleanup task disabled")
         return
 
     # Get cleanup cron from settings (format: minute hour day month day_of_week)
     cleanup_cron = get_setting('cleanup_cron', '30 2 * * *')
     cron_parts = cleanup_cron.split()
     if len(cron_parts) != 5:
-        print(f"[Scheduler] Invalid cleanup_cron '{cleanup_cron}', using default '30 2 * * *'")
+        logger.warning("[Scheduler] Invalid cleanup_cron '%s', using default '30 2 * * *'", cleanup_cron)
         cron_parts = ['30', '2', '*', '*', '*']
 
     from app.cleanup import run_cleanup
@@ -170,9 +175,9 @@ def schedule_cleanup_task():
             id='cleanup_task',
             replace_existing=True
         )
-        print(f"[Scheduler] Scheduled cleanup task with cron: {cleanup_cron}")
+        logger.info("[Scheduler] Scheduled cleanup task with cron: %s", cleanup_cron)
     except Exception as e:
-        print(f"[Scheduler] Failed to schedule cleanup task: {e}")
+        logger.exception("[Scheduler] Failed to schedule cleanup task: %s", e)
 
 
 # --------------------- Redis-based hot reload helpers ---------------------
@@ -186,7 +191,7 @@ def _redis_client():
         import redis
         return redis.from_url(url)
     except Exception as e:
-        print(f"[Scheduler] Redis client unavailable: {e}")
+        logger.warning("[Scheduler] Redis client unavailable: %s", e)
         return None
 
 
@@ -198,20 +203,18 @@ def publish_reload_signal():
     try:
         client.publish('scheduler:reload', 'reload')
         try:
-            print("[Scheduler] Published reload signal to Redis channel 'scheduler:reload'")
+            logger.info("[Scheduler] Published reload signal to Redis channel 'scheduler:reload'")
         except Exception:
             pass
         return True
     except Exception as e:
-        print(f"[Scheduler] Failed to publish reload signal: {e}")
+        logger.exception("[Scheduler] Failed to publish reload signal: %s", e)
         return False
-
-
 def start_redis_listener():
     """Start a background thread that subscribes to Redis and calls reload_schedules() on messages."""
     client = _redis_client()
     if not client:
-        print("[Scheduler] REDIS_URL not set — redis-based scheduler reload disabled")
+        logger.info("[Scheduler] REDIS_URL not set — redis-based scheduler reload disabled")
         return
 
     def _run():
@@ -219,18 +222,18 @@ def start_redis_listener():
             try:
                 pub = client.pubsub(ignore_subscribe_messages=True)
                 pub.subscribe('scheduler:reload')
-                print("[Scheduler] Subscribed to Redis channel 'scheduler:reload' for hot-reloads")
+                logger.debug("[Scheduler] Subscribed to Redis channel 'scheduler:reload' for hot-reloads")
                 for message in pub.listen():
                     if not message:
                         continue
                     try:
-                        print("[Scheduler] Received reload signal from Redis, reloading schedules")
+                        logger.info("[Scheduler] Received reload signal from Redis, reloading schedules")
                         reload_schedules()
                     except Exception as e:
-                        print(f"[Scheduler] Error on reload from Redis: {e}")
+                        logger.exception("[Scheduler] Error on reload from Redis: %s", e)
                 # If listen loop exits try to reconnect
             except Exception as e:
-                print(f"[Scheduler] Redis listener error: {e}, retrying in 5s")
+                logger.exception("[Scheduler] Redis listener error: %s, retrying in 5s", e)
                 time.sleep(5)
 
     t = threading.Thread(target=_run, daemon=True)
@@ -253,7 +256,7 @@ def reload_schedules():
             scheduler.remove_job(job.id)
     
     if maintenance_mode:
-        print("[Scheduler] Maintenance mode enabled - no schedules loaded")
+        logger.info("[Scheduler] Maintenance mode enabled - no schedules loaded")
         return
     
     # Load enabled archive schedules
@@ -280,7 +283,7 @@ def reload_schedules():
             # Format: minute hour day month day_of_week
             cron_parts = archive['schedule_cron'].split()
             if len(cron_parts) != 5:
-                print(f"[Scheduler] Invalid cron expression for archive {archive['name']}: {archive['schedule_cron']}")
+                logger.warning("[Scheduler] Invalid cron expression for archive %s: %s", archive['name'], archive['schedule_cron'])
                 continue
             
             # Use the configured display timezone for triggers so scheduled times match UI
@@ -302,11 +305,11 @@ def reload_schedules():
                 now_local = _dt.now(display_tz) if display_tz is not None else _dt.utcnow()
                 next_fire_local = trigger.get_next_fire_time(None, now_local)
                 try:
-                    print(f"[Scheduler DEBUG] archive id={archive['id']} cron='{archive['schedule_cron']}' display_tz={display_tz} now={now_local.isoformat()} next_fire_local={next_fire_local.isoformat() if next_fire_local else None}")
+                    logger.debug("[Scheduler DEBUG] archive id=%s cron='%s' display_tz=%s now=%s next_fire_local=%s", archive['id'], archive['schedule_cron'], display_tz, now_local.isoformat(), next_fire_local.isoformat() if next_fire_local else None)
                 except Exception:
-                    print(f"[Scheduler DEBUG] archive id={archive['id']} cron='{archive['schedule_cron']}' display_tz={display_tz} now={now_local} next_fire_local={next_fire_local}")
+                    logger.debug("[Scheduler DEBUG] archive id=%s cron='%s' display_tz=%s now=%s next_fire_local=%s", archive['id'], archive['schedule_cron'], display_tz, now_local, next_fire_local)
             except Exception as e:
-                print(f"[Scheduler DEBUG] Could not compute next fire for archive {archive['id']}: {e}")
+                logger.exception("[Scheduler DEBUG] Could not compute next fire for archive %s: %s", archive['id'], e)
 
             # Allow a short misfire grace so jobs that just missed due to timing/worker switchover
             # are executed if within the grace window (seconds)
@@ -317,20 +320,20 @@ def reload_schedules():
                 id=f"archive_{archive['id']}",
                 name=f"Archive: {archive['name']}",
                 replace_existing=True,
-                misfire_grace_time=300
+                misfire_grace_time=int(os.environ.get('SCHEDULE_MISFIRE_GRACE', '300'))
             )
             
-            print(f"[Scheduler] Scheduled archive '{archive['name']}' with cron: {archive['schedule_cron']}")
+            logger.info("[Scheduler] Scheduled archive '%s' with cron: %s", archive['name'], archive['schedule_cron'])
             
         except Exception as e:
-            print(f"[Scheduler] Failed to schedule archive {archive['name']}: {e}")
+            logger.exception("[Scheduler] Failed to schedule archive %s: %s", archive['name'], e)
     
-    print(f"[Scheduler] Loaded {len(archives)} scheduled archive(s)")
+    logger.info("[Scheduler] Loaded %d scheduled archive(s)", len(archives))
 
 
 def run_scheduled_archive(archive_config):
     """Run an archive job (called by scheduler)."""
-    print(f"[Scheduler] Starting scheduled archive: {archive_config['name']}")
+    logger.info("[Scheduler] Starting scheduled archive: %s", archive_config['name'])
     
     try:
         # Start the scheduled archive as a detached subprocess to avoid blocking the scheduler
@@ -344,9 +347,9 @@ def run_scheduled_archive(archive_config):
         log_path = os.path.join(jobs_dir, log_name)
         cmd = [sys.executable, '-m', 'app.run_job', '--archive-id', str(archive_config['id']), '--log-path', log_path]
         subprocess.Popen(cmd, start_new_session=True)
-        print(f"[Scheduler] Enqueued scheduled archive {archive_config['name']} (log: {log_name})")
+        logger.info("[Scheduler] Enqueued scheduled archive %s (log: %s)", archive_config['name'], log_name)
     except Exception as e:
-        print(f"[Scheduler] Archive failed: {e}")
+        logger.exception("[Scheduler] Archive failed: %s", e)
         from app.notifications import send_error_notification
         send_error_notification(archive_config['name'], str(e))
 
@@ -379,9 +382,9 @@ def get_next_run_time(archive_id):
                 except Exception:
                     next_run = nr
             try:
-                print(f"[Scheduler] Next run for archive_{archive_id}: {next_run.isoformat()}")
+                logger.debug("[Scheduler] Next run for archive_%s: %s", archive_id, next_run.isoformat())
             except Exception:
-                print(f"[Scheduler] Next run for archive_{archive_id}: {next_run}")
+                logger.debug("[Scheduler] Next run for archive_%s: %s", archive_id, next_run)
             return next_run
 
     # Strategy 2: Fallback to DB-backed computation when scheduler is not available in
@@ -394,7 +397,7 @@ def get_next_run_time(archive_id):
             row = cur.fetchone()
             cron_expr = row['schedule_cron'] if row else None
     except Exception as e:
-        print(f"[Scheduler] Could not read schedule from DB for archive_{archive_id}: {e}")
+        logger.exception("[Scheduler] Could not read schedule from DB for archive_%s: %s", archive_id, e)
         cron_expr = None
 
     if not cron_expr:
@@ -403,7 +406,7 @@ def get_next_run_time(archive_id):
     # Parse cron expression (minute hour day month day_of_week)
     cron_parts = cron_expr.split()
     if len(cron_parts) != 5:
-        print(f"[Scheduler] Invalid cron expression for archive_{archive_id}: {cron_expr}")
+        logger.warning("[Scheduler] Invalid cron expression for archive_%s: %s", archive_id, cron_expr)
         return None
 
     try:
@@ -428,12 +431,12 @@ def get_next_run_time(archive_id):
             # Keep timezone-aware UTC datetime for correct formatting/parsing
             next_run_utc = next_run.astimezone(_tz.utc)
             try:
-                print(f"[Scheduler] Next run (computed) for archive_{archive_id}: {next_run_utc.isoformat()} (local: {next_run.isoformat()})")
+                logger.debug("[Scheduler] Next run (computed) for archive_%s: %s (local: %s)", archive_id, next_run_utc.isoformat(), next_run.isoformat())
             except Exception:
-                print(f"[Scheduler] Next run (computed) for archive_{archive_id}: {next_run_utc} (local: {next_run})")
+                logger.debug("[Scheduler] Next run (computed) for archive_%s: %s (local: %s)", archive_id, next_run_utc, next_run)
             return next_run_utc
     except Exception as e:
-        print(f"[Scheduler] Could not compute next run from cron for archive_{archive_id}: {e}")
+        logger.exception("[Scheduler] Could not compute next run from cron for archive_%s: %s", archive_id, e)
 
     return None
 
@@ -447,7 +450,7 @@ def get_prev_run_time(archive_id):
             row = cur.fetchone()
             cron_expr = row['schedule_cron'] if row else None
     except Exception as e:
-        print(f"[Scheduler] Could not read schedule from DB for archive_{archive_id}: {e}")
+        logger.exception("[Scheduler] Could not read schedule from DB for archive_%s: %s", archive_id, e)
         cron_expr = None
 
     if not cron_expr:
@@ -463,9 +466,9 @@ def get_prev_run_time(archive_id):
 
         # Debug: log cron & timezone context used for prev computation
         try:
-            print(f"[Scheduler DEBUG] get_prev_run_time: archive_id={archive_id} cron='{cron_expr}' display_tz={display_tz} now={now.isoformat()}")
+            logger.debug("[Scheduler DEBUG] get_prev_run_time: archive_id=%s cron='%s' display_tz=%s now=%s", archive_id, cron_expr, display_tz, now.isoformat())
         except Exception:
-            print(f"[Scheduler DEBUG] get_prev_run_time: archive_id={archive_id} cron='{cron_expr}' display_tz={display_tz} now={now}")
+            logger.debug("[Scheduler DEBUG] get_prev_run_time: archive_id=%s cron='%s' display_tz=%s now=%s", archive_id, cron_expr, display_tz, now) 
 
         ci = croniter(cron_expr, now)
         prev_local = ci.get_prev(datetime)
@@ -473,11 +476,11 @@ def get_prev_run_time(archive_id):
             # Convert to timezone-aware UTC datetime for consistent handling
             prev_utc = prev_local.astimezone(_tz.utc)
             try:
-                print(f"[Scheduler] Prev run (computed) for archive_{archive_id}: {prev_utc.isoformat()} (local: {prev_local.isoformat()})")
+                logger.debug("[Scheduler] Prev run (computed) for archive_%s: %s (local: %s)", archive_id, prev_utc.isoformat(), prev_local.isoformat())
             except Exception:
-                print(f"[Scheduler] Prev run (computed) for archive_{archive_id}: {prev_utc} (local: {prev_local})")
+                logger.debug("[Scheduler] Prev run (computed) for archive_%s: %s (local: %s)", archive_id, prev_utc, prev_local)
             return prev_utc
     except Exception as e:
-        print(f"[Scheduler] Could not compute previous run from cron for archive_{archive_id}: {e}")
+        logger.exception("[Scheduler] Could not compute previous run from cron for archive_%s: %s", archive_id, e)
 
     return None

@@ -3,6 +3,10 @@ Main Flask application with Blueprints.
 """
 import os
 import threading
+from app.utils import setup_logging, get_logger
+# Centralized logging setup (use only LOG_LEVEL env var)
+setup_logging()
+logger = get_logger(__name__)
 
 __version__ = '0.7.0'
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file
@@ -116,12 +120,12 @@ def run_startup_discovery():
         try:
             mount_paths = get_stack_mount_paths()
             if verbose:
-                print(f"[DEBUG] Auto-detected mount paths: {mount_paths}")
+                logger.debug("Auto-detected mount paths: %s", mount_paths)
             stacks = discover_stacks()
             if verbose:
-                print(f"[INFO] Discovered {len(stacks)} stacks:")
+                logger.info("Discovered %d stacks:", len(stacks))
                 for s in stacks:
-                    print(f"  - {s['name']} (at {s['path']}, compose: {s.get('compose_file')})")
+                    logger.info("  - %s (at %s, compose: %s)", s['name'], s['path'], s.get('compose_file'))
 
             # Detect bind mount mismatches and persist warnings to app config for UI
             try:
@@ -137,16 +141,14 @@ def run_startup_discovery():
                     for w in bind_warnings:
                         # Ensure multiline warnings are clearly prefixed in logs
                         for line in str(w).splitlines():
-                            print(f"[WARNING] {line}")
+                            logger.warning("%s", line)
                 if verbose and ignored:
-                    print(f"[INFO] Ignoring stacks under destinations: {ignored}")
+                    logger.info("Ignoring stacks under destinations: %s", ignored)
             except Exception as e:
                 if verbose:
-                    print(f"[DEBUG] Could not detect bind mismatches: {e}")
-
-        except Exception as e:
+                        logger.debug("Could not detect bind mismatches: %s", e)
             if verbose:
-                print(f"[ERROR] Startup mount/stack detection failed: {e}")
+                logger.exception("Startup mount/stack detection failed: %s", e)
         finally:
             # Start asynchronous cleanup of stale 'running' jobs to avoid UI confusion.
             try:
@@ -165,34 +167,34 @@ def run_startup_discovery():
 
                 if not created:
                     if verbose:
-                        print("[Startup] Skipping stale job cleanup (already started by another process)")
+                        logger.info("[Startup] Skipping stale job cleanup (already started by another process)")
                 else:
                     def _cleanup_stale():
                         try:
                             from app.db import mark_stale_running_jobs
                             # On startup mark any running jobs without end_time as failed to avoid
                             # stuck running states and UI confusion.
-                            print(f"[Startup] Running stale job cleanup (marking running jobs without end_time as failed)")
+                            logger.info("[Startup] Running stale job cleanup (marking running jobs without end_time as failed)")
                             marked = mark_stale_running_jobs(None)
                             if marked and int(marked) > 0:
-                                print(f"[Startup] Marked {marked} running jobs as failed on startup")
+                                logger.info("[Startup] Marked %s running jobs as failed on startup", marked)
                         except Exception as se:
-                            print(f"[Startup] Stale job cleanup failed: {se}")
+                            logger.exception("[Startup] Stale job cleanup failed: %s", se)
                     t = threading.Thread(target=_cleanup_stale, daemon=True)
                     t.start()
             except Exception as e:
                 if verbose:
-                    print(f"[Startup] Failed to start stale job cleanup thread: {e}")
+                    logger.exception("[Startup] Failed to start stale job cleanup thread: %s", e)
 
             # Run downloads startup rescan to restore any missing download artifacts if possible
             try:
                 from app.downloads import startup_rescan_downloads
                 startup_rescan_downloads()
                 if verbose:
-                    print("[Startup] Download startup rescan complete")
+                    logger.info("[Startup] Download startup rescan complete")
             except Exception as e:
                 if verbose:
-                    print(f"[Startup] Download startup rescan failed: {e}")
+                    logger.exception("[Startup] Download startup rescan failed: %s", e)
 
             startup_discovery_done = True
 
@@ -222,7 +224,7 @@ try:
     from app.scheduler import start_redis_listener
     start_redis_listener()
 except Exception as e:
-    print(f"[Main] Could not start Redis listener: {e}")
+    logger.exception("[Main] Could not start Redis listener: %s", e)
 
 
 # Custom Jinja2 filters
@@ -428,11 +430,11 @@ def download_archive(token):
                         threading.Thread(target=regenerate_token, args=(token,), daemon=True).start()
                         return render_template('download_error.html', reason='Download wird vorbereitet', hint='Der Download wird gerade neu erstellt. Bitte versuche es in ein paar Minuten erneut.'), 202
                     except Exception as e:
-                        print(f"[Downloads] Failed to start background regeneration for token {token}: {e}")
+                        logger.exception("[Downloads] Failed to start background regeneration for token %s: %s", token, e)
                         # Fall back to reporting not found
                 
         except Exception as e:
-            print(f"[Downloads] Error while resolving archive_path for token {token}: {e}")
+            logger.exception("[Downloads] Error while resolving archive_path for token %s: %s", token, e)
 
     if not actual_path or not _Path(actual_path).exists():
         return render_template('download_error.html', reason='Datei nicht gefunden', hint='Die Datei ist nicht mehr vorhanden. Du kannst den Download erneut generieren, indem du ein neues Archiv erstellst oder die Download‑Aktion nochmal startest.'), 404

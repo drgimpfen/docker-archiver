@@ -13,6 +13,11 @@ Requires: Pillow (PIL)
 import sys
 import os
 from PIL import Image
+from app.utils import setup_logging, get_logger
+
+# Ensure centralized logging is configured and get module logger
+setup_logging()
+logger = get_logger(__name__)
 
 OUT_DIR = os.path.join('app', 'static', 'assets')
 LOGO_OUT = os.path.join(OUT_DIR, 'docker-archiver-logo.png')
@@ -45,12 +50,12 @@ def make_favicon(img, size=(32,32)):
 
 def main():
     if len(sys.argv) < 2:
-        print('Usage: python tools/generate_favicon.py /path/to/source-image.png')
+        logger.info('Usage: python tools/generate_favicon.py /path/to/source-image.png')
         sys.exit(2)
 
     src = sys.argv[1]
     if not os.path.exists(src):
-        print('Source image not found:', src)
+        logger.warning('Source image not found: %s', src)
         sys.exit(1)
 
     ensure_out_dir()
@@ -62,14 +67,14 @@ def main():
 
         logo = make_logo(im)
         logo.save(LOGO_OUT)
-        print('Wrote logo ->', LOGO_OUT)
+        logger.info('Wrote logo -> %s', LOGO_OUT)
 
         fav = make_favicon(im)
         # save favicon as PNG
         fav.save(FAV_OUT)
-        print('Wrote favicon ->', FAV_OUT)
+        logger.info('Wrote favicon -> %s', FAV_OUT)
 
-    print('Done. Add and commit the files, and rebuild your container if needed.')
+    logger.info('Done. Add and commit the files, and rebuild your container if needed.')
 
 if __name__ == '__main__':
     main()
