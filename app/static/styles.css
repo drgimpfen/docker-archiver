@@ -219,6 +219,13 @@ body.has-sidebar .app-main {
     white-space: nowrap;
 }
 
+/* Fade-out animation for card removal */
+.fade-out {
+    transition: opacity 0.28s ease, transform 0.28s ease;
+    opacity: 0;
+    transform: translateY(4px) scale(0.995);
+}
+
 /* Loading spinner */
 .spinner-border-sm {
     width: 1rem;

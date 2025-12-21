@@ -11,8 +11,8 @@ from app.db import get_db
 from app.stacks import discover_stacks
 from app.executor import ArchiveExecutor
 from app.scheduler import reload_schedules, get_next_run_time
-from app.utils import format_bytes, format_duration, get_disk_usage
-from app import utils, to_iso_z
+from app.utils import format_bytes, format_duration, get_disk_usage, to_iso_z
+from app import utils
 from app.notifications import get_setting
 
 
