@@ -276,10 +276,31 @@ def cleanup_temp_files(is_dry_run=False, log_callback=None):
 
                 temp_count += 1
 
+                # Attempt to fetch a recent job reference for context (even if deleted) so logs show source
+                reference_info = ''
+                try:
+                    with get_db() as conn:
+                        cur = conn.cursor()
+                        like = str(stack_dir) + '/%'
+                        cur.execute("""
+                            SELECT j.id as job_id, a.name as archive_name, m.stack_name
+                            FROM job_stack_metrics m
+                            LEFT JOIN jobs j ON m.job_id = j.id
+                            LEFT JOIN archives a ON j.archive_id = a.id
+                            WHERE m.archive_path LIKE %s
+                            ORDER BY j.start_time DESC NULLS LAST LIMIT 1;
+                        """, (like,))
+                        ref = cur.fetchone()
+                        if ref:
+                            reference_info = f" (from job {ref.get('job_id') or 'unknown'}, archive '{ref.get('archive_name') or 'unknown'}', stack '{ref.get('stack_name') or 'unknown'}')"
+                except Exception as e:
+                    # Non-fatal; include note in logs
+                    reference_info = f" (DB lookup failed: {e})"
+
                 if is_dry_run:
-                    log(f"Would delete empty stack directory: {stack_dir.relative_to(archive_base)}")
+                    log(f"Would delete empty stack directory: {stack_dir.relative_to(archive_base)}{reference_info}")
                 else:
-                    log(f"Deleting empty stack directory: {stack_dir.relative_to(archive_base)}")
+                    log(f"Deleting empty stack directory: {stack_dir.relative_to(archive_base)}{reference_info}")
                     try:
                         shutil.rmtree(stack_dir)
                     except Exception as e:
