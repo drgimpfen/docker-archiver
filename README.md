@@ -277,7 +277,30 @@ For more details and troubleshooting tips, see the dashboard warning messages or
 
 > **Note:** Port (8080) and mount paths are configured in `docker-compose.yml`, not via environment variables.
 
-**Logging:** Control application-wide logging using the `LOG_LEVEL` environment variable. Recommended values are `DEBUG`, `INFO`, `WARNING`, and `ERROR`. Setting `LOG_LEVEL=DEBUG` enables detailed debug logs for components such as the scheduler and SSE. Older module-specific debug flags (e.g., `APP_DEBUG`, `SCHEDULER_DEBUG`, `JOB_EVENTS_DEBUG`) are deprecated — use `LOG_LEVEL` instead.
+### Logging & Debugging 🔧
+
+Control application-wide logging using the `LOG_LEVEL` environment variable (recommended values: `DEBUG`, `INFO`, `WARNING`, `ERROR`). Setting `LOG_LEVEL=DEBUG` enables detailed diagnostic messages across components (scheduler, SSE, executor, etc.).
+
+Important: a logger set to a given level will **also include messages at higher-severity levels**. For example:
+
+- `LOG_LEVEL=INFO` emits **INFO**, **WARNING**, **ERROR**, **CRITICAL**
+- `LOG_LEVEL=DEBUG` emits **DEBUG**, **INFO**, **WARNING**, **ERROR**, **CRITICAL**
+
+Quick examples:
+
+```bash
+# Temporarily enable debug for a single run
+LOG_LEVEL=DEBUG docker compose up -d
+
+# Persist in .env (recommended for long-running environments)
+echo "LOG_LEVEL=DEBUG" >> .env
+docker compose up -d
+```
+
+Notes:
+- Use `DEBUG` for troubleshooting; use `INFO` for normal production verbosity.
+- Expensive debug-only work is guarded by `logger.isEnabledFor(logging.DEBUG)` to avoid runtime overhead unless debug is explicitly enabled.
+- Older per-module flags like `APP_DEBUG`, `SCHEDULER_DEBUG` and `JOB_EVENTS_DEBUG` are deprecated—use `LOG_LEVEL` instead.
 
 > **Note:** Redis is required for reliable cross‑worker SSE propagation. Set `REDIS_URL` (e.g., `redis://redis:6379/0`) and ensure the `redis` Python package is available. The app assumes Redis is present for real‑time streaming and global event propagation.
 

@@ -48,6 +48,22 @@ If stacks are not mounted as identical bind mounts, the app may ignore them and 
 
 ### 4. Start Services
 
+#### Debugging (Enable debug logs)
+
+To enable verbose logs for troubleshooting set `LOG_LEVEL=DEBUG` before running Docker Compose. This emits DEBUG-level messages (and higher) across the application components.
+
+```bash
+# Temporarily enable debug for a single run
+LOG_LEVEL=DEBUG docker compose up -d
+
+# Persist in .env for repeated troubleshooting
+echo "LOG_LEVEL=DEBUG" >> .env
+docker compose up -d
+```
+
+Use debug carefully in production — set it only when you need detailed diagnostics and revert to `INFO` afterwards.
+
+
 Redis is included in `docker-compose.yml` by default and stores data in `./redis-data` (bind mounted). The `redis` service in the compose file is simple and lightweight, but we recommend adding a basic healthcheck to ensure the `app` waits for Redis to be ready before starting (example shown in compose). To start the services:
 
 ```bash

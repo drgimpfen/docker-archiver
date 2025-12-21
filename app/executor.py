@@ -812,6 +812,15 @@ def _create_archive(self, stack_name, stack_path):
                 
                 self.log('INFO', f"Successfully finished: Archiving {stack_name}")
                 
+                # Ensure archive file is world-readable so downstream backup tools (e.g., Borg) can access it
+                try:
+                    output_file.chmod(0o644)
+                    # Log permission change to the job log for observability
+                    self.log('INFO', f"Set archive permissions to 0644 for {output_file}")
+                except Exception as pe:
+                    # Some filesystems (e.g., certain mounts) may not support chmod — log at DEBUG and continue
+                    self.log('DEBUG', f"Could not chmod archive {output_file}: {pe}")
+
                 # Get archive size
                 archive_size = output_file.stat().st_size
                 archive_size_mb = archive_size / (1024 * 1024)
@@ -847,6 +856,31 @@ def _create_archive(self, stack_name, stack_path):
                 )
                 folder_size = int(result.stdout.split()[0]) if result.returncode == 0 else 0
                 folder_size_mb = folder_size / (1024 * 1024)
+
+                # Ensure copied folder contents are readable by backup tools (make files 0644 and dirs 0755)
+                success_dirs = success_files = fail_dirs = fail_files = 0
+                try:
+                    for root, dirs, files in os.walk(str(output_file)):
+                        for d in dirs:
+                            try:
+                                os.chmod(os.path.join(root, d), 0o755)
+                                success_dirs += 1
+                            except Exception:
+                                fail_dirs += 1
+                        for f in files:
+                            try:
+                                os.chmod(os.path.join(root, f), 0o644)
+                                success_files += 1
+                            except Exception:
+                                fail_files += 1
+                except Exception as pe:
+                    # If the walk itself fails, log at DEBUG and continue
+                    self.log('DEBUG', f"Permission walk failed for {output_file}: {pe}")
+
+                # Log a concise summary to the job log
+                self.log('INFO', f"Adjusted permissions for copied folder: dirs_ok={success_dirs}, files_ok={success_files}, dirs_failed={fail_dirs}, files_failed={fail_files}")
+                if fail_dirs or fail_files:
+                    self.log('DEBUG', f"Some chmod operations failed (ignored) for {output_file}: dirs_failed={fail_dirs}, files_failed={fail_files}")
                 
                 self.log('INFO', f"Folder created successfully for {stack_name}. Size: {folder_size_mb:.1f}M ({folder_size} bytes).")
                 
