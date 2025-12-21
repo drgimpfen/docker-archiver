@@ -47,97 +47,103 @@ def run_retention(archive_config, job_id, is_dry_run=False, log_callback=None):
         log('WARNING', f"Archive directory does not exist: {archive_dir}")
         return 0
     
-    # Collect all archives grouped by stack
-    stacks = [d for d in archive_dir.iterdir() if d.is_dir()]
-    
+    # Collect all archives recursively and group them by parsed stack name
+    # We need to be robust for layouts where archives are nested in timestamped directories
+    # (e.g., /archives/<archive_name>/20251221_174043_patchmon/<files>) or files under
+    # subdirectory /patchmon/patchmon/*.tar.zst
+    from collections import defaultdict as _dd
+
+    candidates = []
+    import re
+    for item in archive_dir.rglob('*'):
+        try:
+            if not (item.is_file() or item.is_dir()):
+                continue
+            name = item.name
+            # Normalize base by removing known archive extensions
+            if name.endswith('.tar.gz'):
+                base = name[:-7]
+            elif name.endswith('.tar.zst'):
+                base = name[:-8]
+            elif name.endswith('.tar'):
+                base = name[:-4]
+            else:
+                base = name
+
+            m = re.search(r"(\d{8}_\d{6})", base)
+            if not m:
+                continue
+
+            ts_str = m.group(1)
+            try:
+                timestamp = datetime.strptime(ts_str, '%Y%m%d_%H%M%S')
+                from datetime import timezone
+                local_tz = utils.get_display_timezone()
+                timestamp_local = timestamp.replace(tzinfo=local_tz)
+                timestamp_utc = timestamp_local.astimezone(timezone.utc)
+            except Exception:
+                from datetime import timezone
+                timestamp_utc = timestamp.replace(tzinfo=timezone.utc)
+
+            # Derive stack name from the filename base following the timestamp
+            stack_name = base[m.end():].lstrip('_-') or 'unknown'
+
+            # Determine size
+            if item.is_file():
+                size = item.stat().st_size
+            else:
+                size = sum(f.stat().st_size for f in item.rglob('*') if f.is_file())
+
+            candidates.append({
+                'path': item,
+                'timestamp': timestamp_utc,
+                'size': size,
+                'is_dir': item.is_dir(),
+                'stack_name': stack_name
+            })
+        except Exception as e:
+            log('WARNING', f"Could not parse archive timestamp from {item}: {e}")
+            continue
+
+    # Group by parsed stack_name
+    grouped = _dd(list)
+    for c in candidates:
+        grouped[c['stack_name']].append(c)
+
     total_reclaimed = 0
     total_deleted = 0
-    
-    for stack_dir in stacks:
-        stack_name = stack_dir.name
+
+    log('INFO', f"Found {len(grouped)} stack(s) to evaluate for retention")
+
+    for stack_name, archives in grouped.items():
         log('INFO', f"Processing retention for stack: {stack_name}")
-        
-        # Get all archive files/folders in this stack directory
-        archives = []
-        for item in stack_dir.iterdir():
-            # Parse timestamp from filename: stackname_YYYYMMDD_HHMMSS.ext
-            try:
-                name = item.name
-                # Remove extension(s)
-                if name.endswith('.tar.gz'):
-                    base = name[:-7]
-                elif name.endswith('.tar.zst'):
-                    base = name[:-8]
-                elif name.endswith('.tar'):
-                    base = name[:-4]
-                else:
-                    base = name
-                
-                # Extract timestamp: look for YYYYMMDD_HHMMSS anywhere in the filename
-                import re
-                m = re.search(r"(\d{8}_\d{6})", base)
-                if m:
-                    ts_str = m.group(1)
-                    timestamp = datetime.strptime(ts_str, '%Y%m%d_%H%M%S')
 
-                    # Interpret parsed timestamp as display timezone (where filenames are created),
-                    # then normalize to UTC for consistent comparisons with utils.now()
-                    try:
-                        from datetime import timezone
-                        local_tz = utils.get_display_timezone()
-                        timestamp_local = timestamp.replace(tzinfo=local_tz)
-                        timestamp_utc = timestamp_local.astimezone(timezone.utc)
-                    except Exception:
-                        # Fallback: assume UTC
-                        from datetime import timezone
-                        timestamp_utc = timestamp.replace(tzinfo=timezone.utc)
-
-                    # Get size
-                    if item.is_file():
-                        size = item.stat().st_size
-                    else:  # directory
-                        size = sum(f.stat().st_size for f in item.rglob('*') if f.is_file())
-
-                    archives.append({
-                        'path': item,
-                        'timestamp': timestamp_utc,
-                        'size': size,
-                        'is_dir': item.is_dir()
-                    })
-            except Exception as e:
-                log('WARNING', f"Could not parse archive timestamp from {item.name}: {e}")
-                continue
-        
-        if not archives:
-            log('INFO', f"No archives found for {stack_name}")
-            continue
-        
         # Sort by timestamp (newest first)
         archives.sort(key=lambda a: a['timestamp'], reverse=True)
-        
+
         log('INFO', f"Found {len(archives)} archive(s) for {stack_name}")
-        
+
         # Apply one-per-day filter if enabled
         if one_per_day:
             filtered_archives, duplicates_to_delete = filter_one_per_day(archives, log)
             archives = filtered_archives
         else:
             duplicates_to_delete = []
-        
+
         # Determine which archives to keep based on GFS rules
         to_keep = apply_gfs_retention(archives, keep_days, keep_weeks, keep_months, keep_years)
         to_delete = [a for a in archives if a not in to_keep] + duplicates_to_delete
-        
+
         log('INFO', f"Retention will keep {len(to_keep)} archive(s) and delete {len(to_delete)}")
-        
+
         # Delete old archives
         for archive in to_delete:
             path = archive['path']
             size = archive['size']
             size_mb = size / (1024 * 1024)
-            
+
             log('INFO', f"Deleting archive: {path.name} ({size_mb:.1f}M)")
-            
+
             if not is_dry_run:
                 try:
                     if archive['is_dir']:
@@ -147,7 +153,7 @@ def run_retention(archive_config, job_id, is_dry_run=False, log_callback=None):
                         path.unlink()
                     total_reclaimed += size
                     total_deleted += 1
-                    
+
                     # Mark as deleted in database
                     _mark_archive_as_deleted(str(path), 'retention')
                 except Exception as e:

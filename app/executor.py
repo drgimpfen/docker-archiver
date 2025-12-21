@@ -742,7 +742,9 @@ def _create_archive(self, stack_name, stack_path):
         
         # Create output paths
         base_dir = Path(ARCHIVE_BASE) / archive_name
-        output_dir = base_dir / stack_name
+        # For file archives, place them directly under the archive root (no extra /<stack_name> folder)
+        # For folder outputs (copied directories) keep the timestamped folder under the archive root
+        output_dir = base_dir if ext else base_dir / stack_name
         # For auditing, log the timestamp and configured display timezone
         try:
             from app.utils import get_display_timezone
