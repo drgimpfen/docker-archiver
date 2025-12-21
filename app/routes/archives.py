@@ -387,7 +387,7 @@ def run(archive_id):
             row = cur.fetchone()
             if not row:
                 flash('Archive already has a running job', 'warning')
-                return redirect(url_for('index'))
+                return redirect(url_for('dashboard.index'))
             job_id = row['id']
             conn.commit()
 

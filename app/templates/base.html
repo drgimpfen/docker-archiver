@@ -34,14 +34,14 @@
     <aside class="app-sidebar" id="app-sidebar">
         <!-- Logo -->
         <div class="sidebar-header">
-            <a href="{{ url_for('index') }}" class="d-flex align-items-center text-decoration-none">
+            <a href="{{ url_for('dashboard.index') }}" class="d-flex align-items-center text-decoration-none">
                 <img src="{{ url_for('static', filename='images/Logo.png') }}" alt="Docker Archiver" style="max-width: 200px; height: auto;">
             </a>
         </div>
 
         <!-- Navigation -->
         <ul class="nav flex-column">
-            <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}"><i class="bi bi-house-door me-2"></i>Dashboard</a></li>
+            <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard.index') }}"><i class="bi bi-house-door me-2"></i>Dashboard</a></li>
             <li class="nav-item"><a class="nav-link" href="{{ url_for('archives.list_archives') }}"><i class="bi bi-archive me-2"></i>Archives</a></li>
             <li class="nav-item"><a class="nav-link" href="{{ url_for('history.list_history') }}"><i class="bi bi-clock-history me-2"></i>History</a></li>
             <li class="nav-item"><a class="nav-link" href="{{ url_for('profile.manage_profile') }}"><i class="bi bi-person me-2"></i>Profile</a></li>
