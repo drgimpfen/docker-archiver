@@ -52,31 +52,35 @@
 
 <!-- System Info Cards -->
 <div class="row g-3 mb-4">
-    <!-- Storage Card -->
-    <div class="col-md-4">
+    <!-- Archive Storage (Total) Card -->
+    <div class="col-md-2">
         <div class="card h-100">
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <h6 class="card-subtitle text-muted mb-0">Archive Storage</h6>
-                    <i class="bi bi-hdd-fill fs-4 text-{{ disk_status }}"></i>
+                    <i class="bi bi-archive fs-4 text-primary"></i>
                 </div>
                 <h3 class="mb-2" id="total-archives-size"><span title="Net = sum of archived sizes minus reclaimed bytes (from job reports)">{{ format_bytes(total_archives_size) }}</span></h3>
                 {% if on_disk_archives_size is not none %}
                 <div><small class="text-muted">On-disk: {{ format_bytes(on_disk_archives_size) }}</small></div>
                 {% endif %}
-                <div class="progress mb-2" style="height: 10px;">
-                    <div class="progress-bar bg-{{ disk_status }}" 
-                         role="progressbar" 
-                         style="width: {{ disk.percent }}%"
-                         aria-valuenow="{{ disk.percent }}" 
-                         aria-valuemin="0" 
-                         aria-valuemax="100">
-                    </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Disk Info Card -->
+    <div class="col-md-2">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="card-subtitle text-muted mb-0">Disk Info</h6>
+                    <i class="bi bi-hdd-fill fs-4 text-{{ disk_status }}"></i>
                 </div>
-                <small class="text-muted">
-                    {{ format_bytes(disk.used) }} / {{ format_bytes(disk.total) }} 
-                    ({{ "%.1f"|format(disk.percent) }}%)
-                </small>
+                <h6 class="mb-1">{{ format_bytes(disk.used) }} / {{ format_bytes(disk.total) }}</h6>
+                <div class="progress mb-2" style="height: 10px;">
+                    <div class="progress-bar bg-{{ disk_status }}" role="progressbar" style="width: {{ disk.percent }}%" aria-valuenow="{{ disk.percent }}" aria-valuemin="0" aria-valuemax="100"></div>
+                </div>
+                <small class="text-muted">{{ "%.1f"|format(disk.percent) }}% used</small>
             </div>
         </div>
     </div>
