@@ -187,9 +187,12 @@
                                     <div class="mt-3 d-flex flex-column gap-2">
                                         <div class="d-flex gap-2">
                                             <div class="flex-fill">
-                                                <button type="button" class="btn btn-success btn-sm w-100 start-archive-btn" data-archive-id="{{ archive.id }}" data-archive-name="{{ archive.name }}">
-                                                    <i class="bi bi-play-fill me-1"></i>Run Now
-                                                </button>
+                                                <form method="POST" action="{{ url_for('archives.run', archive_id=archive.id) }}" class="d-block">
+                                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                                    <button type="submit" class="btn btn-success btn-sm w-100 start-archive-btn" data-archive-id="{{ archive.id }}" data-archive-name="{{ archive.name }}">
+                                                        <i class="bi bi-play-fill me-1"></i>Run Now
+                                                    </button>
+                                                </form>
                                             </div>
                                             <button type="button" class="btn btn-outline-secondary btn-sm" 
                                                     data-bs-toggle="modal" 

@@ -763,59 +763,7 @@
 
 
 
-            // Handle Run Now buttons with optimistic UI insertion
-
-
-            window.runArchiveFromButton = async function runArchiveFromButton(btn) {
-                try {
-                    const archiveId = btn.getAttribute('data-archive-id');
-                    const archiveName = btn.getAttribute('data-archive-name') || 'Archive';
-
-                    // Disable button briefly
-                    btn.disabled = true;
-                    const oldHtml = btn.innerHTML;
-                    btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Starting';
-                    try {
-                        const resp = await fetch(`/api/archives/${archiveId}/run`, { method: 'POST' });
-                        if (resp.status === 409) {
-                            // Archive already running
-                            const d = await resp.json().catch(()=>null);
-                            const msg = d && d.error ? d.error : 'Archive already has a running job';
-                            alert(msg);
-                            return;
-                        }
-                        const data = await resp.json();
-                        if (data && data.success) {
-                            // Reload the page to ensure the new job appears immediately in the list
-                            window.location.reload();
-                        } else {
-                            alert('Failed to start archive: ' + (data && data.error ? data.error : 'unknown'));
-                        }
-                    } catch (e) {
-                        alert('Failed to start archive: ' + e);
-                    } finally {
-                        btn.disabled = false;
-                        btn.innerHTML = oldHtml;
-                    }
-                } catch (e) {
-                    console.error('Failed to handle Run Now click (runArchiveFromButton):', e);
-                }
-            }
-
-
-
-            // Also attach direct listeners to existing buttons (covers some edge cases)
-            document.querySelectorAll('.start-archive-btn').forEach(function(b) {
-                b.addEventListener('click', function(ev) {
-                    try {
-                        ev.preventDefault();
-                        ev.stopPropagation();
-                        runArchiveFromButton(b);
-                    } catch (e) {
-                        console.error('Failed to handle Run Now click (direct):', e);
-                    }
-                });
-            });
+            // Run Now behavior is handled by the surrounding <form> (no JS interception needed).
 
             function addPendingJobRow(archiveId, archiveName) {
                 // Create a placeholder row with a negative id
