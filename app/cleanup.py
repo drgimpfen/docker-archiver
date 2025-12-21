@@ -351,7 +351,7 @@ def cleanup_unreferenced_dirs(is_dry_run=False, log_callback=None):
                     dir_size = 0
 
                 if is_dry_run:
-                    log(f"Would delete unreferenced directory: {display_path}{reference_info} — no DB references / no valid backups (would reclaim {format_bytes(dir_size)})")
+                    log(f"Would delete unreferenced directory: {display_path}{reference_info} — no DB references / no archive files found (would reclaim {format_bytes(dir_size)})")
                 else:
                     log(f"Deleting unreferenced directory: {display_path}{reference_info} — removing (reclaimed {format_bytes(dir_size)})")
                     try:
@@ -391,17 +391,45 @@ def is_stack_directory_empty(stack_dir, log_callback=None):
         # If something goes wrong reading dir, treat it as non-empty to be safe
         return False
 
-    # 1) If any file exists anywhere under this stack_dir, it's not empty
+    # 1) If any archive-like file exists anywhere under this stack_dir, check DB
+    #    whether it's a referenced archive. If a referenced archive is found,
+    #    consider the directory non-empty. Unreferenced archive files are noted
+    #    (via log_callback) and *do not* prevent the directory from being treated
+    #    as empty for cleanup.
+    archive_exts = ('.tar', '.tar.gz', '.tgz', '.tar.zst', '.zst', '.zip')
+
+    found_unreferenced_archive = False
     for f in stack_dir.rglob('*'):
         try:
             if f.is_file():
-                # Any regular file (compose.yaml, data files, archives, etc.) indicates the
-                # directory holds content and should not be considered empty.
-                return False
+                name = f.name.lower()
+                if any(name.endswith(ext) for ext in archive_exts):
+                    # Check DB for a reference to this archive file
+                    try:
+                        with get_db() as conn:
+                            cur = conn.cursor()
+                            cur.execute("SELECT 1 FROM job_stack_metrics WHERE archive_path = %s OR archive_path LIKE %s LIMIT 1;", (str(f), f"%/{f.name}"))
+                            r = cur.fetchone()
+                            if r:
+                                # Referenced archive found -> directory is non-empty
+                                return False
+                            else:
+                                # Unreferenced archive file: note and continue scanning
+                                found_unreferenced_archive = True
+                                if log_callback:
+                                    try:
+                                        log_callback(f"Found unreferenced archive file: {f.relative_to(stack_dir)}")
+                                    except Exception:
+                                        # Best-effort logging
+                                        pass
+                    except Exception:
+                        # If DB check fails, be conservative and treat as non-empty
+                        return False
         except Exception:
             continue
 
-    # If no regular files exist, we still consider timestamped subdirectories or nested
+    # If no referenced archive files exist, or only small non-archive files/unreferenced
+    # archive files were found, we still consider timestamped subdirectories or nested
     # stack directories as indicators of non-empty backup folders.
 
     # 2) Check for timestamp-like subdirectories (timestamp at start of name)
