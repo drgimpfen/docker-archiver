@@ -189,7 +189,7 @@ body.has-sidebar .app-main {
     display: flex;
     flex-direction: column;
     width: 100%;
-    min-height: 220px; /* modest card height so empty cards aren't tiny */
+    min-height: 200px; /* modest card height so empty cards aren't tiny */
 }
 .archive-card .card-body {
     display: flex;
