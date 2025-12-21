@@ -13,7 +13,7 @@ from app import utils
 ARCHIVE_BASE = '/archives'
 
 
-def run_cleanup(dry_run_override=None):
+def run_cleanup(dry_run_override=None, job_id=None):
     """Run all cleanup tasks.
 
     If `dry_run_override` is provided (True/False), it overrides the configured
@@ -38,8 +38,8 @@ def run_cleanup(dry_run_override=None):
     mode = "DRY RUN" if is_dry_run else "LIVE"
     start_time = utils.now()
     
-    # Create job record
-    job_id = None
+    # Create job record if not provided by the caller
+    job_id = job_id
     log_lines = []
     
     def log_message(level, message):
@@ -48,19 +48,20 @@ def run_cleanup(dry_run_override=None):
         log_lines.append(log_line)
         print(f"[Cleanup] {message}")
     
-    try:
-        with get_db() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                INSERT INTO jobs (job_type, status, start_time, triggered_by, is_dry_run, log)
-                VALUES ('cleanup', 'running', %s, 'scheduled', %s, '')
-                RETURNING id;
-            """, (start_time, is_dry_run))
-            job_id = cur.fetchone()['id']
-            conn.commit()
-    except Exception as e:
-        print(f"[Cleanup] Failed to create job record: {e}")
-        # Continue anyway
+    if not job_id:
+        try:
+            with get_db() as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    INSERT INTO jobs (job_type, status, start_time, triggered_by, is_dry_run, log)
+                    VALUES ('cleanup', 'running', %s, 'scheduled', %s, '')
+                    RETURNING id;
+                """, (start_time, is_dry_run))
+                job_id = cur.fetchone()['id']
+                conn.commit()
+        except Exception as e:
+            print(f"[Cleanup] Failed to create job record: {e}")
+            # Continue anyway
     
     log_message('INFO', f"Starting cleanup task ({mode})")
     

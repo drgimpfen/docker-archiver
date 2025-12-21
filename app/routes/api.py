@@ -765,11 +765,24 @@ def run_cleanup_manual():
         data = request.get_json() or {}
         dry_run = data.get('dry_run', None)
         try:
+            # Create a job record immediately and return its id so the UI can link to details
+            with get_db() as conn:
+                cur = conn.cursor()
+                start_time = __import__('app').app.utils.now()
+                cur.execute("""
+                    INSERT INTO jobs (job_type, status, start_time, triggered_by, is_dry_run, log)
+                    VALUES ('cleanup', 'running', %s, 'manual', %s, '')
+                    RETURNING id;
+                """, (start_time, dry_run))
+                job_id = cur.fetchone()['id']
+                conn.commit()
+
             from app import cleanup as _cleanup
             import threading
-            t = threading.Thread(target=_cleanup.run_cleanup, args=(dry_run,), daemon=True)
+            # Start background task and pass the job_id so the task updates the same job record
+            t = threading.Thread(target=_cleanup.run_cleanup, args=(dry_run, job_id), daemon=True)
             t.start()
-            return jsonify({'success': True, 'message': 'Cleanup started'}), 202
+            return jsonify({'success': True, 'message': 'Cleanup started', 'job_id': job_id}), 202
         except Exception as e:
             return jsonify({'error': f'Failed to start cleanup: {e}'}), 500
     except Exception as e:

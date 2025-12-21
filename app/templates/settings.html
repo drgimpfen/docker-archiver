@@ -230,6 +230,8 @@
                     <i class="bi bi-recycle me-1"></i> Run Manual Cleanup
                 </button>
                 <small class="text-muted ms-2">Run cleanup now. Use <strong>Dry Run</strong> option to simulate before actually deleting files.</small>
+                <!-- Inline status placeholder for immediate feedback after starting cleanup -->
+                <div id="cleanupStatus" class="mt-2"></div>
             </div>
         </div>
     </div>
@@ -394,11 +396,35 @@ async function confirmRunCleanup(dry, bsModal, modalEl) {
         });
         const data = await resp.json();
         if (resp.status === 202) {
+            // Show toast if available
             if (typeof showAlert === 'function') {
                 showAlert('Cleanup started', 'success');
             } else {
                 console.log('Cleanup started');
             }
+
+            // Show inline status under the Run button with link to history
+            try {
+                const statusEl = document.getElementById('cleanupStatus');
+                const jobId = data.job_id;
+                if (jobId) {
+                    statusEl.innerHTML = `
+                        <div class="alert alert-success alert-dismissible fade show" role="alert">
+                            Cleanup started. <a href="#" class="alert-link" onclick="(function(){ try { showJobDetails(${jobId}); } catch(e){ window.location='{{ url_for('history.list_history') }}'; } return false; })()">View Job</a>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>`;
+                } else {
+                    const historyUrl = "{{ url_for('history.list_history') }}";
+                    statusEl.innerHTML = `
+                        <div class="alert alert-success alert-dismissible fade show" role="alert">
+                            Cleanup started. <a href="${historyUrl}" class="alert-link">View History</a>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>`;
+                }
+            } catch (e) {
+                // ignore DOM errors
+            }
+
             bsModal.hide();
         } else {
             if (typeof showAlert === 'function') {
