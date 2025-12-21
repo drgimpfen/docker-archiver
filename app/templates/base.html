@@ -1206,6 +1206,27 @@
         const i = Math.floor(Math.log(bytes) / Math.log(1024));
         return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
     }
+
+    function formatDuration(seconds) {
+        if (seconds === null || seconds === undefined) return 'N/A';
+        seconds = Number(seconds);
+        if (Number.isNaN(seconds)) return 'N/A';
+        if (seconds < 60) return `${seconds}s`;
+        const minutes = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        if (minutes < 60) return `${minutes}m ${secs}s`;
+        const hours = Math.floor(minutes / 60);
+        const mins = minutes % 60;
+        return `${hours}h ${mins}m`;
+    }
+
+    function formatJobTime(t) {
+        if (!t) return 'N/A';
+        try {
+            const s = String(t).replace('T',' ');
+            return s.substring(0,16);
+        } catch (e) { return String(t); }
+    }
     
     // Edit Archive Modal - Navigate to archives page
     function editArchive(archiveId) {
