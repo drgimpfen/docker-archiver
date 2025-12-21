@@ -187,36 +187,81 @@ def run_scheduled_archive(archive_config):
 
 
 def get_next_run_time(archive_id):
-    """Get next run time for a scheduled archive."""
+    """Get next run time for a scheduled archive.
+
+    Two strategies are used:
+    1. If the in-process scheduler exists, query it for the job's next_run_time.
+    2. If no scheduler is present (common in multi-process deployments), compute the next
+       run time from the archive's cron expression stored in the database using
+       apscheduler.CronTrigger.
+    """
     global scheduler
-    
-    # If the scheduler isn't initialized (e.g., skipped at import-time), try to initialize it now.
-    if scheduler is None:
-        try:
-            init_scheduler()
-        except Exception:
-            pass
-        if scheduler is None:
-            # Still unavailable — we cannot determine next run time.
-            return None
-    
-    job = scheduler.get_job(f"archive_{archive_id}")
-    if job and job.next_run_time:
-        try:
-            # Normalize to UTC-naive datetime for consistent display handling in templates
-            from datetime import timezone
-            next_run = job.next_run_time.astimezone(timezone.utc).replace(tzinfo=None)
-        except Exception:
-            # Fallback: strip tzinfo if present
-            nr = job.next_run_time
+
+    # Strategy 1: If we have a live scheduler object, prefer it (accurate and uses the
+    # scheduler's timezone settings).
+    if scheduler is not None:
+        job = scheduler.get_job(f"archive_{archive_id}")
+        if job and job.next_run_time:
             try:
-                next_run = nr.replace(tzinfo=None)
+                # Normalize to UTC-naive datetime for consistent display handling in templates
+                from datetime import timezone
+                next_run = job.next_run_time.astimezone(timezone.utc).replace(tzinfo=None)
             except Exception:
-                next_run = nr
-        # Debug log to help trace why the dashboard may show nothing
-        try:
-            print(f"[Scheduler] Next run for archive_{archive_id}: {next_run.isoformat()}")
-        except Exception:
-            print(f"[Scheduler] Next run for archive_{archive_id}: {next_run}")
-        return next_run
+                nr = job.next_run_time
+                try:
+                    next_run = nr.replace(tzinfo=None)
+                except Exception:
+                    next_run = nr
+            try:
+                print(f"[Scheduler] Next run for archive_{archive_id}: {next_run.isoformat()}")
+            except Exception:
+                print(f"[Scheduler] Next run for archive_{archive_id}: {next_run}")
+            return next_run
+
+    # Strategy 2: Fallback to DB-backed computation when scheduler is not available in
+    # this process. This covers deployments where the scheduler runs in a different
+    # process/container and we still want the dashboard to show the next run.
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT schedule_cron FROM archives WHERE id = %s", (archive_id,))
+            row = cur.fetchone()
+            cron_expr = row['schedule_cron'] if row else None
+    except Exception as e:
+        print(f"[Scheduler] Could not read schedule from DB for archive_{archive_id}: {e}")
+        cron_expr = None
+
+    if not cron_expr:
+        return None
+
+    # Parse cron expression (minute hour day month day_of_week)
+    cron_parts = cron_expr.split()
+    if len(cron_parts) != 5:
+        print(f"[Scheduler] Invalid cron expression for archive_{archive_id}: {cron_expr}")
+        return None
+
+    try:
+        from datetime import datetime, timezone as _tz
+        trigger = CronTrigger(
+            minute=cron_parts[0],
+            hour=cron_parts[1],
+            day=cron_parts[2],
+            month=cron_parts[3],
+            day_of_week=cron_parts[4],
+            timezone=_tz.utc
+        )
+        # Ask the trigger for the next fire time relative to now (UTC-aware)
+        now = datetime.utcnow().replace(tzinfo=_tz.utc)
+        next_run = trigger.get_next_fire_time(None, now)
+        if next_run:
+            # Normalize to UTC-naive for template consistency
+            next_run_naive = next_run.astimezone(_tz.utc).replace(tzinfo=None)
+            try:
+                print(f"[Scheduler] Next run (computed) for archive_{archive_id}: {next_run_naive.isoformat()}")
+            except Exception:
+                print(f"[Scheduler] Next run (computed) for archive_{archive_id}: {next_run_naive}")
+            return next_run_naive
+    except Exception as e:
+        print(f"[Scheduler] Could not compute next run from cron for archive_{archive_id}: {e}")
+
     return None
