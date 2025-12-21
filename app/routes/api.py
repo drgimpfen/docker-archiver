@@ -87,9 +87,23 @@ def get_job_details(job_id):
             else:
                 metric['file_exists'] = None
     
+    job_out = dict(job)
+    for k in ('start_time', 'end_time'):
+        if job_out.get(k):
+            job_out[k] = utils.to_iso_z(job_out[k])
+
+    metrics_out = []
+    for m in metrics:
+        md = dict(m)
+        for key, val in list(md.items()):
+            # convert any datetime-like fields
+            if hasattr(val, 'astimezone'):
+                md[key] = utils.to_iso_z(val)
+        metrics_out.append(md)
+
     return jsonify({
-        'job': dict(job),
-        'metrics': [dict(m) for m in metrics]
+        'job': job_out,
+        'metrics': metrics_out
     })
 
 
@@ -609,8 +623,17 @@ def list_jobs():
         cur.execute(query, params)
         jobs = cur.fetchall()
     
+    # Convert any datetime fields to ISO UTC strings with 'Z' so the client parses them
+    jobs_out = []
+    for j in jobs:
+        jd = dict(j)
+        for k in ('start_time', 'end_time'):
+            if jd.get(k):
+                jd[k] = utils.to_iso_z(jd[k])
+        jobs_out.append(jd)
+
     return jsonify({
-        'jobs': [dict(j) for j in jobs]
+        'jobs': jobs_out
     })
 
 

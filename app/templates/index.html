@@ -107,7 +107,7 @@
                 {% if next_scheduled %}
                     <h6 class="mb-2">{{ next_scheduled|datetime('%H:%M') }}</h6>
                     <small class="text-muted">{{ next_scheduled|datetime('%Y-%m-%d') }}</small>
-                    <br><small class="text-info" data-next-run="{{ next_scheduled.isoformat() }}"><span class="time-until"></span></small>
+                    <br><small class="text-info" data-next-run="{{ next_scheduled|iso_z }}"><span class="time-until"></span></small>
                 {% else %}
                     <h6 class="mb-2 text-muted">None</h6>
                     <small class="text-muted">No schedules active</small>
@@ -353,8 +353,8 @@
                                             <span class="text-muted small">N/A</span>
                                         {% endif %}
                                     </td>
-                                    <td><small style="white-space: nowrap;" id="row-job-start-{{ job.id }}" data-start="{{ job.start_time.strftime('%Y-%m-%dT%H:%M:%SZ') if job.start_time else '' }}">{{ job.start_time|datetime('%Y-%m-%d %H:%M') }}</small></td>
-                                    <td><small style="white-space: nowrap;" id="row-job-end-{{ job.id }}" data-end="{{ job.end_time.strftime('%Y-%m-%dT%H:%M:%SZ') if job.end_time else '' }}">{{ job.end_time|datetime('%Y-%m-%d %H:%M') }}</small></td>
+                                    <td><small style="white-space: nowrap;" id="row-job-start-{{ job.id }}" data-start="{{ job.start_time|iso_z or '' }}">{{ job.start_time|datetime('%Y-%m-%d %H:%M') }}</small></td>
+                                    <td><small style="white-space: nowrap;" id="row-job-end-{{ job.id }}" data-end="{{ job.end_time|iso_z or '' }}">{{ job.end_time|datetime('%Y-%m-%d %H:%M') }}</small></td>
                                     <td><small><span id="row-job-duration-{{ job.id }}">{% if job.status != 'running' %}{{ format_duration(job.duration_seconds) }}{% else %}&mdash;{% endif %}</span></small></td>
                                     <td style="text-align: right;">
                                         <span id="row-job-size-{{ job.id }}">

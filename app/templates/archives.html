@@ -52,7 +52,7 @@
                         <small class="d-inline-block text-truncate" style="max-width: 100px; vertical-align: middle;">{{ archive.schedule_cron }}</small>
                     </span>
                     {% if archive.next_run %}
-                    <small class="text-muted ms-2 d-none d-lg-inline" data-next-run="{{ archive.next_run.isoformat() }}">(<span class="time-until"></span>)</small>
+                    <small class="text-muted ms-2 d-none d-lg-inline" data-next-run="{{ archive.next_run|iso_z }}">(<span class="time-until"></span>)</small>
                     {% endif %}
                     {% elif archive.schedule_enabled %}
                     <span class="badge bg-warning">

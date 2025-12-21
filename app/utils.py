@@ -97,3 +97,20 @@ def get_disk_usage(path='/archives'):
         }
     except Exception:
         return {'total': 0, 'used': 0, 'free': 0, 'percent': 0}
+
+
+def to_iso_z(dt):
+    """Convert a datetime-like object to an ISO 8601 UTC string ending with 'Z'.
+
+    If `dt` is None, returns None. If `dt` isn't a datetime-like object, returns
+    the original value as string.
+    """
+    if dt is None:
+        return None
+    try:
+        from datetime import timezone
+        if hasattr(dt, 'astimezone'):
+            return dt.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    except Exception:
+        pass
+    return str(dt)

@@ -15,7 +15,7 @@ from app.scheduler import init_scheduler, get_next_run_time
 from app.stacks import discover_stacks, get_stack_mount_paths
 from app.downloads import get_download_by_token, prepare_archive_for_download
 from app.notifications import get_setting
-from app.utils import format_bytes, format_duration, get_disk_usage
+from app.utils import format_bytes, format_duration, get_disk_usage, to_iso_z
 from pathlib import Path
 
 # Import blueprints
@@ -217,6 +217,14 @@ def datetime_filter(dt, format_string='%Y-%m-%d %H:%M:%S'):
     from app.utils import format_datetime
     return format_datetime(dt, format_string)
 
+
+@app.template_filter('iso_z')
+def iso_z_filter(dt):
+    """Convert a datetime-like object to ISO UTC with trailing 'Z'."""
+    try:
+        return to_iso_z(dt)
+    except Exception:
+        return dt
 
 # Core routes
 @app.route('/health')
