@@ -405,24 +405,34 @@ async function confirmRunCleanup(dry, bsModal, modalEl) {
 
             // Show inline status under the Run button with link to history
             try {
-                const statusEl = document.getElementById('cleanupStatus');
                 const jobId = data.job_id;
+                let statusEl = document.getElementById('cleanupStatus');
+                const makeAlert = (html) => `\n                        <div class="alert alert-success alert-dismissible fade show" role="alert">\n                            ${html}\n                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>\n                        </div>`;
+
+                let alertHtml;
                 if (jobId) {
-                    statusEl.innerHTML = `
-                        <div class="alert alert-success alert-dismissible fade show" role="alert">
-                            Cleanup started. <a href="#" class="alert-link" onclick="(function(){ try { showJobDetails(${jobId}); } catch(e){ window.location='{{ url_for('history.list_history') }}'; } return false; })()">View Job</a>
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                        </div>`;
+                    alertHtml = makeAlert(`Cleanup started. <a href="#" class="alert-link" onclick="(function(){ try { showJobDetails(${jobId}); } catch(e){ window.location='{{ url_for('history.list_history') }}'; } return false; })()">View Job</a>`);
                 } else {
                     const historyUrl = "{{ url_for('history.list_history') }}";
-                    statusEl.innerHTML = `
-                        <div class="alert alert-success alert-dismissible fade show" role="alert">
-                            Cleanup started. <a href="${historyUrl}" class="alert-link">View History</a>
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                        </div>`;
+                    alertHtml = makeAlert(`Cleanup started. <a href="${historyUrl}" class="alert-link">View History</a>`);
+                }
+
+                if (statusEl) {
+                    statusEl.innerHTML = alertHtml;
+                    // Scroll into view so user notices it
+                    statusEl.scrollIntoView({behavior: 'smooth', block: 'center'});
+                } else {
+                    // Fallback: insert at top of main content
+                    const main = document.querySelector('main') || document.querySelector('body');
+                    const wrapper = document.createElement('div');
+                    wrapper.innerHTML = alertHtml;
+                    if (main && main.firstChild) main.insertBefore(wrapper, main.firstChild);
+                    else document.body.insertAdjacentElement('afterbegin', wrapper);
+                    // Scroll to it
+                    wrapper.scrollIntoView({behavior: 'smooth', block: 'center'});
                 }
             } catch (e) {
-                // ignore DOM errors
+                console.warn('Failed to render cleanup status alert:', e);
             }
 
             bsModal.hide();
