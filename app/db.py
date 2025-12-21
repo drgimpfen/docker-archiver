@@ -216,73 +216,78 @@ def init_db():
         """)
         
         # Migrate naive TIMESTAMP columns to TIMESTAMPTZ (preserve value as UTC)
-        cur.execute("""
-            DO $$
-            BEGIN
-                -- Users
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='created_at' AND data_type='timestamp without time zone') THEN
-                    EXECUTE 'ALTER TABLE users ALTER COLUMN created_at TYPE timestamptz USING created_at AT TIME ZONE ''UTC''';
-                END IF;
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='updated_at' AND data_type='timestamp without time zone') THEN
-                    EXECUTE 'ALTER TABLE users ALTER COLUMN updated_at TYPE timestamptz USING updated_at AT TIME ZONE ''UTC''';
-                END IF;
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='last_login' AND data_type='timestamp without time zone') THEN
-                    EXECUTE 'ALTER TABLE users ALTER COLUMN last_login TYPE timestamptz USING last_login AT TIME ZONE ''UTC''';
-                END IF;
+        import os
+        if os.environ.get('MIGRATE_TIMESTAMPTZ', '').lower() in ('1','true','yes'):
+            print('[DB] MIGRATE_TIMESTAMPTZ enabled: applying TIMESTAMP -> TIMESTAMPTZ migrations (this may take a while)')
+            cur.execute("""
+                DO $$
+                BEGIN
+                    -- Users
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='created_at' AND data_type='timestamp without time zone') THEN
+                        EXECUTE 'ALTER TABLE users ALTER COLUMN created_at TYPE timestamptz USING created_at AT TIME ZONE ''UTC''';
+                    END IF;
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='updated_at' AND data_type='timestamp without time zone') THEN
+                        EXECUTE 'ALTER TABLE users ALTER COLUMN updated_at TYPE timestamptz USING updated_at AT TIME ZONE ''UTC''';
+                    END IF;
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='last_login' AND data_type='timestamp without time zone') THEN
+                        EXECUTE 'ALTER TABLE users ALTER COLUMN last_login TYPE timestamptz USING last_login AT TIME ZONE ''UTC''';
+                    END IF;
 
-                -- Archives
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='archives' AND column_name='created_at' AND data_type='timestamp without time zone') THEN
-                    EXECUTE 'ALTER TABLE archives ALTER COLUMN created_at TYPE timestamptz USING created_at AT TIME ZONE ''UTC''';
-                END IF;
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='archives' AND column_name='updated_at' AND data_type='timestamp without time zone') THEN
-                    EXECUTE 'ALTER TABLE archives ALTER COLUMN updated_at TYPE timestamptz USING updated_at AT TIME ZONE ''UTC''';
-                END IF;
+                    -- Archives
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='archives' AND column_name='created_at' AND data_type='timestamp without time zone') THEN
+                        EXECUTE 'ALTER TABLE archives ALTER COLUMN created_at TYPE timestamptz USING created_at AT TIME ZONE ''UTC''';
+                    END IF;
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='archives' AND column_name='updated_at' AND data_type='timestamp without time zone') THEN
+                        EXECUTE 'ALTER TABLE archives ALTER COLUMN updated_at TYPE timestamptz USING updated_at AT TIME ZONE ''UTC''';
+                    END IF;
 
-                -- Jobs
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='jobs' AND column_name='start_time' AND data_type='timestamp without time zone') THEN
-                    EXECUTE 'ALTER TABLE jobs ALTER COLUMN start_time TYPE timestamptz USING start_time AT TIME ZONE ''UTC''';
-                END IF;
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='jobs' AND column_name='end_time' AND data_type='timestamp without time zone') THEN
-                    EXECUTE 'ALTER TABLE jobs ALTER COLUMN end_time TYPE timestamptz USING end_time AT TIME ZONE ''UTC''';
-                END IF;
+                    -- Jobs
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='jobs' AND column_name='start_time' AND data_type='timestamp without time zone') THEN
+                        EXECUTE 'ALTER TABLE jobs ALTER COLUMN start_time TYPE timestamptz USING start_time AT TIME ZONE ''UTC''';
+                    END IF;
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='jobs' AND column_name='end_time' AND data_type='timestamp without time zone') THEN
+                        EXECUTE 'ALTER TABLE jobs ALTER COLUMN end_time TYPE timestamptz USING end_time AT TIME ZONE ''UTC''';
+                    END IF;
 
-                -- job_stack_metrics
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='job_stack_metrics' AND column_name='start_time' AND data_type='timestamp without time zone') THEN
-                    EXECUTE 'ALTER TABLE job_stack_metrics ALTER COLUMN start_time TYPE timestamptz USING start_time AT TIME ZONE ''UTC''';
-                END IF;
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='job_stack_metrics' AND column_name='end_time' AND data_type='timestamp without time zone') THEN
-                    EXECUTE 'ALTER TABLE job_stack_metrics ALTER COLUMN end_time TYPE timestamptz USING end_time AT TIME ZONE ''UTC''';
-                END IF;
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='job_stack_metrics' AND column_name='deleted_at' AND data_type='timestamp without time zone') THEN
-                    EXECUTE 'ALTER TABLE job_stack_metrics ALTER COLUMN deleted_at TYPE timestamptz USING deleted_at AT TIME ZONE ''UTC''';
-                END IF;
+                    -- job_stack_metrics
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='job_stack_metrics' AND column_name='start_time' AND data_type='timestamp without time zone') THEN
+                        EXECUTE 'ALTER TABLE job_stack_metrics ALTER COLUMN start_time TYPE timestamptz USING start_time AT TIME ZONE ''UTC''';
+                    END IF;
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='job_stack_metrics' AND column_name='end_time' AND data_type='timestamp without time zone') THEN
+                        EXECUTE 'ALTER TABLE job_stack_metrics ALTER COLUMN end_time TYPE timestamptz USING end_time AT TIME ZONE ''UTC''';
+                    END IF;
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='job_stack_metrics' AND column_name='deleted_at' AND data_type='timestamp without time zone') THEN
+                        EXECUTE 'ALTER TABLE job_stack_metrics ALTER COLUMN deleted_at TYPE timestamptz USING deleted_at AT TIME ZONE ''UTC''';
+                    END IF;
 
-                -- download_tokens
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='download_tokens' AND column_name='created_at' AND data_type='timestamp without time zone') THEN
-                    EXECUTE 'ALTER TABLE download_tokens ALTER COLUMN created_at TYPE timestamptz USING created_at AT TIME ZONE ''UTC''';
-                END IF;
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='download_tokens' AND column_name='expires_at' AND data_type='timestamp without time zone') THEN
-                    EXECUTE 'ALTER TABLE download_tokens ALTER COLUMN expires_at TYPE timestamptz USING expires_at AT TIME ZONE ''UTC''';
-                END IF;
+                    -- download_tokens
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='download_tokens' AND column_name='created_at' AND data_type='timestamp without time zone') THEN
+                        EXECUTE 'ALTER TABLE download_tokens ALTER COLUMN created_at TYPE timestamptz USING created_at AT TIME ZONE ''UTC''';
+                    END IF;
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='download_tokens' AND column_name='expires_at' AND data_type='timestamp without time zone') THEN
+                        EXECUTE 'ALTER TABLE download_tokens ALTER COLUMN expires_at TYPE timestamptz USING expires_at AT TIME ZONE ''UTC''';
+                    END IF;
 
-                -- api_tokens
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='api_tokens' AND column_name='created_at' AND data_type='timestamp without time zone') THEN
-                    EXECUTE 'ALTER TABLE api_tokens ALTER COLUMN created_at TYPE timestamptz USING created_at AT TIME ZONE ''UTC''';
-                END IF;
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='api_tokens' AND column_name='expires_at' AND data_type='timestamp without time zone') THEN
-                    EXECUTE 'ALTER TABLE api_tokens ALTER COLUMN expires_at TYPE timestamptz USING expires_at AT TIME ZONE ''UTC''';
-                END IF;
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='api_tokens' AND column_name='last_used_at' AND data_type='timestamp without time zone') THEN
-                    EXECUTE 'ALTER TABLE api_tokens ALTER COLUMN last_used_at TYPE timestamptz USING last_used_at AT TIME ZONE ''UTC''';
-                END IF;
+                    -- api_tokens
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='api_tokens' AND column_name='created_at' AND data_type='timestamp without time zone') THEN
+                        EXECUTE 'ALTER TABLE api_tokens ALTER COLUMN created_at TYPE timestamptz USING created_at AT TIME ZONE ''UTC''';
+                    END IF;
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='api_tokens' AND column_name='expires_at' AND data_type='timestamp without time zone') THEN
+                        EXECUTE 'ALTER TABLE api_tokens ALTER COLUMN expires_at TYPE timestamptz USING expires_at AT TIME ZONE ''UTC''';
+                    END IF;
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='api_tokens' AND column_name='last_used_at' AND data_type='timestamp without time zone') THEN
+                        EXECUTE 'ALTER TABLE api_tokens ALTER COLUMN last_used_at TYPE timestamptz USING last_used_at AT TIME ZONE ''UTC''';
+                    END IF;
 
-                -- settings
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='settings' AND column_name='updated_at' AND data_type='timestamp without time zone') THEN
-                    EXECUTE 'ALTER TABLE settings ALTER COLUMN updated_at TYPE timestamptz USING updated_at AT TIME ZONE ''UTC''';
-                END IF;
+                    -- settings
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='settings' AND column_name='updated_at' AND data_type='timestamp without time zone') THEN
+                        EXECUTE 'ALTER TABLE settings ALTER COLUMN updated_at TYPE timestamptz USING updated_at AT TIME ZONE ''UTC''';
+                    END IF;
 
-            END $$;
-        """)
+                END $$;
+            """)
+        else:
+            print('[DB] MIGRATE_TIMESTAMPTZ not enabled; skipping timestamptz migration. Set MIGRATE_TIMESTAMPTZ=true to enable.')
 
         # Insert default settings if not exist
         cur.execute("""
