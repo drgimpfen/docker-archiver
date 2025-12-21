@@ -80,6 +80,18 @@ def run_retention(archive_config, job_id, is_dry_run=False, log_callback=None):
                     ts_str = m.group(1)
                     timestamp = datetime.strptime(ts_str, '%Y%m%d_%H%M%S')
 
+                    # Interpret parsed timestamp as display timezone (where filenames are created),
+                    # then normalize to UTC for consistent comparisons with utils.now()
+                    try:
+                        from datetime import timezone
+                        local_tz = utils.get_display_timezone()
+                        timestamp_local = timestamp.replace(tzinfo=local_tz)
+                        timestamp_utc = timestamp_local.astimezone(timezone.utc)
+                    except Exception:
+                        # Fallback: assume UTC
+                        from datetime import timezone
+                        timestamp_utc = timestamp.replace(tzinfo=timezone.utc)
+
                     # Get size
                     if item.is_file():
                         size = item.stat().st_size
@@ -88,7 +100,7 @@ def run_retention(archive_config, job_id, is_dry_run=False, log_callback=None):
 
                     archives.append({
                         'path': item,
-                        'timestamp': timestamp,
+                        'timestamp': timestamp_utc,
                         'size': size,
                         'is_dir': item.is_dir()
                     })
@@ -162,8 +174,12 @@ def filter_one_per_day(archives, log):
     # Group by date
     by_date = defaultdict(list)
     for archive in archives:
-        date_key = archive['timestamp'].date()
-        by_date[date_key].append(archive)
+        # Use display timezone date for one-per-day grouping so 'days' align with user-visible dates
+        try:
+            local_date = archive['timestamp'].astimezone(utils.get_display_timezone()).date()
+        except Exception:
+            local_date = archive['timestamp'].date()
+        by_date[local_date].append(archive)
     
     log('INFO', f"One-per-day filter: Found {len(by_date)} unique date(s)")
     

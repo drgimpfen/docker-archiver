@@ -13,7 +13,7 @@ from app.db import init_db, get_db
 from app.auth import login_required, authenticate_user, create_user, get_user_count, get_current_user
 from app.scheduler import init_scheduler, get_next_run_time
 from app.stacks import discover_stacks, get_stack_mount_paths
-from app.downloads import get_download_by_token, prepare_archive_for_download
+from app.downloads import get_download_by_token, get_download_token_row, prepare_archive_for_download, increment_download_count
 from app.notifications import get_setting
 from app.utils import format_bytes, format_duration, get_disk_usage, to_iso_z
 from pathlib import Path
@@ -325,9 +325,18 @@ def download_archive(token):
         return render_template('download_error.html', reason='Ungültiger Download-Link', hint='Der Link ist ungültig oder wurde nie erstellt.'), 404
 
     # Check expiry
-    from datetime import datetime
-    now = datetime.utcnow()
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
     expires_at = token_row.get('expires_at')
+    if expires_at:
+        try:
+            # Normalize to UTC-aware datetime for reliable comparison
+            expires_at = expires_at.astimezone(timezone.utc) if getattr(expires_at, 'tzinfo', None) else expires_at.replace(tzinfo=timezone.utc)
+        except Exception:
+            try:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            except Exception:
+                expires_at = None
     if expires_at and expires_at <= now:
         return render_template('download_error.html', reason='Der Download-Link ist abgelaufen', hint='Bitte erstelle einen neuen Download-Link für die gewünschte Datei.'), 410
 

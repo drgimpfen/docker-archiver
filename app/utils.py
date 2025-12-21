@@ -8,16 +8,21 @@ from zoneinfo import ZoneInfo
 
 
 def now():
-    """Get current datetime in UTC (for database storage)."""
+    """Get current datetime in UTC (for database storage).
+
+    Returns a timezone-aware datetime with tzinfo=timezone.utc to avoid naive/aware
+    mismatches across the app."""
     from datetime import timezone
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(timezone.utc)
 
 
 def local_now():
-    """Get current datetime in local timezone (for filenames, logs)."""
+    """Get current datetime in local timezone (for filenames, logs).
+
+    Returns a timezone-aware datetime in the configured display timezone."""
     tz = get_display_timezone()
     from datetime import timezone
-    return datetime.now(timezone.utc).astimezone(tz).replace(tzinfo=None)
+    return datetime.now(timezone.utc).astimezone(tz)
 
 
 def get_display_timezone():
@@ -30,20 +35,33 @@ def get_display_timezone():
 
 
 def format_datetime(dt, format_string='%Y-%m-%d %H:%M:%S'):
-    """Convert UTC datetime to local timezone for display."""
+    """Convert a datetime (assumed UTC if naive) to local timezone for display.
+
+    - If `dt` is naive, it's assumed to be UTC and is made timezone-aware.
+    - If `dt` is timezone-aware, it's converted from its timezone to the display timezone.
+    """
     if dt is None:
         return '-'
     if not isinstance(dt, datetime):
         return str(dt)
-    
-    # Assume dt is UTC (from database)
+
     from datetime import timezone
-    dt_utc = dt.replace(tzinfo=timezone.utc)
-    
-    # Convert to display timezone
     local_tz = get_display_timezone()
-    dt_local = dt_utc.astimezone(local_tz)
-    
+
+    try:
+        if getattr(dt, 'tzinfo', None):
+            # dt is timezone-aware: convert to display tz
+            dt_local = dt.astimezone(local_tz)
+        else:
+            # dt is naive: assume UTC
+            dt_local = dt.replace(tzinfo=timezone.utc).astimezone(local_tz)
+    except Exception:
+        # Fallback: convert using simple replace
+        try:
+            dt_local = dt.replace(tzinfo=timezone.utc).astimezone(local_tz)
+        except Exception:
+            return str(dt)
+
     return dt_local.strftime(format_string)
 
 
