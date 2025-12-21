@@ -7,6 +7,8 @@ from app.db import get_db
 from app.executor import ArchiveExecutor
 from app.notifications import get_setting
 import os
+import time
+import threading
 
 
 scheduler = None
@@ -64,6 +66,12 @@ def init_scheduler():
     # Schedule main cleanup task
     schedule_cleanup_task()
 
+    # Start Redis subscriber for hot-reloads if configured
+    try:
+        start_redis_listener()
+    except Exception as e:
+        print(f"[Scheduler] Redis listener failed to start: {e}")
+
     print("[Scheduler] Initialized and started")
     return scheduler
 
@@ -113,6 +121,64 @@ def schedule_cleanup_task():
         print(f"[Scheduler] Scheduled cleanup task with cron: {cleanup_cron}")
     except Exception as e:
         print(f"[Scheduler] Failed to schedule cleanup task: {e}")
+
+
+# --------------------- Redis-based hot reload helpers ---------------------
+
+def _redis_client():
+    """Return a redis client built from REDIS_URL or None if not configured or unavailable."""
+    url = os.environ.get('REDIS_URL')
+    if not url:
+        return None
+    try:
+        import redis
+        return redis.from_url(url)
+    except Exception as e:
+        print(f"[Scheduler] Redis client unavailable: {e}")
+        return None
+
+
+def publish_reload_signal():
+    """Publish a reload message on the scheduler channel to notify other processes."""
+    client = _redis_client()
+    if not client:
+        return False
+    try:
+        client.publish('scheduler:reload', 'reload')
+        return True
+    except Exception as e:
+        print(f"[Scheduler] Failed to publish reload signal: {e}")
+        return False
+
+
+def start_redis_listener():
+    """Start a background thread that subscribes to Redis and calls reload_schedules() on messages."""
+    client = _redis_client()
+    if not client:
+        print("[Scheduler] REDIS_URL not set — redis-based scheduler reload disabled")
+        return
+
+    def _run():
+        while True:
+            try:
+                pub = client.pubsub(ignore_subscribe_messages=True)
+                pub.subscribe('scheduler:reload')
+                print("[Scheduler] Subscribed to Redis channel 'scheduler:reload' for hot-reloads")
+                for message in pub.listen():
+                    if not message:
+                        continue
+                    try:
+                        print("[Scheduler] Received reload signal from Redis, reloading schedules")
+                        reload_schedules()
+                    except Exception as e:
+                        print(f"[Scheduler] Error on reload from Redis: {e}")
+                # If listen loop exits try to reconnect
+            except Exception as e:
+                print(f"[Scheduler] Redis listener error: {e}, retrying in 5s")
+                time.sleep(5)
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
 
 
 def reload_schedules():

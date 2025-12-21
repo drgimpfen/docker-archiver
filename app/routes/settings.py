@@ -125,6 +125,11 @@ def manage_settings():
             
             # Reload scheduler if maintenance mode changed
             reload_schedules()
+            try:
+                from app.scheduler import publish_reload_signal
+                publish_reload_signal()
+            except Exception:
+                pass
             
             # Reschedule cleanup task if settings changed
             from app.scheduler import schedule_cleanup_task

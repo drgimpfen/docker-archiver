@@ -11,7 +11,7 @@ from app.auth import login_required, get_current_user
 from app.db import get_db
 from app.stacks import discover_stacks
 from app.executor import ArchiveExecutor
-from app.scheduler import reload_schedules, get_next_run_time
+from app.scheduler import reload_schedules, get_next_run_time, publish_reload_signal
 from app.utils import format_bytes, format_duration, get_disk_usage, to_iso_z
 from app import utils
 from app.notifications import get_setting
@@ -199,6 +199,10 @@ def create():
         
         # Reload scheduler
         reload_schedules()
+        try:
+            publish_reload_signal()
+        except Exception:
+            pass
         
         if _is_ajax_request():
             # Return rendered archive card so client can insert it without a full page reload
@@ -312,6 +316,10 @@ def edit(archive_id):
             conn.commit()
         
         reload_schedules()
+        try:
+            publish_reload_signal()
+        except Exception:
+            pass
 
         if _is_ajax_request():
             # Return updated rendered card so client can replace the card without full reload
@@ -350,6 +358,10 @@ def delete(archive_id):
             conn.commit()
         
         reload_schedules()
+        try:
+            publish_reload_signal()
+        except Exception:
+            pass
         
         if _is_ajax_request():
             return jsonify({'status': 'success', 'archive_id': archive_id}), 200
