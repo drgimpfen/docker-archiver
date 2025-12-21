@@ -352,14 +352,22 @@ def cleanup_temp_files(is_dry_run=False, log_callback=None):
                     except Exception:
                         display_path = rel
 
+                # Compute reclaimable size for clearer reporting
+                try:
+                    dir_size = get_directory_size(stack_dir)
+                except Exception:
+                    dir_size = 0
+
                 if is_dry_run:
-                    log(f"Would delete empty stack directory: {display_path}{reference_info}")
+                    log(f"Would delete Unreferenced empty stack directory: {display_path}{reference_info} — no DB references / no valid backups (would reclaim {format_bytes(dir_size)})")
                 else:
-                    log(f"Deleting empty stack directory: {display_path}{reference_info}")
+                    log(f"Deleting Unreferenced empty stack directory: {display_path}{reference_info} — removing (reclaimed {format_bytes(dir_size)})")
                     try:
                         shutil.rmtree(stack_dir)
+                        # Account for reclaimed bytes from directory removal
+                        reclaimed_bytes += dir_size
                     except Exception as e:
-                        log(f"Failed to delete empty stack directory {display_path}: {e}")
+                        log(f"Failed to delete Unreferenced empty stack directory {display_path}: {e}")
     
     if temp_count > 0:
         log(f"Found {temp_count} temp file(s)/directory(ies), {format_bytes(reclaimed_bytes)} to reclaim")
