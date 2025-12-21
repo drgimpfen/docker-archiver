@@ -68,7 +68,7 @@ def run_cleanup(dry_run_override=None):
     try:
         orphaned_stats = cleanup_orphaned_archives(is_dry_run, log_message)
         log_stats = cleanup_old_logs(log_retention_days, is_dry_run, log_message)
-        temp_stats = cleanup_temp_files(is_dry_run, log_message)
+        temp_stats = cleanup_unreferenced_dirs(is_dry_run, log_message)
         
         total_reclaimed = orphaned_stats.get('reclaimed', 0) + temp_stats.get('reclaimed', 0)
         
@@ -97,7 +97,7 @@ def run_cleanup(dry_run_override=None):
             summary = (
                 f"Summary: Orphaned Archives: {orphaned_count} ({format_bytes(orphaned_reclaimed)}), "
                 f"Unreferenced files: {unref_count} ({format_bytes(unref_reclaimed)}), "
-                f"Temp Files: {temp_count} ({format_bytes(temp_reclaimed)}), "
+                f"Unreferenced Directories: {temp_count} ({format_bytes(temp_reclaimed)}), "
                 f"Old Logs: {old_logs}, Total Reclaimed: {format_bytes(total_reclaimed)}"
             )
             log_message('INFO', summary)
@@ -245,37 +245,29 @@ def cleanup_old_logs(retention_days, is_dry_run=False, log_callback=None):
     return {'count': count}
 
 
-def cleanup_temp_files(is_dry_run=False, log_callback=None):
-    """Remove temporary files from failed jobs."""
+def cleanup_unreferenced_dirs(is_dry_run=False, log_callback=None):
+    """Detect and optionally delete unreferenced empty stack directories.
+
+    This function scans archive directories for stack directories that contain
+    no valid backups (per `is_stack_directory_empty`) and have no active DB
+    references. It reports candidates in dry-run mode and deletes them in live
+    mode, returning stats {'count': int, 'reclaimed': int}.
+    """
     def log(message):
         if log_callback:
             log_callback('INFO', message)
         else:
             print(f"[Cleanup] {message}")
     
-    log("Checking for temporary files...")
+    log("Checking for unreferenced directories...")
     
     archive_base = Path(ARCHIVE_BASE)
     if not archive_base.exists():
         return {'count': 0, 'reclaimed': 0}
     
-    temp_count = 0
+    dir_count = 0
     reclaimed_bytes = 0
     
-    # Find all .tmp files recursively
-    for temp_file in archive_base.rglob('*.tmp'):
-        size = temp_file.stat().st_size if temp_file.exists() else 0
-        temp_count += 1
-        reclaimed_bytes += size
-        
-        if is_dry_run:
-            log(f"Would delete temp file: {temp_file.relative_to(archive_base)} ({format_bytes(size)})")
-        else:
-            log(f"Deleting temp file: {temp_file.relative_to(archive_base)} ({format_bytes(size)})")
-            try:
-                temp_file.unlink()
-            except Exception as e:
-                log(f"Failed to delete temp file {temp_file.relative_to(archive_base)}: {e}")
     
     # Find empty stack directories
     for archive_dir in archive_base.iterdir():
@@ -308,7 +300,7 @@ def cleanup_temp_files(is_dry_run=False, log_callback=None):
                         log(f"Skipping deletion (active DB references exist): {stack_dir.relative_to(archive_base)}")
                     continue
 
-                temp_count += 1
+                dir_count += 1
 
                 # Attempt to fetch a recent job reference for context (even if deleted) so logs show source
                 reference_info = ''
@@ -359,22 +351,22 @@ def cleanup_temp_files(is_dry_run=False, log_callback=None):
                     dir_size = 0
 
                 if is_dry_run:
-                    log(f"Would delete Unreferenced empty stack directory: {display_path}{reference_info} — no DB references / no valid backups (would reclaim {format_bytes(dir_size)})")
+                    log(f"Would delete unreferenced directory: {display_path}{reference_info} — no DB references / no valid backups (would reclaim {format_bytes(dir_size)})")
                 else:
-                    log(f"Deleting Unreferenced empty stack directory: {display_path}{reference_info} — removing (reclaimed {format_bytes(dir_size)})")
+                    log(f"Deleting unreferenced directory: {display_path}{reference_info} — removing (reclaimed {format_bytes(dir_size)})")
                     try:
                         shutil.rmtree(stack_dir)
                         # Account for reclaimed bytes from directory removal
                         reclaimed_bytes += dir_size
                     except Exception as e:
-                        log(f"Failed to delete Unreferenced empty stack directory {display_path}: {e}")
+                        log(f"Failed to delete unreferenced directory {display_path}: {e}")
     
-    if temp_count > 0:
-        log(f"Found {temp_count} temp file(s)/directory(ies), {format_bytes(reclaimed_bytes)} to reclaim")
+    if dir_count > 0:
+        log(f"Found {dir_count} unreferenced directory(ies), {format_bytes(reclaimed_bytes)} to reclaim")
     else:
-        log("No temporary files found")
+        log("No unreferenced directories found")
     
-    return {'count': temp_count, 'reclaimed': reclaimed_bytes}
+    return {'count': dir_count, 'reclaimed': reclaimed_bytes}
 
 
 def is_stack_directory_empty(stack_dir, log_callback=None):
@@ -615,7 +607,7 @@ def send_cleanup_notification(orphaned_stats, log_stats, temp_stats, uf_stats, t
     <li><strong>Orphaned Archives:</strong> {orphaned_stats.get('count', 0)} removed ({format_bytes(orphaned_stats.get('reclaimed', 0))})</li>
     <li><strong>Unreferenced files total:</strong> {uf_stats.get('count', 0)} ({format_bytes(uf_stats.get('reclaimed', 0))})</li>
     <li><strong>Old Logs:</strong> {log_stats.get('count', 0)} deleted</li>
-    <li><strong>Temp Files:</strong> {temp_stats.get('count', 0)} removed ({format_bytes(temp_stats.get('reclaimed', 0))})</li>
+    <li><strong>Unreferenced Directories:</strong> {temp_stats.get('count', 0)} removed ({format_bytes(temp_stats.get('reclaimed', 0))})</li>
     <li><strong>Total Reclaimed:</strong> {format_bytes(total_reclaimed)}</li>
 </ul>
 """
