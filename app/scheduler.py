@@ -202,5 +202,21 @@ def get_next_run_time(archive_id):
     
     job = scheduler.get_job(f"archive_{archive_id}")
     if job and job.next_run_time:
-        return job.next_run_time
+        try:
+            # Normalize to UTC-naive datetime for consistent display handling in templates
+            from datetime import timezone
+            next_run = job.next_run_time.astimezone(timezone.utc).replace(tzinfo=None)
+        except Exception:
+            # Fallback: strip tzinfo if present
+            nr = job.next_run_time
+            try:
+                next_run = nr.replace(tzinfo=None)
+            except Exception:
+                next_run = nr
+        # Debug log to help trace why the dashboard may show nothing
+        try:
+            print(f"[Scheduler] Next run for archive_{archive_id}: {next_run.isoformat()}")
+        except Exception:
+            print(f"[Scheduler] Next run for archive_{archive_id}: {next_run}")
+        return next_run
     return None
