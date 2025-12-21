@@ -30,9 +30,61 @@ def init_scheduler():
         os.close(fd)
         created = True
     except FileExistsError:
-        created = False
+        # If file exists, check whether the recorded PID is still alive; if not, remove stale sentinel
+        try:
+            with open(sentinel, 'r') as sf:
+                content = sf.read().strip()
+                if content:
+                    try:
+                        existing_pid = int(content)
+                        # On Unix, sending signal 0 will raise an OSError if process is not running
+                        try:
+                            os.kill(existing_pid, 0)
+                            # process is alive
+                            created = False
+                        except Exception:
+                            # process not running - remove stale sentinel and claim it
+                            try:
+                                os.remove(sentinel)
+                            except Exception:
+                                pass
+                            try:
+                                fd = os.open(sentinel, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                                os.write(fd, str(os.getpid()).encode())
+                                os.close(fd)
+                                created = True
+                            except Exception:
+                                created = False
+                    except ValueError:
+                        # Invalid content - remove and claim
+                        try:
+                            os.remove(sentinel)
+                        except Exception:
+                            pass
+                        try:
+                            fd = os.open(sentinel, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                            os.write(fd, str(os.getpid()).encode())
+                            os.close(fd)
+                            created = True
+                        except Exception:
+                            created = False
+                else:
+                    # Empty file, try claiming
+                    try:
+                        os.remove(sentinel)
+                    except Exception:
+                        pass
+                    try:
+                        fd = os.open(sentinel, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                        os.write(fd, str(os.getpid()).encode())
+                        os.close(fd)
+                        created = True
+                    except Exception:
+                        created = False
+        except Exception:
+            created = False
     except Exception:
-        # If any filesystem error occurs, proceed cautiously and attempt to start scheduler
+        # If any other filesystem error occurs, proceed cautiously and attempt to start scheduler
         created = True
 
     if not created:
@@ -145,6 +197,10 @@ def publish_reload_signal():
         return False
     try:
         client.publish('scheduler:reload', 'reload')
+        try:
+            print("[Scheduler] Published reload signal to Redis channel 'scheduler:reload'")
+        except Exception:
+            pass
         return True
     except Exception as e:
         print(f"[Scheduler] Failed to publish reload signal: {e}")
