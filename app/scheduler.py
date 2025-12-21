@@ -295,7 +295,19 @@ def reload_schedules():
                 trigger_kwargs['timezone'] = display_tz
 
             trigger = CronTrigger(**trigger_kwargs)
-            
+
+            # Debug: compute and show the next fire time according to the trigger and display timezone
+            try:
+                from datetime import datetime as _dt
+                now_local = _dt.now(display_tz) if display_tz is not None else _dt.utcnow()
+                next_fire_local = trigger.get_next_fire_time(None, now_local)
+                try:
+                    print(f"[Scheduler DEBUG] archive id={archive['id']} cron='{archive['schedule_cron']}' display_tz={display_tz} now={now_local.isoformat()} next_fire_local={next_fire_local.isoformat() if next_fire_local else None}")
+                except Exception:
+                    print(f"[Scheduler DEBUG] archive id={archive['id']} cron='{archive['schedule_cron']}' display_tz={display_tz} now={now_local} next_fire_local={next_fire_local}")
+            except Exception as e:
+                print(f"[Scheduler DEBUG] Could not compute next fire for archive {archive['id']}: {e}")
+
             # Allow a short misfire grace so jobs that just missed due to timing/worker switchover
             # are executed if within the grace window (seconds)
             scheduler.add_job(
@@ -448,6 +460,12 @@ def get_prev_run_time(archive_id):
 
         display_tz = get_display_timezone()
         now = datetime.now(display_tz)
+
+        # Debug: log cron & timezone context used for prev computation
+        try:
+            print(f"[Scheduler DEBUG] get_prev_run_time: archive_id={archive_id} cron='{cron_expr}' display_tz={display_tz} now={now.isoformat()}")
+        except Exception:
+            print(f"[Scheduler DEBUG] get_prev_run_time: archive_id={archive_id} cron='{cron_expr}' display_tz={display_tz} now={now}")
 
         ci = croniter(cron_expr, now)
         prev_local = ci.get_prev(datetime)

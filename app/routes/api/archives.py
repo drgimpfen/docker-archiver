@@ -196,6 +196,10 @@ def create():
             ))
             archive_id = cur.fetchone()['id']
             conn.commit()
+            try:
+                print(f"[Scheduler DEBUG] Saved archive id={archive_id} schedule_enabled={schedule_enabled} schedule_cron='{schedule_cron}'")
+            except Exception:
+                pass
         
         # Reload scheduler
         reload_schedules()
@@ -314,6 +318,10 @@ def edit(archive_id):
                 one_per_day, archive_id
             ))
             conn.commit()
+            try:
+                print(f"[Scheduler DEBUG] Updated archive id={archive_id} schedule_enabled={schedule_enabled} schedule_cron='{schedule_cron}'")
+            except Exception:
+                pass
         
         reload_schedules()
         try:

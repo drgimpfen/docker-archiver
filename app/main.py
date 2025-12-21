@@ -216,6 +216,14 @@ def inject_bind_warnings():
 # Initialize scheduler on startup
 init_scheduler()
 
+# Start a Redis listener in every process so hot-reload signals are received by
+# whichever process is able to trigger schedule reloads (the scheduler owner).
+try:
+    from app.scheduler import start_redis_listener
+    start_redis_listener()
+except Exception as e:
+    print(f"[Main] Could not start Redis listener: {e}")
+
 
 # Custom Jinja2 filters
 @app.template_filter('stack_color')
