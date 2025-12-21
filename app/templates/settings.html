@@ -394,13 +394,25 @@ async function confirmRunCleanup(dry, bsModal, modalEl) {
         });
         const data = await resp.json();
         if (resp.status === 202) {
-            try { showAlert('Cleanup started', 'success'); } catch(e){ alert('Cleanup started'); }
+            if (typeof showAlert === 'function') {
+                showAlert('Cleanup started', 'success');
+            } else {
+                console.log('Cleanup started');
+            }
             bsModal.hide();
         } else {
-            try { showAlert('Error: ' + (data.error || 'Failed to start cleanup'), 'danger'); } catch(e){ alert('Error: ' + (data.error || 'Failed to start cleanup')); }
+            if (typeof showAlert === 'function') {
+                showAlert('Error: ' + (data.error || 'Failed to start cleanup'), 'danger');
+            } else {
+                console.warn('Error: ' + (data.error || 'Failed to start cleanup'));
+            }
         }
     } catch (e) {
-        try { showAlert('Error: ' + e.message, 'danger'); } catch(err){ alert('Error: ' + e.message); }
+        if (typeof showAlert === 'function') {
+            showAlert('Error: ' + e.message, 'danger');
+        } else {
+            console.error('Error: ' + e.message);
+        }
     } finally {
         try { btnDry.disabled = false; btnLive.disabled = false; btnDry.innerHTML = originalDry; btnLive.innerHTML = originalLive; } catch(e){}
     }
