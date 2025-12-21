@@ -3,6 +3,14 @@ import time
 import sys
 import psycopg2
 
+# Ensure project root is on sys.path so `import app` works when this script is
+# executed directly (e.g., as an entrypoint in Docker). We locate the parent
+# directory of this script and add it to sys.path if it's not already present.
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.abspath(os.path.join(_script_dir, '..'))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
 from app.utils import setup_logging, get_logger
 
 # Configure logging using centralized setup so LOG_LEVEL is respected
