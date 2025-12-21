@@ -284,8 +284,9 @@ def cleanup_unreferenced_dirs(is_dry_run=False, log_callback=None):
                 try:
                     with get_db() as conn:
                         cur = conn.cursor()
-                        prefix = str(stack_dir) + '/%'
-                        cur.execute("SELECT 1 FROM job_stack_metrics WHERE archive_path LIKE %s AND deleted_at IS NULL LIMIT 1;", (prefix,))
+                        prefix = str(stack_dir)
+                        like_pattern = prefix + '/%'
+                        cur.execute("SELECT 1 FROM job_stack_metrics WHERE (archive_path = %s OR archive_path LIKE %s) AND deleted_at IS NULL LIMIT 1;", (prefix, like_pattern))
                         active = cur.fetchone()
                 except Exception as e:
                     # If DB check fails, be conservative and skip deletion; log the error
@@ -391,10 +392,31 @@ def is_stack_directory_empty(stack_dir, log_callback=None):
         # If something goes wrong reading dir, treat it as non-empty to be safe
         return False
 
+    # Before scanning files, check whether this directory (or anything under it)
+    # is referenced in the DB. If any active DB reference exists, we must treat
+    # the directory as non-empty and stop immediately.
+    try:
+        prefix = str(stack_dir) + '/%'
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT 1 FROM job_stack_metrics WHERE (archive_path = %s OR archive_path LIKE %s) AND deleted_at IS NULL LIMIT 1;", (str(stack_dir), prefix))
+            rref = cur.fetchone()
+            if rref:
+                # Directory is referenced in DB — not empty
+                if log_callback:
+                    try:
+                        log_callback(f"Directory has active DB reference: {stack_dir}")
+                    except Exception:
+                        pass
+                return False
+    except Exception:
+        # If DB check fails, be conservative
+        return False
+
     # 1) If any archive-like file exists anywhere under this stack_dir, check DB
-    #    whether it's a referenced archive. If a referenced archive is found,
+    #    whether it's a referenced archive. If a referenced archive file is found,
     #    consider the directory non-empty. Unreferenced archive files are noted
-    #    (via log_callback) and *do not* prevent the directory from being treated
+    #    (via log_callback) but do not prevent the directory from being treated
     #    as empty for cleanup.
     archive_exts = ('.tar', '.tar.gz', '.tgz', '.tar.zst', '.zst', '.zip')
 
