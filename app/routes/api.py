@@ -754,6 +754,28 @@ def _get_base_url():
         return result['value'] if result else 'http://localhost:8080'
 
 
+@bp.route('/cleanup/run', methods=['POST'])
+@api_auth_required
+def run_cleanup_manual():
+    """Trigger a manual cleanup run. Accepts JSON: {"dry_run": true|false}.
+
+    The cleanup is started in a background thread and returns 202 Accepted.
+    """
+    try:
+        data = request.get_json() or {}
+        dry_run = data.get('dry_run', None)
+        try:
+            from app import cleanup as _cleanup
+            import threading
+            t = threading.Thread(target=_cleanup.run_cleanup, args=(dry_run,), daemon=True)
+            t.start()
+            return jsonify({'success': True, 'message': 'Cleanup started'}), 202
+        except Exception as e:
+            return jsonify({'error': f'Failed to start cleanup: {e}'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @bp.route('/downloads/status')
 @api_auth_required
 def download_status():

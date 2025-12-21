@@ -13,8 +13,12 @@ from app import utils
 ARCHIVE_BASE = '/archives'
 
 
-def run_cleanup():
-    """Run all cleanup tasks."""
+def run_cleanup(dry_run_override=None):
+    """Run all cleanup tasks.
+
+    If `dry_run_override` is provided (True/False), it overrides the configured
+    `cleanup_dry_run` setting for this invocation.
+    """
     from app.notifications import get_setting
     from datetime import datetime
     
@@ -25,6 +29,9 @@ def run_cleanup():
         return
     
     is_dry_run = get_setting('cleanup_dry_run', 'false').lower() == 'true'
+    if dry_run_override is not None:
+        is_dry_run = bool(dry_run_override)
+
     log_retention_days = int(get_setting('cleanup_log_retention_days', '90'))
     notify_cleanup = get_setting('notify_on_cleanup', 'false').lower() == 'true'
     
@@ -240,15 +247,15 @@ def cleanup_temp_files(is_dry_run=False, log_callback=None):
     for archive_dir in archive_base.iterdir():
         if not archive_dir.is_dir() or archive_dir.name.startswith('_'):
             continue
-        
+
         for stack_dir in archive_dir.iterdir():
             if not stack_dir.is_dir():
                 continue
-            
+
             # Check if stack directory is empty or has no valid backups
-            if is_stack_directory_empty(stack_dir):
+            if is_stack_directory_empty(stack_dir, log_callback=log):
                 temp_count += 1
-                
+
                 if is_dry_run:
                     log(f"Would delete empty stack directory: {stack_dir.relative_to(archive_base)}")
                 else:
@@ -266,33 +273,41 @@ def cleanup_temp_files(is_dry_run=False, log_callback=None):
     return {'count': temp_count, 'reclaimed': reclaimed_bytes}
 
 
-def is_stack_directory_empty(stack_dir):
-    """Check if a stack directory has no valid backups."""
+def is_stack_directory_empty(stack_dir, log_callback=None):
+    """Check if a stack directory has no valid backups.
+
+    Recognizes timestamped folders using the canonical compact format
+    YYYYMMDD_HHMMSS (e.g. 20251221_174043).
+    """
     if not any(stack_dir.iterdir()):
         return True  # Completely empty
-    
+
     # Check for tar files
     has_tar = any(
-        f.suffix in ['.tar', '.gz', '.zst'] 
-        for f in stack_dir.iterdir() 
+        f.suffix in ['.tar', '.gz', '.zst']
+        for f in stack_dir.iterdir()
         if f.is_file()
     )
-    
-    # Check for timestamp directories (folder mode)
+
+    # Check for timestamp directories (folder mode).
     has_timestamp_dirs = any(
         d.is_dir() and is_valid_timestamp_dirname(d.name)
         for d in stack_dir.iterdir()
     )
-    
+
     return not has_tar and not has_timestamp_dirs
 
 
 def is_valid_timestamp_dirname(dirname):
-    """Check if directory name matches timestamp pattern YYYY-MM-DD_HHMMSS."""
+    """Check if directory name matches timestamp pattern YYYYMMDD_HHMMSS.
+
+    The project uses the compact format (YYYYMMDD_HHMMSS) for timestamped
+    folders; only this canonical format is accepted here.
+    """
     try:
-        datetime.strptime(dirname, '%Y-%m-%d_%H%M%S')
-        return True
-    except ValueError:
+        from re import match
+        return bool(match(r"^\d{8}_\d{6}$", dirname))
+    except Exception:
         return False
 
 

@@ -224,6 +224,13 @@
                     <li>Empty stack directories</li>
                 </ul>
             </div>
+
+            <div class="mt-3">
+                <button type="button" class="btn btn-danger" onclick="showRunCleanupModal()">
+                    <i class="bi bi-recycle me-1"></i> Run Manual Cleanup
+                </button>
+                <small class="text-muted ms-2">Run cleanup now. Use <strong>Dry Run</strong> option to simulate before actually deleting files.</small>
+            </div>
         </div>
     </div>
     
@@ -314,6 +321,90 @@ function testNotification() {
 
 function setCleanupCron(cron) {
     document.getElementById('cleanupCron').value = cron;
+}
+
+// Manual cleanup modal & action
+function showRunCleanupModal() {
+    const modalHtml = `
+    <div class="modal fade" id="runCleanupModal" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Run Cleanup Now</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-0">This will run the cleanup tasks immediately and may delete files (orphaned archives, old logs, temp files). Are you sure you want to continue?</p>
+            <div class="form-check form-switch mt-3">
+                <input class="form-check-input" type="checkbox" id="runCleanupDryRun" checked>
+                <label class="form-check-label" for="runCleanupDryRun">Dry Run (simulate only, do not delete)</label>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-outline-danger" id="runCleanupConfirmDry">Run (Dry Run)</button>
+            <button type="button" class="btn btn-danger" id="runCleanupConfirmLive">Run (Live)</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+    // Insert modal into DOM and show it
+    let wrapper = document.createElement('div');
+    wrapper.innerHTML = modalHtml;
+    document.body.appendChild(wrapper);
+    const modalEl = document.getElementById('runCleanupModal');
+    const bsModal = new bootstrap.Modal(modalEl);
+    bsModal.show();
+
+    function cleanupHandlers() {
+        try { document.getElementById('runCleanupConfirmDry').removeEventListener('click', onDry); } catch(e){}
+        try { document.getElementById('runCleanupConfirmLive').removeEventListener('click', onLive); } catch(e){}
+    }
+
+    function onDry() {
+        confirmRunCleanup(true, bsModal, modalEl);
+    }
+    function onLive() {
+        confirmRunCleanup(false, bsModal, modalEl);
+    }
+
+    document.getElementById('runCleanupConfirmDry').addEventListener('click', onDry);
+    document.getElementById('runCleanupConfirmLive').addEventListener('click', onLive);
+
+    // Remove modal from DOM after it's hidden to keep DOM clean
+    modalEl.addEventListener('hidden.bs.modal', function () {
+        cleanupHandlers();
+        wrapper.remove();
+    });
+}
+
+async function confirmRunCleanup(dry, bsModal, modalEl) {
+    const btnDry = document.getElementById('runCleanupConfirmDry');
+    const btnLive = document.getElementById('runCleanupConfirmLive');
+    const originalDry = btnDry.innerHTML;
+    const originalLive = btnLive.innerHTML;
+    try {
+        btnDry.disabled = true; btnLive.disabled = true;
+        if (dry) btnDry.innerHTML = 'Starting...'; else btnLive.innerHTML = 'Starting...';
+
+        const resp = await fetch('/api/cleanup/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dry_run: dry })
+        });
+        const data = await resp.json();
+        if (resp.status === 202) {
+            try { showAlert('Cleanup started', 'success'); } catch(e){ alert('Cleanup started'); }
+            bsModal.hide();
+        } else {
+            try { showAlert('Error: ' + (data.error || 'Failed to start cleanup'), 'danger'); } catch(e){ alert('Error: ' + (data.error || 'Failed to start cleanup')); }
+        }
+    } catch (e) {
+        try { showAlert('Error: ' + e.message, 'danger'); } catch(err){ alert('Error: ' + e.message); }
+    } finally {
+        try { btnDry.disabled = false; btnLive.disabled = false; btnDry.innerHTML = originalDry; btnLive.innerHTML = originalLive; } catch(e){}
+    }
 }
 </script>
 {% endblock %}
