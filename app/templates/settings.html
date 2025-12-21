@@ -172,8 +172,8 @@
                 </label>
             </div>
             
-            <div class="row">
-                <div class="col-12 mb-3">
+            <div class="row justify-content-start">
+                <div class="col-12 col-md-6 col-lg-4 mb-3">
                     <label for="cleanupCron" class="form-label">Cleanup schedule (cron)</label>
                     <input type="text" class="form-control" id="cleanupCron" name="cleanup_cron" 
                            value="{{ settings.get('cleanup_cron', '30 2 * * *') }}">
@@ -185,9 +185,8 @@
                         <button type="button" class="btn btn-outline-secondary" onclick="setCleanupCron('*/15 * * * *')">Every 15min</button>
                     </div>
                 </div>
-            </div>
 
-            <div class="row">
+                <div class="col-12 col-md-3 col-lg-2 mb-3">
                     <label for="logRetentionDays" class="form-label">Log Retention (Days)</label>
                     <input type="number" class="form-control" id="logRetentionDays" name="cleanup_log_retention_days" 
                            value="{{ settings.get('cleanup_log_retention_days', '90') }}" min="0" max="3650">
