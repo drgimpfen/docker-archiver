@@ -301,7 +301,17 @@
         }, { once: true });
         
         try {
-            const response = await fetch(`/api/jobs/${jobId}`);
+            const response = await fetch(`/api/jobs/${jobId}`, { credentials: 'same-origin' });
+            if (!response.ok) {
+                content.innerHTML = `<div class="alert alert-danger">Failed to load job details (status ${response.status})</div>`;
+                return;
+            }
+            // Ensure we only parse JSON responses
+            const contentType = response.headers.get('content-type') || '';
+            if (!contentType.includes('application/json')) {
+                content.innerHTML = `<div class="alert alert-danger">Invalid response for job details (expected JSON)</div>`;
+                return;
+            }
             const data = await response.json();
             
             if (data.error) {
@@ -309,7 +319,7 @@
                 return;
             }
             
-            const job = data.job;
+            let job = data.job;
             const metrics = data.metrics;
             
             // Determine compact type/format display (short labels with title tooltips)
@@ -643,9 +653,15 @@
                 if (window._globalEventSource) return;
 
                 // Probe server debug endpoint to determine whether global SSE is available
-                fetch('/api/_debug/sse').then(function(resp){
+                fetch('/api/_debug/sse', { credentials: 'same-origin' }).then(function(resp){
                     if (!resp.ok) {
                         console.info('Global SSE not available: debug endpoint returned ' + resp.status);
+                        return null;
+                    }
+                    // Ensure JSON response (not a login redirect HTML)
+                    const ct = resp.headers.get('content-type') || '';
+                    if (!ct.includes('application/json')) {
+                        console.info('Global SSE debug endpoint returned non-JSON content');
                         return null;
                     }
                     return resp.json();
