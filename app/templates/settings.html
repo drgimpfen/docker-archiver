@@ -479,10 +479,10 @@ async function confirmRunCleanup(dry, bsModal, modalEl) {
         <p><strong>Total files:</strong> <span id="permTotalFiles">0</span> &nbsp; <strong>Total directories:</strong> <span id="permTotalDirs">0</span></p>
         <p><strong>Mismatched files:</strong> <span id="permMismatchedFilesCount">0</span> &nbsp; <strong>Mismatched dirs:</strong> <span id="permMismatchedDirsCount">0</span></p>
         <div class="mb-3">
-          <h6>Archives with mismatches</h6>
+          <h6>Stacks with mismatches</h6>
           <div style="max-height:220px; overflow:auto;">
-            <table class="table table-sm table-striped" id="permArchivesTable">
-              <thead><tr><th>Archive Path</th><th>Files</th><th>Dirs</th><th>Samples</th></tr></thead>
+            <table class="table table-sm table-striped" id="permStacksTable">
+              <thead><tr><th>Archive</th><th>Stack</th><th>Files</th><th>Dirs</th><th>Samples</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -558,35 +558,21 @@ async function checkPermissions(){
             document.getElementById('permMismatchedFilesCount').textContent = j.mismatched_file_count;
             document.getElementById('permMismatchedDirsCount').textContent = j.mismatched_dir_count;
 
-            const table = document.querySelector('#permArchivesTable tbody'); table.innerHTML = '';
-            j.archives.forEach(a => {
+            const table = document.querySelector('#permStacksTable tbody'); table.innerHTML = '';
+            j.stacks.forEach(s => {
                 const tr = document.createElement('tr');
-                const nameCell = `<td><code>${a.path}</code></td>`;
-                const countsCell = `<td>${a.mismatched_file_count}</td><td>${a.mismatched_dir_count}</td>`;
+                const archiveCell = `<td><code>${s.archive_path}</code></td>`;
+                const stackCell = `<td>${s.stack_name}</td>`;
+                const countsCell = `<td>${s.mismatched_file_count}</td><td>${s.mismatched_dir_count}</td>`;
                 const sampleCollapseId = 'sampleCollapse_' + Math.random().toString(36).substring(2,8);
-                const sampleBtn = `<td><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#${sampleCollapseId}">Show stacks</button></td>`;
-                tr.innerHTML = nameCell + countsCell + sampleBtn;
+                const sampleBtn = `<td><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#${sampleCollapseId}">Show samples</button></td>`;
+                tr.innerHTML = archiveCell + stackCell + countsCell + sampleBtn;
                 table.appendChild(tr);
 
-                // Build stacks area
-                let stacksHtml = '';
-                a.stacks.forEach(s => {
-                    stacksHtml += `<div class="mb-2"><strong>Stack: ${s.name}</strong> — Files: ${s.mismatched_file_count}, Dirs: ${s.mismatched_dir_count}`;
-                    if((s.sample_files && s.sample_files.length) || (s.sample_dirs && s.sample_dirs.length)){
-                        stacksHtml += '<div class="mt-1 small text-muted">';
-                        if(s.sample_files && s.sample_files.length){
-                            stacksHtml += '<div><u>Files (sample):</u>' + s.sample_files.map(f => `<div><code>${f.path}</code> <small class="text-muted">${f.mode}</small></div>`).join('') + '</div>';
-                        }
-                        if(s.sample_dirs && s.sample_dirs.length){
-                            stacksHtml += '<div class="mt-1"><u>Dirs (sample):</u>' + s.sample_dirs.map(d => `<div><code>${d.path}</code> <small class="text-muted">${d.mode}</small></div>`).join('') + '</div>';
-                        }
-                        stacksHtml += '</div>';
-                    }
-                    stacksHtml += '</div>';
-                });
+                const samplesHtml = `<div class="p-2"><strong>Files (sample)</strong><br>${s.sample_files.map(f => `<div><code>${f.path}</code> <small class="text-muted">${f.mode}</small></div>`).join('') || '<em>None</em>'}<hr><strong>Dirs (sample)</strong><br>${s.sample_dirs.map(d => `<div><code>${d.path}</code> <small class="text-muted">${d.mode}</small></div>`).join('') || '<em>None</em>'}</div>`;
 
                 const tr2 = document.createElement('tr');
-                tr2.innerHTML = `<td colspan="4"><div class="collapse" id="${sampleCollapseId}"><div class="p-2">${stacksHtml || '<em>No mismatches in stacks</em>'}</div></div></td>`;
+                tr2.innerHTML = `<td colspan="5"><div class="collapse" id="${sampleCollapseId}">${samplesHtml}</div></td>`;
                 table.appendChild(tr2);
             });
 

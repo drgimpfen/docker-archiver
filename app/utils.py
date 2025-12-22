@@ -250,3 +250,33 @@ def apply_permissions_recursive(base_path, file_mode=0o644, dir_mode=0o755):
         errors += 1
 
     return {'files_changed': files_changed, 'dirs_changed': dirs_changed, 'errors': errors}
+
+
+def format_mode(mode):
+    """Return a human-readable permission string for a mode.
+
+    Accepts an int (mode) or a string like '0o644'. Returns a string like '0644 (rw-r--r--)'.
+    """
+    try:
+        if isinstance(mode, str):
+            if mode.startswith('0o'):
+                m = int(mode, 8)
+            elif mode.isdigit():
+                m = int(mode, 8)
+            else:
+                m = int(mode)
+        else:
+            m = int(mode)
+    except Exception:
+        return str(mode)
+
+    perms = m & 0o777
+    oct_str = format(perms, '04o')
+    def triplet(bits):
+        r = 'r' if perms & bits[0] else '-'
+        w = 'w' if perms & bits[1] else '-'
+        x = 'x' if perms & bits[2] else '-'
+        return r + w + x
+
+    human = triplet((0o400,0o200,0o100)) + triplet((0o040,0o020,0o010)) + triplet((0o004,0o002,0o001))
+    return f"{oct_str} ({human})"

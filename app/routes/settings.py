@@ -7,6 +7,7 @@ from app.auth import login_required, get_current_user
 from app.db import get_db
 from app.scheduler import reload_schedules
 from app.notifications import send_test_notification
+from app.utils import format_mode
 
 
 bp = Blueprint('settings', __name__, url_prefix='/settings')
@@ -229,7 +230,7 @@ def check_permissions():
                             archives[top] = {'path': os.path.join(base, top), 'stacks': {}, 'mismatched_files': [], 'mismatched_dirs': [], 'file_count':0, 'dir_count':0}
                         if stack not in archives[top]['stacks']:
                             archives[top]['stacks'][stack] = {'mismatched_files': [], 'mismatched_dirs': []}
-                        archives[top]['stacks'][stack]['mismatched_dirs'].append({'path': p, 'mode': oct(mode)})
+                        archives[top]['stacks'][stack]['mismatched_dirs'].append({'path': p, 'mode': format_mode(mode)})
                 except Exception:
                     continue
             for f in files:
@@ -246,7 +247,7 @@ def check_permissions():
                             archives[top] = {'path': os.path.join(base, top), 'stacks': {}, 'mismatched_files': [], 'mismatched_dirs': [], 'file_count':0, 'dir_count':0}
                         if stack not in archives[top]['stacks']:
                             archives[top]['stacks'][stack] = {'mismatched_files': [], 'mismatched_dirs': []}
-                        archives[top]['stacks'][stack]['mismatched_files'].append({'path': p, 'mode': oct(mode)})
+                        archives[top]['stacks'][stack]['mismatched_files'].append({'path': p, 'mode': format_mode(mode)})
                 except Exception:
                     continue
 
@@ -270,11 +271,26 @@ def check_permissions():
                 'stacks': stacks_out
             })
 
+        # Flatten stacks into a top-level list for simpler UI consumption
+        stacks_list = []
+        for a in archive_list:
+            for s in a.get('stacks', []):
+                stacks_list.append({
+                    'archive_name': a['name'],
+                    'archive_path': a['path'],
+                    'stack_name': s['name'],
+                    'mismatched_file_count': s['mismatched_file_count'],
+                    'mismatched_dir_count': s['mismatched_dir_count'],
+                    'sample_files': s['sample_files'],
+                    'sample_dirs': s['sample_dirs']
+                })
+
         return jsonify({
             'status': 'ok',
             'total_files': total_files,
             'total_dirs': total_dirs,
             'archives': archive_list,
+            'stacks': stacks_list,
             'mismatched_file_count': sum(a['mismatched_file_count'] for a in archive_list),
             'mismatched_dir_count': sum(a['mismatched_dir_count'] for a in archive_list)
         })
