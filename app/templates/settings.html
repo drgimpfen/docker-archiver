@@ -54,9 +54,8 @@
                     <small class="text-muted">When enabled, the app will apply safe defaults to newly created files and folders: files are writable only by the server (others can read them) and folders remain accessible. <strong>Default: disabled</strong>.</small>
                 </label>
                 <div class="mt-2">
-                    <button type="button" id="checkPermButton" class="btn btn-sm btn-outline-secondary me-2">Check permissions on existing archives</button>
-                    <button type="button" id="fixPermButton" class="btn btn-sm btn-outline-secondary">Fix permissions on existing archives</button>
-                    <small class="form-text text-muted d-block mt-1">Check current permissions and optionally apply the chosen permissions to all existing archives. These actions run in the background.</small>
+                    <button type="button" id="checkPermButton" class="btn btn-sm btn-outline-secondary">Check permissions on existing archives</button>
+                    <small class="form-text text-muted d-block mt-1">Check current permissions and apply fixes directly from the report modal. The scan may take a while on large archives.</small>
                 </div>
             </div>
         </div>
@@ -532,7 +531,7 @@ async function fixPermissions(){
 }
 
 async function checkPermissions(){
-    if(!confirm('Scan permissions on all archives? This may take a while.')) return;
+    // No initial confirmation to keep flow non-intrusive
     const btn = document.getElementById('checkPermButton');
     btn.disabled = true;
     const original = btn.innerHTML;
@@ -550,17 +549,20 @@ async function checkPermissions(){
             document.getElementById('permMismatchedFilesCount').textContent = j.mismatched_file_count;
             document.getElementById('permMismatchedDirsCount').textContent = j.mismatched_dir_count;
 
-            const filesTbody = document.querySelector('#permFilesTable tbody'); filesTbody.innerHTML = '';
-            j.mismatched_files.slice(0,200).forEach(f => {
+            const table = document.querySelector('#permArchivesTable tbody'); table.innerHTML = '';
+            j.archives.forEach(a => {
                 const tr = document.createElement('tr');
-                tr.innerHTML = `<td><code>${f.path}</code></td><td><code>${f.mode}</code></td>`;
-                filesTbody.appendChild(tr);
-            });
-            const dirsTbody = document.querySelector('#permDirsTable tbody'); dirsTbody.innerHTML = '';
-            j.mismatched_dirs.slice(0,200).forEach(d => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `<td><code>${d.path}</code></td><td><code>${d.mode}</code></td>`;
-                dirsTbody.appendChild(tr);
+                const nameCell = `<td><code>${a.path}</code></td>`;
+                const countsCell = `<td>${a.mismatched_file_count}</td><td>${a.mismatched_dir_count}</td>`;
+                const sampleBtnId = 'sampleBtn_' + Math.random().toString(36).substring(2,8);
+                const sampleCollapseId = 'sampleCollapse_' + Math.random().toString(36).substring(2,8);
+                const sampleBtn = `<td><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#${sampleCollapseId}">Show samples</button></td>`;
+                tr.innerHTML = nameCell + countsCell + sampleBtn;
+                table.appendChild(tr);
+
+                const tr2 = document.createElement('tr');
+                tr2.innerHTML = `<td colspan="4"><div class="collapse" id="${sampleCollapseId}"><div class="p-2"><strong>Files:</strong><br>${a.sample_files.map(f => `<div><code>${f.path}</code> <small class="text-muted">${f.mode}</small></div>`).join('') || '<em>None</em>'}<hr><strong>Dirs:</strong><br>${a.sample_dirs.map(d => `<div><code>${d.path}</code> <small class="text-muted">${d.mode}</small></div>`).join('') || '<em>None</em>'}</div></div></td>`;
+                table.appendChild(tr2);
             });
 
             var modalEl = document.getElementById('permissionsModal');
@@ -573,10 +575,13 @@ async function checkPermissions(){
                 if(confirm('Fix mismatched permissions now?')){ fixPermissions(); bsModal.hide(); }
             }
         } else {
-            alert('Error: ' + (j.message || 'Failed to scan'));
+            // Use showAlert if available, avoid noisy browser alerts
+            if(typeof showAlert === 'function') showAlert('Error: ' + (j.message || 'Failed to scan'), 'danger');
+            else console.error('Error: ' + (j.message || 'Failed to scan'));
         }
     }catch(e){
-        alert('Error: ' + e);
+        if(typeof showAlert === 'function') showAlert('Error: ' + e, 'danger');
+        else console.error('Error: ' + e);
     }finally{
         btn.disabled = false;
         btn.innerHTML = original;
@@ -586,8 +591,6 @@ async function checkPermissions(){
 document.addEventListener('DOMContentLoaded', function(){
     const checkBtn = document.getElementById('checkPermButton');
     if(checkBtn) checkBtn.addEventListener('click', checkPermissions);
-    const fixBtn = document.getElementById('fixPermButton');
-    if(fixBtn) fixBtn.addEventListener('click', fixPermissions);
 });
 </script>
 

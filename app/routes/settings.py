@@ -211,8 +211,7 @@ def check_permissions():
 
         total_files = 0
         total_dirs = 0
-        mismatched_files = []
-        mismatched_dirs = []
+        archives = {}  # key -> {'path': base/key, 'mismatched_files': [], 'mismatched_dirs': [], 'file_count':0, 'dir_count':0}
 
         # Walk archives path
         for root, dirs, files in os.walk(base):
@@ -222,7 +221,11 @@ def check_permissions():
                 try:
                     mode = os.stat(p).st_mode & 0o777
                     if mode != dir_mode:
-                        mismatched_dirs.append({'path': p, 'mode': oct(mode)})
+                        rel = os.path.relpath(p, base)
+                        top = rel.split(os.sep)[0] if rel and not rel.startswith('..') else rel
+                        if top not in archives:
+                            archives[top] = {'path': os.path.join(base, top), 'mismatched_files': [], 'mismatched_dirs': [], 'file_count':0, 'dir_count':0}
+                        archives[top]['mismatched_dirs'].append({'path': p, 'mode': oct(mode)})
                 except Exception:
                     continue
             for f in files:
@@ -231,21 +234,33 @@ def check_permissions():
                 try:
                     mode = os.stat(p).st_mode & 0o777
                     if mode != file_mode:
-                        mismatched_files.append({'path': p, 'mode': oct(mode)})
+                        rel = os.path.relpath(p, base)
+                        top = rel.split(os.sep)[0] if rel and not rel.startswith('..') else rel
+                        if top not in archives:
+                            archives[top] = {'path': os.path.join(base, top), 'mismatched_files': [], 'mismatched_dirs': [], 'file_count':0, 'dir_count':0}
+                        archives[top]['mismatched_files'].append({'path': p, 'mode': oct(mode)})
                 except Exception:
                     continue
-            # Limit sample size for payload
-            if len(mismatched_files) > 200 and len(mismatched_dirs) > 200:
-                break
+
+        # Prepare response: convert archives dict to list with counts and limited samples
+        archive_list = []
+        for name, data in archives.items():
+            archive_list.append({
+                'name': name,
+                'path': data['path'],
+                'mismatched_file_count': len(data['mismatched_files']),
+                'mismatched_dir_count': len(data['mismatched_dirs']),
+                'sample_files': data['mismatched_files'][:10],
+                'sample_dirs': data['mismatched_dirs'][:10]
+            })
 
         return jsonify({
             'status': 'ok',
             'total_files': total_files,
             'total_dirs': total_dirs,
-            'mismatched_file_count': len(mismatched_files),
-            'mismatched_dir_count': len(mismatched_dirs),
-            'mismatched_files': mismatched_files[:200],
-            'mismatched_dirs': mismatched_dirs[:200]
+            'archives': archive_list,
+            'mismatched_file_count': sum(a['mismatched_file_count'] for a in archive_list),
+            'mismatched_dir_count': sum(a['mismatched_dir_count'] for a in archive_list)
         })
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
