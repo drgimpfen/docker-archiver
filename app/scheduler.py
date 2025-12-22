@@ -463,7 +463,7 @@ def get_prev_run_time(archive_id):
         prev_local = ci.get_prev(datetime)
         if prev_local:
             # Convert to timezone-aware UTC datetime for consistent handling
-            prev_utc = prev_local.astimezone(_tz.utc)
+            prev_utc = prev_local.astimezone(timezone.utc)
             try:
                 logger.debug("[Scheduler] Prev run (computed) for archive_%s: %s (local: %s)", archive_id, prev_utc.isoformat(), prev_local.isoformat())
             except Exception:

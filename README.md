@@ -23,7 +23,7 @@
 - 🌓 **Dark/Light Mode** - Modern Bootstrap UI with theme toggle
 - 🔐 **User Authentication** - Secure login system (role-based access coming soon)
 - 💾 **Multiple Formats** - Support for tar, tar.gz, tar.zst, or folder output
-- 🛡️ **Output Permissions (configurable)** - Optionally apply permissive permissions to generated archive files (<code>0644</code>) and directories (<code>0755</code>); controlled via **Settings → Apply permissive permissions to generated archives** (default: disabled).
+- 🛡️ **Output Permissions (configurable)** — Optionally have the application set sensible, secure defaults on files and directories it creates. When enabled, files will be writable only by the server process (other users can still read them) and directories will be readable and searchable so their contents are accessible. Toggle this in **Settings → Apply permissive permissions to generated archives** (default: disabled).
 - 🌍 **Timezone Support** - Configurable timezone via environment variable
 
 ## Architecture

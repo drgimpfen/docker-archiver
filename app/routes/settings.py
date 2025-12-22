@@ -171,3 +171,81 @@ def test_notification():
         return jsonify({'success': True, 'message': 'Test notification sent successfully!'})
     except Exception as e:
         return jsonify({'success': False, 'message': f'Failed to send notification: {str(e)}'}), 500
+
+
+@bp.route('/fix-permissions', methods=['POST'])
+@login_required
+def fix_permissions():
+    """Start a background task to apply configured permissions to existing archives."""
+    try:
+        import threading
+        from app.utils import get_archives_path, apply_permissions_recursive, get_logger
+        logger = get_logger(__name__)
+
+        def _run():
+            try:
+                base = get_archives_path()
+                logger.info("[FixPerm] Starting permission fix on %s", base)
+                res = apply_permissions_recursive(base)
+                logger.info("[FixPerm] Completed: %s", res)
+            except Exception as e:
+                logger.exception("[FixPerm] Failed: %s", e)
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+        return jsonify({'status': 'started', 'message': 'Fixing permissions started in background. Check logs for progress.'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@bp.route('/check-permissions', methods=['POST'])
+@login_required
+def check_permissions():
+    """Check permissions for files and directories under archives and return a report."""
+    try:
+        from app.utils import get_archives_path
+        import os
+        base = get_archives_path()
+        file_mode = 0o644
+        dir_mode = 0o755
+
+        total_files = 0
+        total_dirs = 0
+        mismatched_files = []
+        mismatched_dirs = []
+
+        # Walk archives path
+        for root, dirs, files in os.walk(base):
+            for d in dirs:
+                total_dirs += 1
+                p = os.path.join(root, d)
+                try:
+                    mode = os.stat(p).st_mode & 0o777
+                    if mode != dir_mode:
+                        mismatched_dirs.append({'path': p, 'mode': oct(mode)})
+                except Exception:
+                    continue
+            for f in files:
+                total_files += 1
+                p = os.path.join(root, f)
+                try:
+                    mode = os.stat(p).st_mode & 0o777
+                    if mode != file_mode:
+                        mismatched_files.append({'path': p, 'mode': oct(mode)})
+                except Exception:
+                    continue
+            # Limit sample size for payload
+            if len(mismatched_files) > 200 and len(mismatched_dirs) > 200:
+                break
+
+        return jsonify({
+            'status': 'ok',
+            'total_files': total_files,
+            'total_dirs': total_dirs,
+            'mismatched_file_count': len(mismatched_files),
+            'mismatched_dir_count': len(mismatched_dirs),
+            'mismatched_files': mismatched_files[:200],
+            'mismatched_dirs': mismatched_dirs[:200]
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500

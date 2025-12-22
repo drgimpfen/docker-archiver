@@ -87,10 +87,11 @@ def run_retention(archive_config, job_id, is_dry_run=False, log_callback=None):
             ts_str = m.group(1)
             try:
                 timestamp = datetime.strptime(ts_str, '%Y%m%d_%H%M%S')
-                    local_tz = utils.get_display_timezone()
-                    timestamp_local = timestamp.replace(tzinfo=local_tz)
-                    timestamp_utc = timestamp_local.astimezone(timezone.utc)
-                except Exception:
+                local_tz = utils.get_display_timezone()
+                timestamp_local = timestamp.replace(tzinfo=local_tz)
+                timestamp_utc = timestamp_local.astimezone(timezone.utc)
+            except Exception:
+                timestamp_utc = timestamp.replace(tzinfo=timezone.utc)
             # Derive stack name from the filename base following the timestamp
             stack_name = base[m.end():].lstrip('_-') or 'unknown'
 

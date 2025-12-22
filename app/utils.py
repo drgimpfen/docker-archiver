@@ -207,3 +207,46 @@ def filename_safe(name):
         return safe or 'unnamed'
     except Exception:
         return 'unnamed'
+
+
+def apply_permissions_recursive(base_path, file_mode=0o644, dir_mode=0o755):
+    """Recursively apply permissions to files and directories under base_path.
+
+    Returns a dict with counts: {'files_changed': int, 'dirs_changed': int, 'errors': int}.
+    This is a best-effort operation and will continue on errors.
+    """
+    import os
+    from pathlib import Path
+
+    files_changed = 0
+    dirs_changed = 0
+    errors = 0
+
+    try:
+        base = Path(base_path)
+        if not base.exists():
+            return {'files_changed': 0, 'dirs_changed': 0, 'errors': 0}
+
+        for root, dirs, files in os.walk(str(base)):
+            # Apply directory permissions
+            for d in dirs:
+                p = os.path.join(root, d)
+                try:
+                    os.chmod(p, dir_mode)
+                    dirs_changed += 1
+                except Exception:
+                    errors += 1
+
+            # Apply file permissions
+            for f in files:
+                p = os.path.join(root, f)
+                try:
+                    os.chmod(p, file_mode)
+                    files_changed += 1
+                except Exception:
+                    errors += 1
+
+    except Exception:
+        errors += 1
+
+    return {'files_changed': files_changed, 'dirs_changed': dirs_changed, 'errors': errors}
