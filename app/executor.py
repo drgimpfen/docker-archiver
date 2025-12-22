@@ -747,9 +747,9 @@ def _create_archive(self, stack_name, stack_path):
         
         # Create output paths
         base_dir = Path(ARCHIVE_BASE) / archive_name
-        # For file archives, place them directly under the archive root (no extra /<stack_name> folder)
-        # For folder outputs (copied directories) keep the timestamped folder under the archive root
-        output_dir = base_dir if ext else base_dir / stack_name
+        # Use a per-stack directory for all outputs (packed files and folder copies)
+        stack_dir = base_dir / stack_name
+        output_dir = stack_dir
         # For auditing, log the timestamp and configured display timezone
         try:
             tz_obj = get_display_timezone()
@@ -764,10 +764,11 @@ def _create_archive(self, stack_name, stack_path):
         self.log('INFO', f"Using archive timestamp {timestamp} (display TZ={tz_name}, local={iso_local}, utc={iso_utc})")
         
         if ext:
+            # Store packed archives inside the stack folder as <timestamp>_<stackname>.<ext>
             output_file = output_dir / f"{timestamp}_{stack_name}.{ext}"
         else:
-            # For folder outputs, place the timestamped folder under the archive root
-            output_file = base_dir / f"{timestamp}_{stack_name}"
+            # For folder outputs, place the timestamped folder inside the per-stack folder as <timestamp>_<stackname>
+            output_file = output_dir / f"{timestamp}_{stack_name}"
         
         # Skip archive creation if disabled in dry run
         if self.is_dry_run and not self.dry_run_config.get('create_archive', True):
@@ -776,10 +777,18 @@ def _create_archive(self, stack_name, stack_path):
         
         # Ensure parent directories exist
         if not self.is_dry_run:
-            if ext:
-                output_dir.mkdir(parents=True, exist_ok=True)
-            else:
-                base_dir.mkdir(parents=True, exist_ok=True)        
+            # Ensure the per-stack output directory exists
+            output_dir.mkdir(parents=True, exist_ok=True)
+            # If configured, apply directory permissions (0755) for the output directory
+            try:
+                from app.notifications import get_setting
+                if get_setting('apply_permissions', 'false').lower() == 'true':
+                    try:
+                        output_dir.chmod(0o755)
+                    except Exception as pe:
+                        self.log('DEBUG', f"Could not chmod output directory {output_dir}: {pe}")
+            except Exception:
+                pass        
         if ext:
             # Create compressed archive
             format_name = output_format.upper()

@@ -239,13 +239,13 @@
     <script>
     // Global Jobs SSE disabled — dashboard relies on polling now.
 
-    // Format ISO 8601 / Z timestamps into a user-friendly local datetime string
+    // Format ISO 8601 / Z timestamps into a user-friendly local datetime string (YYYY-MM-DD HH:MM:SS)
     function formatDateTime(isoStr){
         if(!isoStr) return 'N/A';
         try{
             const d = new Date(isoStr);
             if (isNaN(d.getTime())) return isoStr;
-            return `${d.toLocaleString()}`;
+            return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
         } catch (e){
             return isoStr;
         }
@@ -814,8 +814,8 @@
                         <td>${job.job_type || 'archive'}</td>
                         <td>${job.archive_name || 'N/A'}</td>
                         <td>${stacksHtml}</td>
-                        <td class="d-none d-md-table-cell"><small style="white-space: nowrap;" id="row-job-start-${job.id}">${job.start_time ? job.start_time.substring(0,16).replace('T',' ') : 'N/A'}</small></td>
-                        <td class="d-none d-md-table-cell"><small style="white-space: nowrap;" id="row-job-end-${job.id}">${job.end_time ? job.end_time.substring(0,16).replace('T',' ') : 'N/A'}</small></td>
+                        <td class="d-none d-md-table-cell"><small style="white-space: nowrap;" id="row-job-start-${job.id}">${job.start_time ? formatJobTime(job.start_time) : 'N/A'}</small></td>
+                        <td class="d-none d-md-table-cell"><small style="white-space: nowrap;" id="row-job-end-${job.id}">${job.end_time ? formatJobTime(job.end_time) : 'N/A'}</small></td>
                         <td><small id="row-job-duration-${job.id}">${job.duration_seconds !== null && job.duration_seconds !== undefined ? job.duration_seconds + 's' : 'N/A'}</small></td>
                         <td style="text-align: right;"><span id="row-job-size-${job.id}">${job.total_size_bytes ? `<span class="text-success">+${formatBytes(job.total_size_bytes)}</span>` : '<span class="text-muted">N/A</span>'}</span></td>
                     `;
@@ -1001,8 +1001,8 @@
                     const elTotal = document.getElementById('job-total-size');
                     const elReclaimed = document.getElementById('job-reclaimed');
 
-                    if (elStart) elStart.textContent = job.start_time || elStart.textContent || 'N/A';
-                    if (elEnd) elEnd.textContent = job.end_time || elEnd.textContent || 'N/A';
+                    if (elStart) elStart.textContent = formatJobTime(job.start_time) || elStart.textContent || 'N/A';
+                    if (elEnd) elEnd.textContent = formatJobTime(job.end_time) || elEnd.textContent || 'N/A';
                     if (elDuration) elDuration.textContent = (job.duration_seconds !== null && job.duration_seconds !== undefined) ? job.duration_seconds + 's' : elDuration.textContent || 'N/A';
                     if (elTotal) elTotal.textContent = job.total_size_bytes ? formatBytes(job.total_size_bytes) : elTotal.textContent || 'N/A';
                     if (elReclaimed) elReclaimed.textContent = job.reclaimed_bytes ? formatBytes(job.reclaimed_bytes) : elReclaimed.textContent || 'N/A';
@@ -1023,13 +1023,13 @@
                         const durEl = document.getElementById(`row-job-duration-${job.id}`);
                         const sizeEl = document.getElementById(`row-job-size-${job.id}`);
 
-                        if (startEl) startEl.textContent = job.start_time || startEl.textContent || 'N/A';
-                        if (endEl) endEl.textContent = job.end_time || endEl.textContent || 'N/A';
+                        if (startEl) startEl.textContent = formatJobTime(job.start_time) || startEl.textContent || 'N/A';
+                        if (endEl) endEl.textContent = formatJobTime(job.end_time) || endEl.textContent || 'N/A';
                         if (durEl) durEl.textContent = (job.duration_seconds !== null && job.duration_seconds !== undefined) ? job.duration_seconds + 's' : durEl.textContent || 'N/A';
                         if (sizeEl) {
                             if (job.job_type === 'archive' && job.total_size_bytes) {
                                 sizeEl.innerHTML = `<span class="text-success">+${formatBytes(job.total_size_bytes)}</span>`;
-                            } else if ((job.job_type === 'retention' || job.job_type === 'cleanup') && (job.reclaimed_bytes || job.reclaimed_size_bytes)) {
+                            } else if ((job.job_type === 'retention' || job.job_type == 'cleanup') && (job.reclaimed_bytes || job.reclaimed_size_bytes)) {
                                 sizeEl.innerHTML = `<span class="text-warning">-${formatBytes(job.reclaimed_size_bytes || job.reclaimed_bytes)}</span>`;
                             } else {
                                 sizeEl.innerHTML = `<span class="text-muted">N/A</span>`;
@@ -1102,8 +1102,8 @@
                     const elTotal = document.getElementById('job-total-size');
                     const elReclaimed = document.getElementById('job-reclaimed');
 
-                    if (elStart) { elStart.textContent = job.start_time || 'N/A'; elStart.dataset.start = job.start_time || ''; }
-                    if (elEnd) { elEnd.textContent = job.end_time || 'N/A'; elEnd.dataset.end = job.end_time || ''; }
+                    if (elStart) { elStart.textContent = formatJobTime(job.start_time) || 'N/A'; elStart.dataset.start = job.start_time || ''; }
+                    if (elEnd) { elEnd.textContent = formatJobTime(job.end_time) || 'N/A'; elEnd.dataset.end = job.end_time || ''; }
 
                     // If job is running, compute duration from start_time and start modal ticker
                     if (job.status === 'running') {
@@ -1158,8 +1158,8 @@
                         const durEl = document.getElementById(`row-job-duration-${job.id}`);
                         const sizeEl = document.getElementById(`row-job-size-${job.id}`);
 
-                        if (startEl) startEl.textContent = job.start_time || 'N/A';
-                        if (endEl) endEl.textContent = job.end_time || 'N/A';
+                        if (startEl) startEl.textContent = formatJobTime(job.start_time) || 'N/A';
+                        if (endEl) endEl.textContent = formatJobTime(job.end_time) || 'N/A';
                         if (durEl) durEl.textContent = (job.duration_seconds !== null && job.duration_seconds !== undefined) ? job.duration_seconds + 's' : 'N/A';
                         if (sizeEl) {
                             if (job.job_type === 'archive' && job.total_size_bytes) {
@@ -1176,7 +1176,11 @@
                     if (job.status !== 'running') {
                         // Get final log if available and display
                         if (job.log) {
-                            logPre.textContent = job.log;
+                            clearLog();
+                            (job.log || '').split('\n').forEach(l => { if (l) appendLogLine(l); });
+                            // Initialize tail index so subsequent polling doesn't re-append duplicate lines
+                            try { lastLine = (job.log || '').split('\n').length; } catch (e) { lastLine = 0; }
+                            // Ensure scrolled to bottom
                             logPre.scrollTop = logPre.scrollHeight;
                         }
 
@@ -1227,8 +1231,8 @@
                         const elTotal = document.getElementById('job-total-size');
                         const elReclaimed = document.getElementById('job-reclaimed');
 
-                        if (elStart) elStart.textContent = job.start_time || 'N/A';
-                        if (elEnd) elEnd.textContent = job.end_time || 'N/A';
+                        if (elStart) elStart.textContent = formatJobTime(job.start_time) || 'N/A';
+                        if (elEnd) elEnd.textContent = formatJobTime(job.end_time) || 'N/A';
                         if (elDuration) elDuration.textContent = (job.duration_seconds !== null && job.duration_seconds !== undefined) ? job.duration_seconds + 's' : 'N/A';
                         if (elTotal) elTotal.textContent = job.total_size_bytes ? formatBytes(job.total_size_bytes) : 'N/A';
                         if (elReclaimed) elReclaimed.textContent = job.reclaimed_bytes ? formatBytes(job.reclaimed_bytes) : 'N/A';
@@ -1249,8 +1253,8 @@
                             const durEl = document.getElementById(`row-job-duration-${job.id}`);
                             const sizeEl = document.getElementById(`row-job-size-${job.id}`);
 
-                            if (startEl) startEl.textContent = job.start_time || 'N/A';
-                            if (endEl) endEl.textContent = job.end_time || 'N/A';
+                            if (startEl) startEl.textContent = formatJobTime(job.start_time) || 'N/A';
+                            if (endEl) endEl.textContent = formatJobTime(job.end_time) || 'N/A';
                             if (durEl) durEl.textContent = (job.duration_seconds !== null && job.duration_seconds !== undefined) ? job.duration_seconds + 's' : 'N/A';
                             if (sizeEl) {
                                 if (job.job_type === 'archive' && job.total_size_bytes) {
