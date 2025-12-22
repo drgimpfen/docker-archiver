@@ -655,25 +655,25 @@
                 // Probe server debug endpoint to determine whether global SSE is available
                 fetch('/api/_debug/sse', { credentials: 'same-origin' }).then(function(resp){
                     if (!resp.ok) {
-                        console.info('Global SSE not available: debug endpoint returned ' + resp.status);
+                        console.debug('Global SSE not available: debug endpoint returned ' + resp.status);
                         return null;
                     }
                     // Ensure JSON response (not a login redirect HTML)
                     const ct = resp.headers.get('content-type') || '';
                     if (!ct.includes('application/json')) {
-                        console.info('Global SSE debug endpoint returned non-JSON content');
+                        console.debug('Global SSE debug endpoint returned non-JSON content');
                         return null;
                     }
                     return resp.json();
                 }).then(function(data){
                     if (!data || !data.sse) {
-                        console.info('Global SSE not enabled (no debug info)');
+                        console.debug('Global SSE not enabled (no debug info)');
                         return;
                     }
                     const s = data.sse || {};
                     // Only attempt to open global SSE if Redis is configured/connected (server-side requirement)
                     if (!s.redis_url_set && !s.use_redis) {
-                        console.info('Global SSE not enabled on server (no Redis)');
+                        console.debug('Global SSE not enabled on server (no Redis)');
                         return;
                     }
 
@@ -709,7 +709,7 @@
                         };
                     } catch(e){ console.error('Failed to open global SSE:', e); }
                 }).catch(function(e){
-                    console.info('Global SSE debug check failed, skipping global SSE (error):', e);
+                    console.debug('Global SSE debug check failed, skipping global SSE (error):', e);
                 });
             }
 
