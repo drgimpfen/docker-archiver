@@ -57,59 +57,110 @@ def run_retention(archive_config, job_id, is_dry_run=False, log_callback=None):
         log('WARNING', f"Archive directory does not exist: {archive_dir}")
         return 0
     
-    # Collect all archives recursively and group them by parsed stack name
-    # We need to be robust for layouts where archives are nested in timestamped directories
-    # (e.g., /archives/<archive_name>/20251221_174043_patchmon/<files>) or files under
-    # subdirectory /patchmon/patchmon/*.tar.zst
+    # Collect archive candidates with more strict rules:
+    # - Only inspect first-level entries in archive directory.
+    # - Accept names that START with a timestamp (e.g. 20251222_031843_beszel.tar.zst or
+    #   20251222_031843_beszel/).
+    # - Also support layout /archives/<archive>/<stackname>/<TIMESTAMP_Stack> by inspecting
+    #   one level deep inside stack directories (do NOT recurse deeply).
     from collections import defaultdict as _dd
 
     candidates = []
     import re
-    for item in archive_dir.rglob('*'):
+
+    ts_re = re.compile(r"^(\d{8}_\d{6})(?:[_-](.*))?$")
+
+    def strip_ext(name: str):
+        for ext in ('.tar.gz', '.tar.zst', '.tar'):
+            if name.endswith(ext):
+                return name[:-len(ext)], ext
+        return name, ''
+
+    # Inspect top-level entries only
+    for item in archive_dir.iterdir():
         try:
             if not (item.is_file() or item.is_dir()):
                 continue
-            name = item.name
-            # Normalize base by removing known archive extensions
-            if name.endswith('.tar.gz'):
-                base = name[:-7]
-            elif name.endswith('.tar.zst'):
-                base = name[:-8]
-            elif name.endswith('.tar'):
-                base = name[:-4]
-            else:
-                base = name
 
-            m = re.search(r"(\d{8}_\d{6})", base)
-            if not m:
+            name = item.name
+            base, ext = strip_ext(name)
+
+            # Case 1: entry itself starts with timestamp -> treat as archive
+            m = ts_re.match(base)
+            if m:
+                ts_str = m.group(1)
+                remainder = (m.group(2) or '').lstrip('_-')
+                stack_name = remainder or 'unknown'
+
+                try:
+                    timestamp = datetime.strptime(ts_str, '%Y%m%d_%H%M%S')
+                    local_tz = utils.get_display_timezone()
+                    timestamp_local = timestamp.replace(tzinfo=local_tz)
+                    timestamp_utc = timestamp_local.astimezone(timezone.utc)
+                except Exception:
+                    timestamp_utc = timestamp.replace(tzinfo=timezone.utc)
+
+                # Determine size (for directories only sum one level if dir)
+                if item.is_file():
+                    size = item.stat().st_size
+                    is_dir = False
+                else:
+                    # Sum entire directory contents
+                    size = sum(f.stat().st_size for f in item.rglob('*') if f.is_file())
+                    is_dir = True
+
+                candidates.append({
+                    'path': item,
+                    'timestamp': timestamp_utc,
+                    'size': size,
+                    'is_dir': is_dir,
+                    'stack_name': stack_name
+                })
                 continue
 
-            ts_str = m.group(1)
-            try:
-                timestamp = datetime.strptime(ts_str, '%Y%m%d_%H%M%S')
-                local_tz = utils.get_display_timezone()
-                timestamp_local = timestamp.replace(tzinfo=local_tz)
-                timestamp_utc = timestamp_local.astimezone(timezone.utc)
-            except Exception:
-                timestamp_utc = timestamp.replace(tzinfo=timezone.utc)
-            # Derive stack name from the filename base following the timestamp
-            stack_name = base[m.end():].lstrip('_-') or 'unknown'
+            # Case 2: item is a stack directory -> inspect one level deep for timestamped entries
+            if item.is_dir():
+                stack_dir = item
+                for child in stack_dir.iterdir():
+                    try:
+                        child_name = child.name
+                        child_base, child_ext = strip_ext(child_name)
+                        m = ts_re.match(child_base)
+                        if not m:
+                            continue
 
-            # Determine size
-            if item.is_file():
-                size = item.stat().st_size
-            else:
-                size = sum(f.stat().st_size for f in item.rglob('*') if f.is_file())
+                        ts_str = m.group(1)
+                        try:
+                            timestamp = datetime.strptime(ts_str, '%Y%m%d_%H%M%S')
+                            local_tz = utils.get_display_timezone()
+                            timestamp_local = timestamp.replace(tzinfo=local_tz)
+                            timestamp_utc = timestamp_local.astimezone(timezone.utc)
+                        except Exception:
+                            timestamp_utc = timestamp.replace(tzinfo=timezone.utc)
 
-            candidates.append({
-                'path': item,
-                'timestamp': timestamp_utc,
-                'size': size,
-                'is_dir': item.is_dir(),
-                'stack_name': stack_name
-            })
+                        # For this layout, use the directory name as the stack name
+                        stack_name = stack_dir.name or 'unknown'
+
+                        if child.is_file():
+                            size = child.stat().st_size
+                            is_dir = False
+                        else:
+                            # Only sum one level to avoid deep recursion
+                            size = sum(f.stat().st_size for f in child.rglob('*') if f.is_file())
+                            is_dir = True
+
+                        candidates.append({
+                            'path': child,
+                            'timestamp': timestamp_utc,
+                            'size': size,
+                            'is_dir': is_dir,
+                            'stack_name': stack_name
+                        })
+                    except Exception as e:
+                        log('WARNING', f"Could not parse archive timestamp from {child}: {e}")
+                        continue
         except Exception as e:
-            log('WARNING', f"Could not parse archive timestamp from {item}: {e}")
+            log('WARNING', f"Error scanning {item}: {e}")
             continue
 
     # Group by parsed stack_name
