@@ -3,7 +3,7 @@ Main Flask application with Blueprints.
 """
 import os
 import threading
-from app.utils import setup_logging, get_logger
+from app.utils import setup_logging, get_logger, get_sentinel_path, format_bytes, format_duration, get_disk_usage, to_iso_z, format_datetime
 # Centralized logging setup (use only LOG_LEVEL env var)
 setup_logging()
 logger = get_logger(__name__)
@@ -19,7 +19,6 @@ from app.scheduler import init_scheduler, get_next_run_time
 from app.stacks import discover_stacks, get_stack_mount_paths
 from app.downloads import get_download_by_token, get_download_token_row, prepare_archive_for_download, increment_download_count, DOWNLOADS_PATH
 from app.notifications import get_setting
-from app.utils import format_bytes, format_duration, get_disk_usage, to_iso_z
 import shutil
 from app import utils
 from pathlib import Path
@@ -106,7 +105,7 @@ def run_startup_discovery():
 
         # Determine whether this process should emit verbose logs
         verbose = False
-        sentinel_log = '/tmp/da_startup_discovery_logged'
+        sentinel_log = get_sentinel_path('da_startup_discovery_logged')
         try:
             fd = os.open(sentinel_log, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             os.write(fd, str(os.getpid()).encode())
@@ -156,7 +155,7 @@ def run_startup_discovery():
             # Start asynchronous cleanup of stale 'running' jobs to avoid UI confusion.
             try:
                 # Use container-local sentinel so cleanup runs only once
-                sentinel = '/tmp/da_startup_cleanup_started'
+                sentinel = get_sentinel_path('da_startup_cleanup_started')
                 created = False
                 try:
                     fd = os.open(sentinel, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -251,7 +250,6 @@ def stack_color_filter(stack_name):
 @app.template_filter('datetime')
 def datetime_filter(dt, format_string='%Y-%m-%d %H:%M:%S'):
     """Format datetime in local timezone."""
-    from app.utils import format_datetime
     return format_datetime(dt, format_string)
 
 

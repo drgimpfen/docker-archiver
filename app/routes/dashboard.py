@@ -2,12 +2,12 @@
 Dashboard routes (moved from main.py).
 """
 import os
-from datetime import datetime
 from flask import Blueprint, render_template
 from app.auth import login_required, get_current_user
 from app.db import get_db
-from app.stacks import discover_stacks
-from app.scheduler import get_next_run_time
+from app.stacks import get_visible_stacks
+from app.scheduler import get_next_run_time, get_prev_run_time
+from datetime import datetime, timezone
 from app.utils import format_bytes, format_duration, get_disk_usage, to_iso_z
 from app.notifications import get_setting
 
@@ -24,8 +24,8 @@ def index():
     # Disk usage
     disk = get_disk_usage()
 
-    # Get stacks for modals
-    stacks = discover_stacks()
+    # Get stacks for modals (exclude local app stack)
+    stacks = get_visible_stacks()
 
     # Get archives and compute stats
     with get_db() as conn:
@@ -63,7 +63,8 @@ def index():
         on_disk_archives_size = None
         try:
             if os.environ.get('SHOW_ONDISK_ARCHIVE_SIZE') == '1':
-                archives_path = os.environ.get('ARCHIVES_PATH', '/archives')
+                # Use canonical archives path from utils
+                archives_path = get_archives_path()
                 total = 0
                 for root, dirs, files in os.walk(archives_path):
                     for f in files:
@@ -103,13 +104,11 @@ def index():
                 next_run = get_next_run_time(archive['id'])
                 prev_run = None
                 try:
-                    from app.scheduler import get_prev_run_time
                     prev_run = get_prev_run_time(archive['id'])
                 except Exception:
                     prev_run = None
 
                 # Determine overdue: previous scheduled time has passed and no job ran since then
-                from datetime import datetime, timezone
                 # Normalize times to timezone-aware UTC datetimes for safe comparison
                 now_utc = datetime.now(timezone.utc)
                 last_run = archive_dict.get('last_run')

@@ -6,6 +6,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
 from app.utils import setup_logging, get_logger
+from app import utils
 
 # Configure logging using centralized setup so LOG_LEVEL is respected
 setup_logging()
@@ -253,6 +254,7 @@ def init_db():
                 ('notify_report_verbosity', 'full'),
                 ('notify_attach_log', 'false'),
                 ('notify_attach_log_on_failure', 'false'),
+                ('apply_permissions', 'false'),
                 ('app_version', '0.7.0')
             ON CONFLICT (key) DO NOTHING;
         """)
@@ -292,7 +294,6 @@ def mark_stale_running_jobs(threshold_minutes=None):
     Returns the number of jobs that were marked as failed.
     """
     try:
-        from app import utils
         with get_db() as conn:
             cur = conn.cursor()
             msg = 'Marked failed on server startup (stale running job)'

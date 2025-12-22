@@ -5,14 +5,16 @@ import os
 import subprocess
 import time
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
+import logging
 from app.db import get_db
 from app import utils
-from app.stacks import validate_stack, find_compose_file
-from app import utils
-from app.utils import setup_logging, get_logger
+from app.stacks import validate_stack, find_compose_file, discover_stacks
+from app.utils import setup_logging, get_logger, get_archives_path, get_display_timezone
+from app.sse import send_global_event
+from app.notifications import get_setting, send_archive_notification
 
 # Configure logging using centralized setup so LOG_LEVEL is respected
 setup_logging()
@@ -25,7 +27,7 @@ except Exception:
         pass
 
 
-ARCHIVE_BASE = '/archives'
+ARCHIVE_BASE = get_archives_path()
 
 
 # Registry of running executors (job_id -> executor instance)
@@ -482,7 +484,6 @@ def _create_job_record_impl(self, start_time, triggered_by):
 
         # Broadcast a global job creation event so dashboards can update in real-time
         try:
-            from app.sse import send_global_event
             job_meta = {
                 'id': job_id,
                 'archive_id': self.config['id'],
@@ -495,8 +496,7 @@ def _create_job_record_impl(self, start_time, triggered_by):
             }
             send_global_event('job', job_meta)
             try:
-                import os
-                if os.environ.get('JOB_EVENTS_DEBUG'):
+                if logger.isEnabledFor(logging.DEBUG):
                     logger.info("[SSE] Global event SENT (job create) id=%s archive_id=%s start_time=%s", job_id, self.config['id'], start_time)
             except Exception:
                 pass
@@ -752,10 +752,8 @@ def _create_archive(self, stack_name, stack_path):
         output_dir = base_dir if ext else base_dir / stack_name
         # For auditing, log the timestamp and configured display timezone
         try:
-            from app.utils import get_display_timezone
             tz_obj = get_display_timezone()
             tz_name = getattr(tz_obj, 'key', None) or os.environ.get('TZ', 'UTC')
-            from datetime import datetime, timezone
             aware_local = datetime.now(tz_obj)
             iso_local = aware_local.isoformat()
             iso_utc = aware_local.astimezone(timezone.utc).isoformat()
@@ -814,9 +812,20 @@ def _create_archive(self, stack_name, stack_path):
                 
                 # Ensure archive file is world-readable so downstream backup tools (e.g., Borg) can access it
                 try:
-                    output_file.chmod(0o644)
-                    # Log permission change to the job log for observability
-                    self.log('INFO', f"Set archive permissions to 0644 for {output_file}")
+                    apply_perms = False
+                    try:
+                        from app.notifications import get_setting
+                        apply_perms = get_setting('apply_permissions', 'false').lower() == 'true'
+                    except Exception:
+                        apply_perms = False
+
+                    if apply_perms:
+                        output_file.chmod(0o644)
+                        # Log permission change to the job log for observability
+                        self.log('INFO', f"Set archive permissions to 0644 for {output_file}")
+                    else:
+                        # Skipping permission changes due to settings; not logged at INFO to avoid noise
+                        self.log('DEBUG', "Skipping chmod for archive files due to settings (apply_permissions disabled)")
                 except Exception as pe:
                     # Some filesystems (e.g., certain mounts) may not support chmod — log at DEBUG and continue
                     self.log('DEBUG', f"Could not chmod archive {output_file}: {pe}")
@@ -857,22 +866,33 @@ def _create_archive(self, stack_name, stack_path):
                 folder_size = int(result.stdout.split()[0]) if result.returncode == 0 else 0
                 folder_size_mb = folder_size / (1024 * 1024)
 
-                # Ensure copied folder contents are readable by backup tools (make files 0644 and dirs 0755)
+                # Ensure copied folder contents are readable by backup tools (make files 0644 and dirs 0755) if enabled in settings
                 success_dirs = success_files = fail_dirs = fail_files = 0
                 try:
-                    for root, dirs, files in os.walk(str(output_file)):
-                        for d in dirs:
-                            try:
-                                os.chmod(os.path.join(root, d), 0o755)
-                                success_dirs += 1
-                            except Exception:
-                                fail_dirs += 1
-                        for f in files:
-                            try:
-                                os.chmod(os.path.join(root, f), 0o644)
-                                success_files += 1
-                            except Exception:
-                                fail_files += 1
+                    apply_perms = False
+                    try:
+                        from app.notifications import get_setting
+                        apply_perms = get_setting('apply_permissions', 'false').lower() == 'true'
+                    except Exception:
+                        apply_perms = False
+
+                    if apply_perms:
+                        for root, dirs, files in os.walk(str(output_file)):
+                            for d in dirs:
+                                try:
+                                    os.chmod(os.path.join(root, d), 0o755)
+                                    success_dirs += 1
+                                except Exception:
+                                    fail_dirs += 1
+                            for f in files:
+                                try:
+                                    os.chmod(os.path.join(root, f), 0o644)
+                                    success_files += 1
+                                except Exception:
+                                    fail_files += 1
+                    else:
+                        # Skipping permission walk due to settings; not logged at INFO to avoid noisy logs
+                        self.log('DEBUG', f"Skipping permission adjustments for copied folder {output_file} due to settings (apply_permissions disabled)")
                 except Exception as pe:
                     # If the walk itself fails, log at DEBUG and continue
                     self.log('DEBUG', f"Permission walk failed for {output_file}: {pe}")
@@ -1061,11 +1081,9 @@ def _update_job_status(self, status, end_time=None, duration=None, total_size=No
             send_event(self.job_id, 'status', job_meta)
             try:
                 # Also emit a global summary so the dashboard can update without polling
-                from app.sse import send_global_event
                 send_global_event('job', job_meta)
                 try:
-                    import os
-                    if os.environ.get('JOB_EVENTS_DEBUG'):
+                    if logger.isEnabledFor(logging.DEBUG):
                         logger.info("[SSE] Global event SENT (job status) id=%s status=%s end_time=%s duration=%s total_size=%s", self.job_id, status, end_time, duration, total_size)
                 except Exception:
                     pass
@@ -1077,7 +1095,6 @@ def _update_job_status(self, status, end_time=None, duration=None, total_size=No
 def _send_notification(self, stack_metrics, duration, total_size):
         """Send notification via Apprise."""
         try:
-            from app.notifications import send_archive_notification
             send_archive_notification(self.config, self.job_id, stack_metrics, duration, total_size)
         except Exception as e:
             self.log('WARNING', f"Failed to send notification: {e}")

@@ -46,6 +46,14 @@
                        value="{{ settings.get('max_token_downloads', '3') }}" min="1" max="100">
                 <div class="form-text">Maximum number of times a download link can be used (prevents sharing)</div>
             </div>
+
+            <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" id="applyPermissions" name="apply_permissions" {% if settings.get('apply_permissions') == 'true' %}checked{% endif %}>
+                <label class="form-check-label" for="applyPermissions">
+                    <strong>Apply permissive permissions to generated archives</strong><br>
+                    <small class="text-muted">When enabled, files will be set to <code>0644</code> and directories to <code>0755</code> after creation. <strong>Default: disabled</strong>.</small>
+                </label>
+            </div>
         </div>
     </div>
     

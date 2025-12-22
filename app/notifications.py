@@ -3,7 +3,7 @@ Notification system using Apprise.
 """
 import os
 from app.db import get_db
-from app.utils import format_bytes, format_duration
+from app.utils import format_bytes, format_duration, get_disk_usage, get_archives_path
 
 
 def get_setting(key, default=''):
@@ -179,8 +179,7 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
 
         # Disk usage
         try:
-            from app import utils as _utils
-            disk = _utils.get_disk_usage('/archives')
+            disk = get_disk_usage()
             if disk and disk['total']:
                 body += """
   <h3>DISK USAGE (on /archives)</h3>
@@ -190,7 +189,7 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                 try:
                     import os
                     total_archives_size = 0
-                    for root, dirs, files in os.walk('/archives'):
+                    for root, dirs, files in os.walk(get_archives_path()):
                         for fn in files:
                             fp = os.path.join(root, fn)
                             try:

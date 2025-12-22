@@ -9,7 +9,12 @@ from app.notifications import get_setting
 import os
 import time
 import threading
-from app.utils import setup_logging, get_logger
+from app.utils import setup_logging, get_logger, get_display_timezone, get_jobs_log_dir, get_sentinel_path, local_now, filename_safe
+from app.downloads import cleanup_expired_tokens
+from app.cleanup import run_cleanup
+from app.notifications import send_error_notification
+from datetime import datetime, timezone
+from croniter import croniter
 
 # Configure logging using centralized setup so LOG_LEVEL is respected
 setup_logging()
@@ -27,7 +32,7 @@ def init_scheduler():
         return scheduler
 
     # Use a container-local sentinel to ensure only one process initializes the scheduler
-    sentinel = '/tmp/da_scheduler_started'
+    sentinel = get_sentinel_path('da_scheduler_started')
     created = False
     try:
         fd = os.open(sentinel, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -96,7 +101,6 @@ def init_scheduler():
         logger.info("[Scheduler] Initialization skipped (scheduler already started by another process)")
         return None
 
-    from app.utils import get_display_timezone
     display_tz = get_display_timezone()
 
     # Create scheduler with explicit display timezone so cron triggers behave consistently
@@ -110,7 +114,6 @@ def init_scheduler():
         logger.exception("[Scheduler] Could not load schedules during init (database might not be ready yet): %s", e)
 
     # Add cleanup job for expired download tokens (runs daily)
-    from app.downloads import cleanup_expired_tokens
     scheduler.add_job(
         cleanup_expired_tokens,
         'cron',
@@ -156,10 +159,8 @@ def schedule_cleanup_task():
         logger.warning("[Scheduler] Invalid cleanup_cron '%s', using default '30 2 * * *'", cleanup_cron)
         cron_parts = ['30', '2', '*', '*', '*']
 
-    from app.cleanup import run_cleanup
 
     try:
-        from app.utils import get_display_timezone
         display_tz = get_display_timezone()
         trigger = CronTrigger(
             minute=cron_parts[0],
@@ -272,7 +273,6 @@ def reload_schedules():
     
     display_tz = None
     try:
-        from app.utils import get_display_timezone
         display_tz = get_display_timezone()
     except Exception:
         display_tz = None
@@ -301,8 +301,7 @@ def reload_schedules():
 
             # Debug: compute and show the next fire time according to the trigger and display timezone
             try:
-                from datetime import datetime as _dt
-                now_local = _dt.now(display_tz) if display_tz is not None else _dt.utcnow()
+                now_local = datetime.now(display_tz) if display_tz is not None else datetime.utcnow()
                 next_fire_local = trigger.get_next_fire_time(None, now_local)
                 try:
                     logger.debug("[Scheduler DEBUG] archive id=%s cron='%s' display_tz=%s now=%s next_fire_local=%s", archive['id'], archive['schedule_cron'], display_tz, now_local.isoformat(), next_fire_local.isoformat() if next_fire_local else None)
@@ -338,11 +337,10 @@ def run_scheduled_archive(archive_config):
     try:
         # Start the scheduled archive as a detached subprocess to avoid blocking the scheduler
         import subprocess, sys, os
-        from app import utils as _utils
-        jobs_dir = os.environ.get('ARCHIVE_JOB_LOG_DIR', '/var/log/archiver')
+        jobs_dir = get_jobs_log_dir()
         os.makedirs(jobs_dir, exist_ok=True)
-        timestamp = _utils.local_now().strftime('%Y%m%d_%H%M%S')
-        safe_name = _utils.filename_safe(archive_config['name'])
+        timestamp = local_now().strftime('%Y%m%d_%H%M%S')
+        safe_name = filename_safe(archive_config['name'])
         log_name = f"{timestamp}_scheduled_{safe_name}.log"
         log_path = os.path.join(jobs_dir, log_name)
         cmd = [sys.executable, '-m', 'app.run_job', '--archive-id', str(archive_config['id']), '--log-path', log_path]
@@ -350,7 +348,6 @@ def run_scheduled_archive(archive_config):
         logger.info("[Scheduler] Enqueued scheduled archive %s (log: %s)", archive_config['name'], log_name)
     except Exception as e:
         logger.exception("[Scheduler] Archive failed: %s", e)
-        from app.notifications import send_error_notification
         send_error_notification(archive_config['name'], str(e))
 
 def get_next_run_time(archive_id):
@@ -371,13 +368,11 @@ def get_next_run_time(archive_id):
         if job and job.next_run_time:
             try:
                 # Keep timezone-aware UTC datetime for correct formatting and JS parsing
-                from datetime import timezone
                 next_run = job.next_run_time.astimezone(timezone.utc)
             except Exception:
                 nr = job.next_run_time
                 try:
                     # If job.next_run_time is naive, assume it's UTC
-                    from datetime import timezone
                     next_run = nr.replace(tzinfo=timezone.utc)
                 except Exception:
                     next_run = nr
@@ -410,8 +405,6 @@ def get_next_run_time(archive_id):
         return None
 
     try:
-        from datetime import datetime, timezone as _tz
-        from app.utils import get_display_timezone
         display_tz = get_display_timezone()
 
         # Interpret the cron expression in the configured display timezone so that
@@ -429,7 +422,7 @@ def get_next_run_time(archive_id):
         next_run = trigger.get_next_fire_time(None, now)
         if next_run:
             # Keep timezone-aware UTC datetime for correct formatting/parsing
-            next_run_utc = next_run.astimezone(_tz.utc)
+            next_run_utc = next_run.astimezone(timezone.utc)
             try:
                 logger.debug("[Scheduler] Next run (computed) for archive_%s: %s (local: %s)", archive_id, next_run_utc.isoformat(), next_run.isoformat())
             except Exception:
@@ -457,10 +450,6 @@ def get_prev_run_time(archive_id):
         return None
 
     try:
-        from datetime import datetime, timezone as _tz
-        from croniter import croniter
-        from app.utils import get_display_timezone
-
         display_tz = get_display_timezone()
         now = datetime.now(display_tz)
 

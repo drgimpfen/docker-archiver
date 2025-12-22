@@ -59,7 +59,7 @@ def main(argv=None):
         }
 
     # Ensure job log dir exists
-    jobs_dir = Path(os.environ.get('ARCHIVE_JOB_LOG_DIR', '/var/log/archiver'))
+    jobs_dir = Path(utils.get_jobs_log_dir())
     try:
         jobs_dir.mkdir(parents=True, exist_ok=True)
     except Exception:

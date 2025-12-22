@@ -2,7 +2,7 @@
 GFS (Grandfather-Father-Son) retention logic.
 """
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from collections import defaultdict
 from app import utils
@@ -13,7 +13,7 @@ setup_logging()
 logger = get_logger(__name__)
 
 
-ARCHIVE_BASE = '/archives'
+ARCHIVE_BASE = utils.get_archives_path()
 
 
 def run_retention(archive_config, job_id, is_dry_run=False, log_callback=None):
@@ -87,14 +87,10 @@ def run_retention(archive_config, job_id, is_dry_run=False, log_callback=None):
             ts_str = m.group(1)
             try:
                 timestamp = datetime.strptime(ts_str, '%Y%m%d_%H%M%S')
-                from datetime import timezone
-                local_tz = utils.get_display_timezone()
-                timestamp_local = timestamp.replace(tzinfo=local_tz)
-                timestamp_utc = timestamp_local.astimezone(timezone.utc)
-            except Exception:
-                from datetime import timezone
-                timestamp_utc = timestamp.replace(tzinfo=timezone.utc)
-
+                    local_tz = utils.get_display_timezone()
+                    timestamp_local = timestamp.replace(tzinfo=local_tz)
+                    timestamp_utc = timestamp_local.astimezone(timezone.utc)
+                except Exception:
             # Derive stack name from the filename base following the timestamp
             stack_name = base[m.end():].lstrip('_-') or 'unknown'
 

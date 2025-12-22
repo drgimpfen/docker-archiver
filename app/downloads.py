@@ -16,8 +16,11 @@ logger = get_logger(__name__)
 
 # Directory where generated download archives live (default: container tmp)
 # Fixed downloads directory - always use /tmp/downloads (not configurable)
-DOWNLOADS_PATH = Path('/tmp/downloads')
-DOWNLOADS_PATH.mkdir(parents=True, exist_ok=True)
+DOWNLOADS_PATH = utils.get_downloads_path()
+try:
+    DOWNLOADS_PATH.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
 
 
 def generate_download_token(job_id, stack_name, archive_path, is_folder=False, expires_hours=24):

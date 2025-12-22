@@ -9,13 +9,12 @@ import threading
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from app.auth import login_required, get_current_user
 from app.db import get_db
-from app.stacks import discover_stacks
+from app.stacks import get_visible_stacks
 from app.executor import ArchiveExecutor
 from app.scheduler import reload_schedules, get_next_run_time, publish_reload_signal
-from app.utils import format_bytes, format_duration, get_disk_usage, to_iso_z
+from app.utils import setup_logging, get_logger, format_bytes, format_duration, get_disk_usage, to_iso_z, get_jobs_log_dir, now, local_now, filename_safe, format_bytes, format_duration, get_disk_usage, to_iso_z, get_jobs_log_dir
 from app import utils
-from app.notifications import get_setting
-from app.utils import setup_logging, get_logger
+from app.notifications import get_setting, send_retention_notification
 
 # Configure logging using centralized setup so LOG_LEVEL is respected
 setup_logging()
@@ -33,8 +32,6 @@ def _is_ajax_request():
 
 def _enrich_archive(cur, archive):
     """Enrich a single archive row (dict-like) with additional computed fields used by the UI."""
-    from app.scheduler import get_prev_run_time
-    from datetime import datetime, timezone
 
     archive_dict = dict(archive)
 
@@ -81,10 +78,8 @@ def _enrich_archive(cur, archive):
                 prev_run_utc = prev_run
             # Do not mark as overdue if the missed run is within a short grace window
             try:
-                from datetime import timedelta
                 grace_seconds = int(os.environ.get('SCHEDULE_MISFIRE_GRACE', '300'))
             except Exception:
-                from datetime import timedelta
                 grace_seconds = 300
 
             if prev_run_utc + timedelta(seconds=grace_seconds) < now_utc:
@@ -127,7 +122,6 @@ def create():
     """Create new archive configuration."""
     try:
         from app.security import validate_archive_name
-        from croniter import croniter
         
         name = request.form.get('name')
         
@@ -154,6 +148,26 @@ def create():
         # Require at least one stack when creating an archive
         if not stacks:
             msg = 'Please select at least one stack for the archive.'
+            if _is_ajax_request():
+                return jsonify({'status': 'error', 'message': msg}), 400
+            flash(msg, 'danger')
+            return redirect(url_for('dashboard.index'))
+
+        # Validate selected stacks are visible and not the local application stack (self-backup)
+        try:
+            visible = get_visible_stacks()
+            visible_names = {s['name'] for s in visible}
+            # Reject any selections that don't correspond to a visible stack (prevents crafted requests)
+            for selected in stacks:
+                if selected not in visible_names:
+                    msg = 'Selected stack is not available.'
+                    if _is_ajax_request():
+                        return jsonify({'status': 'error', 'message': msg}), 400
+                    flash(msg, 'danger')
+                    return redirect(url_for('dashboard.index'))
+        except Exception:
+            # If validation fails for unexpected reasons, block to be safe
+            msg = 'Stack validation failed; please try again or contact the administrator.'
             if _is_ajax_request():
                 return jsonify({'status': 'error', 'message': msg}), 400
             flash(msg, 'danger')
@@ -231,7 +245,7 @@ def create():
                 cur.execute("SELECT * FROM archives WHERE id = %s;", (archive_id,))
                 new_archive = cur.fetchone()
                 archive_dict = _enrich_archive(cur, new_archive)
-            rendered = render_template('_archive_card.html', archive=archive_dict, stacks=discover_stacks(), current_user=get_current_user(), format_bytes=format_bytes)
+            rendered = render_template('_archive_card.html', archive=archive_dict, stacks=get_visible_stacks(), current_user=get_current_user(), format_bytes=format_bytes)
             # Wrap in a column container that matches the dashboard grid
             wrapped = f"<div class=\"col-md-6 col-lg-3\" id=\"archive-card-{archive_id}\">" + rendered + "</div>"
             archive_resp = dict(archive_dict)
@@ -257,7 +271,6 @@ def create():
 def edit(archive_id):
     """Edit archive configuration."""
     try:
-        from croniter import croniter
         
         # Note: name field is ignored - archives cannot be renamed
         stacks = request.form.getlist('stacks')
@@ -354,7 +367,7 @@ def edit(archive_id):
                 cur.execute("SELECT * FROM archives WHERE id = %s;", (archive_id,))
                 updated_archive = cur.fetchone()
                 archive_dict = _enrich_archive(cur, updated_archive)
-            rendered = render_template('_archive_card.html', archive=archive_dict, stacks=discover_stacks(), current_user=get_current_user(), format_bytes=format_bytes)
+            rendered = render_template('_archive_card.html', archive=archive_dict, stacks=get_visible_stacks(), current_user=get_current_user(), format_bytes=format_bytes)
             # Wrap in a column container that matches the dashboard grid
             wrapped = f"<div class=\"col-md-6 col-lg-3\" id=\"archive-card-{archive_id}\">" + rendered + "</div>"
             archive_resp = dict(archive_dict)
@@ -425,14 +438,12 @@ def run_retention_only(archive_id):
         def run_retention_job():
             logger.info("Retention thread started for archive_id=%s", archive_id)
             try:
-                from app.retention import run_retention
-                from app.db import get_db
+
                 
                 # Create a job record with empty log
                 with get_db() as conn:
-                    from app import utils as u
                     cur = conn.cursor()
-                    start_time = u.now()
+                    start_time = now()
                     cur.execute("""
                         INSERT INTO jobs (archive_id, job_type, status, start_time, triggered_by, log)
                         VALUES (%s, 'retention', 'running', %s, 'manual', '')
@@ -446,8 +457,7 @@ def run_retention_only(archive_id):
             
             # Log function
             def log_message(level, message):
-                from app import utils as u
-                timestamp = u.local_now().strftime('%Y-%m-%d %H:%M:%S')
+                timestamp = local_now().strftime('%Y-%m-%d %H:%M:%S')
                 log_line = f"[{timestamp}] [{level}] {message}\n"
                 
                 with get_db() as conn:
@@ -469,9 +479,8 @@ def run_retention_only(archive_id):
                 
                 # Update job status
                 with get_db() as conn:
-                    from app import utils as u
                     cur = conn.cursor()
-                    end_time = u.now()
+                    end_time = now()
                     cur.execute("""
                         UPDATE jobs 
                         SET status = 'success', end_time = %s, reclaimed_size_bytes = %s
@@ -479,7 +488,6 @@ def run_retention_only(archive_id):
                     """, (end_time, reclaimed, job_id))
                     conn.commit()
                 
-                from app.notifications import send_retention_notification
                 send_retention_notification(archive['name'], 0, reclaimed)  # deleted_count not tracked
                 
             except Exception as e:
@@ -487,9 +495,8 @@ def run_retention_only(archive_id):
                 log_message('ERROR', f"Retention failed: {str(e)}")
                 
                 with get_db() as conn:
-                    from app import utils as u
                     cur = conn.cursor()
-                    end_time = u.now()
+                    end_time = now()
                     cur.execute("""
                         UPDATE jobs 
                         SET status = 'failed', end_time = %s, error_message = %s
@@ -527,10 +534,9 @@ def run(archive_id):
             return redirect(url_for('dashboard.index'))
         
         # Create a job record atomically to prevent duplicate starts
-        from app import utils as u
         with get_db() as conn:
             cur = conn.cursor()
-            start_time = u.now()
+            start_time = now()
             cur.execute("""
                 INSERT INTO jobs (archive_id, job_type, status, start_time, triggered_by, log)
                 SELECT %s, 'archive', 'running', %s, 'manual', ''
@@ -548,7 +554,7 @@ def run(archive_id):
 
         # Start archive as detached subprocess and log to file
         import sys
-        jobs_dir = os.environ.get('ARCHIVE_JOB_LOG_DIR', '/var/log/archiver')
+        jobs_dir = get_jobs_log_dir()
         os.makedirs(jobs_dir, exist_ok=True)
         log_path = os.path.join(jobs_dir, f"archive_{archive_id}.log")
         cmd = [sys.executable, '-m', 'app.run_job', '--archive-id', str(archive_id), '--job-id', str(job_id)]
@@ -597,7 +603,7 @@ def dry_run(archive_id):
         if not run_retention:
             cmd.append('--no-run-retention')
 
-        jobs_dir = os.environ.get('ARCHIVE_JOB_LOG_DIR', '/var/log/archiver')
+        jobs_dir = get_jobs_log_dir()
         os.makedirs(jobs_dir, exist_ok=True)
         timestamp = utils.local_now().strftime('%Y%m%d_%H%M%S')
         safe_name = utils.filename_safe(archive['name'])

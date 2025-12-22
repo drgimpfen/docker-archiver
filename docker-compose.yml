@@ -49,8 +49,14 @@ services:
       # GUNICORN_MAX_WORKERS: "8" # max workers when using automatic sizing (default 8)
       # GUNICORN_THREADS: "2" # threads per worker (default 2)
       # GUNICORN_TIMEOUT: "300" # worker timeout in seconds (default 300)
-      # Debugging: enable verbose SSE debug logs (set to "1")
-      # JOB_EVENTS_DEBUG: "1"
+      # Example environment variables (recommended: place in a .env file or set in your environment)
+      # LOG_LEVEL=INFO                     # Global log level: DEBUG, INFO, WARNING, ERROR
+      # DB_PASSWORD=changeme123            # Optional: used by DATABASE_URL when referenced
+
+      # SHOW_ONDISK_ARCHIVE_SIZE=1         # Enable showing on-disk archive sizes in Dashboard
+      # SCHEDULE_MISFIRE_GRACE=300         # seconds to consider a misfire grace window
+      # DB_WAIT_RETRIES=30                 # Used by tools/wait_for_db.py
+      # DB_WAIT_DELAY=1.0                  # Delay between retries (seconds)
     volumes:
       # Docker socket for container management
       - /var/run/docker.sock:/var/run/docker.sock

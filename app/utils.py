@@ -125,12 +125,46 @@ def format_duration(seconds):
     return f"{hours}h {mins}m"
 
 
-def get_disk_usage(path='/archives'):
+# Fixed paths used across the application. These are centralized so they can be
+# adjusted in one place if needed. They are intentionally NOT controlled via
+# environment variables to avoid accidental misconfiguration at runtime.
+ARCHIVES_PATH = '/archives'
+JOBS_LOG_DIR = '/var/log/archiver'
+DOWNLOADS_PATH = '/tmp/downloads'
+SENTINEL_DIR = '/tmp'
+
+
+def get_archives_path():
+    """Return the canonical archives directory used by the application."""
+    return ARCHIVES_PATH
+
+
+def get_jobs_log_dir():
+    """Return the canonical jobs log directory used by the application."""
+    return JOBS_LOG_DIR
+
+
+def get_downloads_path():
+    """Return the canonical temporary downloads directory used by the application (Path object)."""
+    from pathlib import Path
+    return Path(DOWNLOADS_PATH)
+
+
+def get_sentinel_path(name: str):
+    """Return a sentinel filename under the sentinel directory for the given name."""
+    import os
+    return os.path.join(SENTINEL_DIR, name)
+
+
+def get_disk_usage(path=None):
     """
-    Get disk usage for specified directory.
-    
+    Get disk usage for specified directory. If no path is provided, use the
+    canonical archives path.
+
     Returns dict with total, used, free (bytes) and percent.
     """
+    if path is None:
+        path = get_archives_path()
     try:
         usage = shutil.disk_usage(path)
         return {

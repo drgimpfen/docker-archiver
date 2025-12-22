@@ -23,6 +23,7 @@
 - 🌓 **Dark/Light Mode** - Modern Bootstrap UI with theme toggle
 - 🔐 **User Authentication** - Secure login system (role-based access coming soon)
 - 💾 **Multiple Formats** - Support for tar, tar.gz, tar.zst, or folder output
+- 🛡️ **Output Permissions (configurable)** - Optionally apply permissive permissions to generated archive files (<code>0644</code>) and directories (<code>0755</code>); controlled via **Settings → Apply permissive permissions to generated archives** (default: disabled).
 - 🌍 **Timezone Support** - Configurable timezone via environment variable
 
 ## Architecture
@@ -277,6 +278,10 @@ For more details and troubleshooting tips, see the dashboard warning messages or
 
 > **Note:** Port (8080) and mount paths are configured in `docker-compose.yml`, not via environment variables.
 
+> **Note:** The application uses fixed internal paths for archive output and job logs:
+> - Archives directory: `/archives` (used for storing generated archives)
+> - Job logs directory: `/var/log/archiver` (stdout/stderr from job subprocesses)
+
 ### Logging & Debugging 🔧
 
 Control application-wide logging using the `LOG_LEVEL` environment variable (recommended values: `DEBUG`, `INFO`, `WARNING`, `ERROR`). Setting `LOG_LEVEL=DEBUG` enables detailed diagnostic messages across components (scheduler, SSE, executor, etc.).
@@ -300,7 +305,6 @@ docker compose up -d
 Notes:
 - Use `DEBUG` for troubleshooting; use `INFO` for normal production verbosity.
 - Expensive debug-only work is guarded by `logger.isEnabledFor(logging.DEBUG)` to avoid runtime overhead unless debug is explicitly enabled.
-- Older per-module flags like `APP_DEBUG`, `SCHEDULER_DEBUG` and `JOB_EVENTS_DEBUG` are deprecated—use `LOG_LEVEL` instead.
 
 > **Note:** Redis is required for reliable cross‑worker SSE propagation. Set `REDIS_URL` (e.g., `redis://redis:6379/0`) and ensure the `redis` Python package is available. The app assumes Redis is present for real‑time streaming and global event propagation.
 
@@ -469,7 +473,7 @@ exclude_paths:
 
 **Note:** The `/api/*` endpoints have their own authentication via Bearer tokens. The download endpoint (`/download/<token>`) uses time-limited tokens and doesn't require session authentication.
 
-Downloads are always prepared/stored under `/tmp/downloads` on the host container (this path is fixed and not configurable). If a requested token points to an archive outside this directory, the application will attempt to regenerate a download file into `/tmp/downloads` before serving it.
+Downloads are always prepared/stored under `/tmp/downloads` on the host container (this path is fixed). If a requested token points to an archive outside this directory, the application will attempt to regenerate a download file into `/tmp/downloads` before serving it.
 
 ### Reverse proxy examples
 

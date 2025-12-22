@@ -15,7 +15,7 @@ setup_logging()
 logger = get_logger(__name__)
 
 
-ARCHIVE_BASE = '/archives'
+ARCHIVE_BASE = utils.get_archives_path()
 
 
 def run_cleanup(dry_run_override=None, job_id=None):
@@ -636,9 +636,6 @@ def cleanup_unreferenced_files(is_dry_run=False, log_callback=None):
 def send_cleanup_notification(orphaned_stats, log_stats, temp_stats, uf_stats, total_reclaimed, is_dry_run, job_id=None):
     """Send notification about cleanup results. Includes job log when available."""
     try:
-        # Create Apprise instance using shared logic so SMTP env vars are honoured
-        from app.notifications import get_apprise_instance, get_setting, get_subject_with_tag
-
         # Debug log to assist with dry-run notification troubleshooting
         logger.info("[Cleanup] Sending cleanup notification (%s)", 'DRY RUN' if is_dry_run else 'LIVE')
 
@@ -697,7 +694,6 @@ def send_cleanup_notification(orphaned_stats, log_stats, temp_stats, uf_stats, t
                 body += "\n\nFull Cleanup Log:\n" + job_log
 
         # Get format preference from notifications module
-        from app.notifications import get_notification_format, strip_html_tags
         body_format = get_notification_format()
         
         # Convert to plain text if needed

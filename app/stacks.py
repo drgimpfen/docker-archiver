@@ -6,6 +6,11 @@ import glob
 import subprocess
 import json
 from pathlib import Path
+from app.utils import setup_logging, get_logger
+
+# Configure logging using centralized setup
+setup_logging()
+logger = get_logger(__name__)
 
 
 def get_own_container_mounts():
@@ -72,7 +77,7 @@ def get_own_container_mounts():
                                     not destination.startswith('/usr/') and
                                     not destination.startswith('/proc/') and
                                     not destination.startswith('/sys/') and
-                                    destination != '/archives' and
+                                    destination != get_archives_path() and
                                     destination != '/var/run/docker.sock'):
                                     bind_mounts.append(destination)
                         if bind_mounts:
@@ -113,13 +118,7 @@ def get_own_container_mounts():
                         not mount_point.startswith('/usr/') and
                         not mount_point.startswith('/proc/') and
                         not mount_point.startswith('/sys/') and
-                        mount_point != '/archives' and
-                        mount_point != '/var/run/docker.sock' and
-                        mount_point != '/' and  # Skip root mount
-                        source != 'overlay'):   # Skip overlay mounts
-                        bind_mounts.append(mount_point)
-                
-                return bind_mounts
+                        mount_point != get_archives_path() and
                 
         except (FileNotFoundError, OSError, ValueError):
             pass
@@ -226,7 +225,6 @@ def detect_bind_mismatches():
                 continue
             # Normalize paths
             try:
-                from pathlib import Path
                 src_norm = str(Path(src))
                 dst_norm = str(Path(dst))
             except Exception:
@@ -255,7 +253,6 @@ def get_mismatched_destinations():
             if not src or not dst:
                 continue
             try:
-                from pathlib import Path
                 src_norm = str(Path(src))
                 dst_norm = str(Path(dst))
             except Exception:
@@ -321,6 +318,16 @@ def discover_stacks():
         # Check if mount_path itself contains a compose file (direct stack mount)
         compose_file = find_compose_file(mount_path)
         if compose_file:
+            # Skip our own application stack (guards against self-backup)
+            try:
+                if _is_local_app_stack(mount_path):
+                    logger.debug("Skipping local app stack at %s", mount_path)
+                    # don't add to discovered stacks
+                    compose_file = None
+            except Exception:
+                pass
+
+        if compose_file:
             stacks.append({
                 'name': mount_name,
                 'path': str(mount_path),
@@ -336,6 +343,14 @@ def discover_stacks():
                     
                     compose_file = find_compose_file(stack_dir)
                     if compose_file:
+                        # Skip our own application stack (guards against self-backup)
+                        try:
+                            if _is_local_app_stack(stack_dir):
+                                logger.debug("Skipping local app stack at %s", stack_dir)
+                                continue
+                        except Exception:
+                            pass
+
                         stacks.append({
                             'name': stack_dir.name,
                             'path': str(stack_dir),
@@ -371,6 +386,14 @@ def discover_stacks():
                     
                     compose_file = find_compose_file(stack_dir)
                     if compose_file:
+                        # Skip our own application stack (guards against self-backup)
+                        try:
+                            if _is_local_app_stack(stack_dir):
+                                logger.debug("Skipping local app stack at %s", stack_dir)
+                                continue
+                        except Exception:
+                            pass
+
                         stacks.append({
                             'name': stack_dir.name,
                             'path': str(stack_dir),
@@ -379,6 +402,29 @@ def discover_stacks():
                         })
     
     return sorted(stacks, key=lambda x: x['name'])
+
+
+def get_visible_stacks():
+    """Return discovered stacks excluding the local application stack (for UI selection).
+
+    This ensures the app's own stack is not shown in create/edit modals and cannot be
+    selected by users for backups (prevents accidental self-backups/self-shutdown).
+    """
+    try:
+        stacks = discover_stacks()
+        visible = []
+        for s in stacks:
+            try:
+                if _is_local_app_stack(s['path']):
+                    continue
+            except Exception:
+                # If detection fails, conservatively include the stack
+                visible.append(s)
+                continue
+            visible.append(s)
+        return visible
+    except Exception:
+        return discover_stacks()
 
 
 def find_compose_file(directory):
@@ -398,6 +444,46 @@ def find_compose_file(directory):
         filepath = Path(directory) / filename
         if filepath.is_file():
             return filename
+
+
+def _is_local_app_stack(path):
+    """Return True if the compose file at `path` appears to be the application itself.
+
+    Heuristics used:
+    - service named 'app' or 'archiver' under `services:`
+    - image name containing 'archiver' (case-insensitive)
+    - container_name containing 'app' or 'archiver'
+
+    This is a best-effort check to prevent selecting the running application stack
+    for backup (which could stop the app and cause self-termination).
+    """
+    try:
+        import re
+        from pathlib import Path
+        comp = find_compose_file(Path(path))
+        if not comp:
+            return False
+        cf = Path(path) / comp
+        txt = cf.read_text(encoding='utf-8', errors='ignore')
+
+        # Look for service names under 'services:'
+        if re.search(r'^\s*services\s*:\s*$', txt, re.M):
+            servs = re.findall(r'^\s{2,}([A-Za-z0-9_\-]+)\s*:', txt, re.M)
+            for s in servs:
+                if s.lower() in ('app', 'archiver'):
+                    return True
+
+        # Check for image referencing the archiver
+        if re.search(r'image\s*:\s*.*archiver', txt, re.I):
+            return True
+
+        # Check for container_name that looks like app or archiver
+        if re.search(r'container_name\s*:\s*(app|archiver)', txt, re.I):
+            return True
+
+    except Exception:
+        pass
+    return False
     
     return None
 
