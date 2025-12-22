@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime, timedelta
 from app.db import get_db
-from app.notifications import get_setting
+from app.notifications import get_setting, get_apprise_instance, get_subject_with_tag, get_notification_format, strip_html_tags
 from app import utils
 from app.utils import setup_logging, get_logger
 
@@ -24,9 +24,6 @@ def run_cleanup(dry_run_override=None, job_id=None):
     If `dry_run_override` is provided (True/False), it overrides the configured
     `cleanup_dry_run` setting for this invocation.
     """
-    from app.notifications import get_setting
-    from datetime import datetime
-    
     # Check if cleanup is enabled
     enabled = get_setting('cleanup_enabled', 'true').lower() == 'true'
     if not enabled:

@@ -12,7 +12,8 @@ from app.db import get_db
 from app.stacks import get_visible_stacks
 from app.executor import ArchiveExecutor
 from app.scheduler import reload_schedules, get_next_run_time, publish_reload_signal
-from app.utils import setup_logging, get_logger, format_bytes, format_duration, get_disk_usage, to_iso_z, get_jobs_log_dir, now, local_now, filename_safe, format_bytes, format_duration, get_disk_usage, to_iso_z, get_jobs_log_dir
+from croniter import croniter
+from app.utils import setup_logging, get_logger, format_bytes, format_duration, get_disk_usage, to_iso_z, get_jobs_log_dir, now, local_now, filename_safe
 from app import utils
 from app.notifications import get_setting, send_retention_notification
 
