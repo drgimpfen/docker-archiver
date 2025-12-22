@@ -504,20 +504,20 @@
                                         {% if job.job_type == 'archive' %}
                                             {% set fmt = job.archive_output_format or 'tar' %}
                                             {% if fmt == 'folder' %}
-                                                <i class="bi bi-folder me-1 text-primary"></i> folder (for borg backup)
+                                                <i class="bi bi-folder me-1 text-primary"></i> <span title="folder (for borg backup)">folder</span>
                                             {% elif fmt == 'tar' %}
-                                                <i class="bi bi-archive me-1 text-secondary"></i> tar (no compression)
+                                                <i class="bi bi-archive me-1 text-secondary"></i> <span title="tar (no compression)">tar</span>
                                             {% elif fmt == 'tar.gz' %}
-                                                <i class="bi bi-archive me-1 text-info"></i> tar.gz (gzip)
+                                                <i class="bi bi-archive me-1 text-info"></i> <span title="tar.gz (gzip)">tgz</span>
                                             {% elif fmt == 'tar.zst' %}
-                                                <i class="bi bi-archive me-1 text-success"></i> tar.zst (zstd)
+                                                <i class="bi bi-archive me-1 text-success"></i> <span title="tar.zst (zstd)">zst</span>
                                             {% else %}
-                                                <i class="bi bi-file-earmark me-1 text-muted"></i> {{ fmt }}
+                                                <i class="bi bi-file-earmark me-1 text-muted"></i> <span title="{{ fmt }}">{{ fmt if fmt|length <= 8 else fmt[:8] + '…' }}</span>
                                             {% endif %}
                                         {% elif job.job_type == 'retention' %}
-                                        <i class="bi bi-trash text-warning"></i> Retention
+                                        <i class="bi bi-trash text-warning"></i> <span title="Retention">ret</span>
                                         {% elif job.job_type == 'cleanup' %}
-                                        <i class="bi bi-recycle text-info"></i> Cleanup
+                                        <i class="bi bi-recycle text-info"></i> <span title="Cleanup">clean</span>
                                         {% else %}
                                         <i class="bi bi-question-circle text-muted"></i> {{ job.job_type|title }}
                                         {% endif %}

@@ -312,24 +312,27 @@
             const job = data.job;
             const metrics = data.metrics;
             
-            // Determine human-friendly type/format display
+            // Determine compact type/format display (short labels with title tooltips)
             let typeHtml = '';
             if (job.job_type === 'archive') {
                 const fmt = job.archive_output_format || 'tar';
                 if (fmt === 'folder') {
-                    typeHtml = '<i class="bi bi-folder me-1 text-primary"></i> folder (for borg backup)';
+                    typeHtml = '<i class="bi bi-folder me-1 text-primary"></i> <span title="folder (for borg backup)">folder</span>';
                 } else if (fmt === 'tar') {
-                    typeHtml = '<i class="bi bi-archive me-1 text-secondary"></i> tar (no compression)';
+                    typeHtml = '<i class="bi bi-archive me-1 text-secondary"></i> <span title="tar (no compression)">tar</span>';
                 } else if (fmt === 'tar.gz') {
-                    typeHtml = '<i class="bi bi-archive me-1 text-info"></i> tar.gz (gzip)';
+                    typeHtml = '<i class="bi bi-archive me-1 text-info"></i> <span title="tar.gz (gzip)">tgz</span>';
                 } else if (fmt === 'tar.zst') {
-                    typeHtml = '<i class="bi bi-archive me-1 text-success"></i> tar.zst (zstd)';
+                    typeHtml = '<i class="bi bi-archive me-1 text-success"></i> <span title="tar.zst (zstd)">zst</span>';
                 } else {
-                    typeHtml = '<i class="bi bi-file-earmark me-1 text-muted"></i> ' + fmt;
+                    const short = (fmt.length <= 8) ? fmt : fmt.substring(0,8) + '…';
+                    typeHtml = '<i class="bi bi-file-earmark me-1 text-muted"></i> <span title="' + fmt + '">' + short + '</span>';
                 }
-                if (job.is_dry_run) typeHtml += ' <span class="badge bg-secondary">DRY RUN</span>';
+                if (job.is_dry_run) typeHtml += ' <span class="badge bg-secondary">DRY</span>';
             } else {
-                typeHtml = job.job_type + (job.is_dry_run ? ' <span class="badge bg-secondary">DRY RUN</span>' : '');
+                let label = job.job_type.replace('_',' ');
+                if (label.length > 6) label = label.substring(0,6) + '…';
+                typeHtml = '<span title="' + job.job_type + '">' + label + '</span>' + (job.is_dry_run ? ' <span class="badge bg-secondary">DRY</span>' : '');
             }
             
             let html = `
