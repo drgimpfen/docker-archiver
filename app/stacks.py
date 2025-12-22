@@ -119,7 +119,11 @@ def get_own_container_mounts():
                         not mount_point.startswith('/proc/') and
                         not mount_point.startswith('/sys/') and
                         mount_point != get_archives_path() and
-                
+                        mount_point != '/var/run/docker.sock'):
+                        bind_mounts.append(mount_point)
+
+                if bind_mounts:
+                    return bind_mounts
         except (FileNotFoundError, OSError, ValueError):
             pass
         
