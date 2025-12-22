@@ -6,6 +6,7 @@ import secrets
 import os
 import subprocess
 import threading
+import json
 from functools import wraps
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -232,13 +233,15 @@ def job_events(job_id):
     def gen():
         q = register_event_listener(job_id)
         try:
-            # Send initial keep-alive comment
-            yield ': connected\n\n'
+            # Send an initial JSON 'connected' event so the client receives an onmessage and
+            # clears its idle watchdog (previously only a comment was sent, which doesn't
+            # trigger onmessage).
+            yield 'data: ' + json.dumps({'type': 'connected', 'data': {}}) + '\n\n'
             while True:
                 try:
                     msg = q.get(timeout=15)
                 except Exception:
-                    # keepalive
+                    # keepalive comment to keep connection alive
                     yield ': keepalive\n\n'
                     continue
                 # Send as raw data (client will JSON-parse)
