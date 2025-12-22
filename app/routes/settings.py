@@ -222,10 +222,14 @@ def check_permissions():
                     mode = os.stat(p).st_mode & 0o777
                     if mode != dir_mode:
                         rel = os.path.relpath(p, base)
-                        top = rel.split(os.sep)[0] if rel and not rel.startswith('..') else rel
+                        parts = rel.split(os.sep) if rel and not rel.startswith('..') else []
+                        top = parts[0] if len(parts) >= 1 else ''
+                        stack = parts[1] if len(parts) >= 2 else '<root>'
                         if top not in archives:
-                            archives[top] = {'path': os.path.join(base, top), 'mismatched_files': [], 'mismatched_dirs': [], 'file_count':0, 'dir_count':0}
-                        archives[top]['mismatched_dirs'].append({'path': p, 'mode': oct(mode)})
+                            archives[top] = {'path': os.path.join(base, top), 'stacks': {}, 'mismatched_files': [], 'mismatched_dirs': [], 'file_count':0, 'dir_count':0}
+                        if stack not in archives[top]['stacks']:
+                            archives[top]['stacks'][stack] = {'mismatched_files': [], 'mismatched_dirs': []}
+                        archives[top]['stacks'][stack]['mismatched_dirs'].append({'path': p, 'mode': oct(mode)})
                 except Exception:
                     continue
             for f in files:
@@ -235,23 +239,35 @@ def check_permissions():
                     mode = os.stat(p).st_mode & 0o777
                     if mode != file_mode:
                         rel = os.path.relpath(p, base)
-                        top = rel.split(os.sep)[0] if rel and not rel.startswith('..') else rel
+                        parts = rel.split(os.sep) if rel and not rel.startswith('..') else []
+                        top = parts[0] if len(parts) >= 1 else ''
+                        stack = parts[1] if len(parts) >= 2 else '<root>'
                         if top not in archives:
-                            archives[top] = {'path': os.path.join(base, top), 'mismatched_files': [], 'mismatched_dirs': [], 'file_count':0, 'dir_count':0}
-                        archives[top]['mismatched_files'].append({'path': p, 'mode': oct(mode)})
+                            archives[top] = {'path': os.path.join(base, top), 'stacks': {}, 'mismatched_files': [], 'mismatched_dirs': [], 'file_count':0, 'dir_count':0}
+                        if stack not in archives[top]['stacks']:
+                            archives[top]['stacks'][stack] = {'mismatched_files': [], 'mismatched_dirs': []}
+                        archives[top]['stacks'][stack]['mismatched_files'].append({'path': p, 'mode': oct(mode)})
                 except Exception:
                     continue
 
-        # Prepare response: convert archives dict to list with counts and limited samples
+        # Prepare response: convert archives dict to list with counts and limited samples per stack
         archive_list = []
         for name, data in archives.items():
+            stacks_out = []
+            for sname, sdata in data.get('stacks', {}).items():
+                stacks_out.append({
+                    'name': sname,
+                    'mismatched_file_count': len(sdata.get('mismatched_files', [])),
+                    'mismatched_dir_count': len(sdata.get('mismatched_dirs', [])),
+                    'sample_files': sdata.get('mismatched_files', [])[:5],
+                    'sample_dirs': sdata.get('mismatched_dirs', [])[:5]
+                })
             archive_list.append({
                 'name': name,
                 'path': data['path'],
-                'mismatched_file_count': len(data['mismatched_files']),
-                'mismatched_dir_count': len(data['mismatched_dirs']),
-                'sample_files': data['mismatched_files'][:10],
-                'sample_dirs': data['mismatched_dirs'][:10]
+                'mismatched_file_count': sum(s['mismatched_file_count'] for s in stacks_out),
+                'mismatched_dir_count': sum(s['mismatched_dir_count'] for s in stacks_out),
+                'stacks': stacks_out
             })
 
         return jsonify({
