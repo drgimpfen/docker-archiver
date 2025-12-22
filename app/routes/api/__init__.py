@@ -1,10 +1,12 @@
-"""API routes package for app.routes.api.
+"""API package.
 
-This package exposes the API blueprint defined in `api_impl.py` so that
-existing imports like `from app.routes import api` and `app.register_blueprint(api.bp)`
-continue to work after converting `app/routes/api` to a package.
+Define `bp` here and import submodules to register routes.
 """
-from .api_impl import bp
+from flask import Blueprint
 
-# Re-export commonly used names (if other modules expect them)
+bp = Blueprint('api', __name__, url_prefix='/api')
+
+# Import submodules to register routes
+from . import jobs  # noqa: F401
+
 __all__ = ["bp"]

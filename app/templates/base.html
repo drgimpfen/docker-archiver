@@ -637,40 +637,64 @@
             }
 
             // Global SSE events (permissions fixes, job-level broadcasts, etc.)
+            // Only open global EventSource if the server supports global SSE (debug endpoint check)
             function startGlobalEventSource(){
                 if (typeof(EventSource) === 'undefined') return;
                 if (window._globalEventSource) return;
-                try {
-                    window._globalEventSource = new EventSource('/api/events');
-                    window._globalEventSource.onmessage = function(e){
-                        try{
-                            const payload = JSON.parse(e.data);
-                            if(!payload || !payload.type) return;
-                            // Handle permissions fix completion
-                            if(payload.type === 'permissions_fix_completed'){
-                                const d = payload.data || {};
-                                const files = d.files_changed || 0;
-                                const dirs = d.dirs_changed || 0;
-                                const msg = `Permissions fix completed: ${files} files, ${dirs} dirs fixed`;
-                                if(typeof showAlert === 'function'){
-                                    // If there are sample fixes, include a small 'View fixes' link
-                                    showAlert(msg, 'success');
+
+                // Probe server debug endpoint to determine whether global SSE is available
+                fetch('/api/_debug/sse').then(function(resp){
+                    if (!resp.ok) {
+                        console.info('Global SSE not available: debug endpoint returned ' + resp.status);
+                        return null;
+                    }
+                    return resp.json();
+                }).then(function(data){
+                    if (!data || !data.sse) {
+                        console.info('Global SSE not enabled (no debug info)');
+                        return;
+                    }
+                    const s = data.sse || {};
+                    // Only attempt to open global SSE if Redis is configured/connected (server-side requirement)
+                    if (!s.redis_url_set && !s.use_redis) {
+                        console.info('Global SSE not enabled on server (no Redis)');
+                        return;
+                    }
+
+                    try {
+                        window._globalEventSource = new EventSource('/api/events');
+                        window._globalEventSource.onmessage = function(e){
+                            try{
+                                const payload = JSON.parse(e.data);
+                                if(!payload || !payload.type) return;
+                                // Handle permissions fix completion
+                                if(payload.type === 'permissions_fix_completed'){
+                                    const d = payload.data || {};
+                                    const files = d.files_changed || 0;
+                                    const dirs = d.dirs_changed || 0;
+                                    const msg = `Permissions fix completed: ${files} files, ${dirs} dirs fixed`;
+                                    if(typeof showAlert === 'function'){
+                                        // If there are sample fixes, include a small 'View fixes' link
+                                        showAlert(msg, 'success');
+                                    }
+                                    // If permissions modal is open, refresh its contents
+                                    const permModalEl = document.getElementById('permissionsModal');
+                                    const isOpen = permModalEl && permModalEl.classList && permModalEl.classList.contains('show');
+                                    if(isOpen && typeof checkPermissions === 'function'){
+                                        // Refresh the modal contents to reflect current state
+                                        checkPermissions();
+                                    }
                                 }
-                                // If permissions modal is open, refresh its contents
-                                const permModalEl = document.getElementById('permissionsModal');
-                                const isOpen = permModalEl && permModalEl.classList && permModalEl.classList.contains('show');
-                                if(isOpen && typeof checkPermissions === 'function'){
-                                    // Refresh the modal contents to reflect current state
-                                    checkPermissions();
-                                }
-                            }
-                        }catch(err){ console.error('Global SSE parse error', err); }
-                    };
-                    window._globalEventSource.onerror = function(err){
-                        try { window._globalEventSource.close(); } catch(e){}
-                        window._globalEventSource = null;
-                    };
-                } catch(e){ console.error('Failed to open global SSE:', e); }
+                            }catch(err){ console.error('Global SSE parse error', err); }
+                        };
+                        window._globalEventSource.onerror = function(err){
+                            try { window._globalEventSource.close(); } catch(e){}
+                            window._globalEventSource = null;
+                        };
+                    } catch(e){ console.error('Failed to open global SSE:', e); }
+                }).catch(function(e){
+                    console.info('Global SSE debug check failed, skipping global SSE (error):', e);
+                });
             }
 
 

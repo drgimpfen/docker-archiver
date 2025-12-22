@@ -25,11 +25,10 @@ from pathlib import Path
 
 # Import blueprints
 # Core routes and blueprints
-from app.routes import history, settings, profile, api, dashboard
+from app.routes import history, settings, profile, api, dashboard, archives
 # Import API-specific archives blueprint from new location
 from app.routes.api import archives as api_archives
-# Also import legacy archives module (contains legacy redirects)
-from app.routes import archives_legacy as legacy_archives
+# Legacy redirects are provided by `app.routes.archives` (legacy_bp)
 
 
 app = Flask(__name__)
@@ -72,8 +71,7 @@ def set_security_headers(response):
 # Register blueprints
 # Register archives API blueprint (moved)
 app.register_blueprint(api_archives.bp)
-# Legacy routes for backward compatibility (redirects `/archives/*` → `/api/archives/*`)
-app.register_blueprint(legacy_archives.legacy_bp)
+# Legacy redirects removed — `/archives/*` legacy endpoints were deprecated and are no longer registered.
 
 app.register_blueprint(history.bp)
 app.register_blueprint(settings.bp)
