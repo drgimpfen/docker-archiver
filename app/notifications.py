@@ -5,6 +5,12 @@ import os
 from app.db import get_db
 from app.utils import format_bytes, format_duration, get_disk_usage, get_archives_path, get_logger, setup_logging
 
+# Configuration constants (can be tweaked or moved to settings later)
+NOTIFY_MAX_DISCORD_MSG = 1800
+NOTIFY_EMBED_DESC_MAX = 4000
+NOTIFY_EMBED_BATCH_SIZE = 10
+NOTIFY_MAX_OTHER_MSG = 1500
+
 # Configure logging
 setup_logging()
 logger = get_logger(__name__)
@@ -72,6 +78,123 @@ def strip_html_tags(html_text):
     text = re.sub(r'[ \t]+', ' ', text)
     return text.strip()
 
+
+# Helper: build a compact plain-text summary for non-email services
+def build_compact_text(archive_name, stack_metrics, created_archives, total_size, size_str, duration_str, stacks_with_volumes, reclaimed, base_url):
+    lines = []
+    lines.append(f"{archive_name} completed")
+    lines.append(f"Stacks: {sum(1 for m in stack_metrics if m.get('status') == 'success')}/{len(stack_metrics)} successful  |  Total size: {size_str}  |  Duration: {duration_str}")
+    lines.append("")
+
+    if created_archives:
+        lines.append("SUMMARY OF CREATED ARCHIVES")
+        lines.append("")
+        for a in created_archives:
+            lines.append(f"{format_bytes(a['size'])} {a['path']}")
+        lines.append("")
+        lines.append(f"Total: {format_bytes(total_size)}")
+        lines.append("")
+
+    try:
+        disk = get_disk_usage()
+        if disk and disk['total']:
+            lines.append("DISK USAGE (on /archives)")
+            lines.append("")
+            lines.append(f"Total: {format_bytes(disk['total'])}   Used: {format_bytes(disk['used'])} ({disk['percent']:.0f}% used)")
+            try:
+                total_archives_size = 0
+                for root, dirs, files in __import__('os').walk(get_archives_path()):
+                    for fn in files:
+                        fp = __import__('os').path.join(root, fn)
+                        try:
+                            total_archives_size += __import__('os').path.getsize(fp)
+                        except Exception:
+                            continue
+                lines.append(f"Backup Content Size (/archives): {format_bytes(total_archives_size)}")
+            except Exception:
+                pass
+            lines.append("")
+    except Exception:
+        pass
+
+    # Retention
+    if reclaimed is None:
+        lines.append("RETENTION SUMMARY")
+        lines.append("")
+        lines.append("No retention information available.")
+        lines.append("")
+    elif reclaimed == 0:
+        lines.append("RETENTION SUMMARY")
+        lines.append("")
+        lines.append("No archives older than configured retention were deleted.")
+        lines.append("")
+    else:
+        lines.append("RETENTION SUMMARY")
+        lines.append("")
+        lines.append(f"Freed space: {format_bytes(reclaimed)}")
+        lines.append("")
+
+    if stack_metrics:
+        lines.append("STACKS PROCESSED")
+        lines.append("")
+        for metric in stack_metrics:
+            ok = '✓' if metric.get('status') == 'success' else '✗'
+            st_size = format_bytes(metric.get('archive_size_bytes') or 0)
+            archive_p = metric.get('archive_path') or 'N/A'
+            lines.append(f"{metric['stack_name']} {ok} {st_size} {archive_p}")
+        lines.append("")
+
+    if stacks_with_volumes:
+        lines.append("⚠️ Named Volumes Warning")
+        lines.append("Named volumes are NOT included in the backup archives. Consider backing them up separately.")
+        lines.append("")
+        for metric in stacks_with_volumes:
+            volumes = metric.get('named_volumes') or []
+            lines.append(f"{metric['stack_name']}: {', '.join(volumes)}")
+        lines.append("")
+
+    lines.append(f"View details: {base_url}/history?job=")
+
+    compact_text = "\n".join(lines)
+
+    # Truncate to safe size for chat services (Discord message limit ~2000 chars)
+    if len(compact_text) > NOTIFY_MAX_DISCORD_MSG:
+        compact_text = compact_text[:NOTIFY_MAX_DISCORD_MSG] + "\n\n[Message truncated; full log attached]"
+
+    return compact_text, lines
+
+
+# Helper: split a long section into chunks respecting max_len
+def split_section_by_length(text, max_len):
+    if not text:
+        return ['']
+    if len(text) <= max_len:
+        return [text]
+    parts = []
+    # Prefer splitting by double-newline paragraphs
+    paras = text.split('\n\n')
+    cur = []
+    cur_len = 0
+    for p in paras:
+        p_with_sep = (p + '\n\n') if p else '\n\n'
+        if cur_len + len(p_with_sep) <= max_len:
+            cur.append(p_with_sep)
+            cur_len += len(p_with_sep)
+        else:
+            if cur:
+                parts.append(''.join(cur).rstrip())
+            # If single paragraph too large, split by fixed chunk
+            if len(p) > max_len:
+                for i in range(0, len(p), max_len):
+                    parts.append(p[i:i+max_len])
+                cur = []
+                cur_len = 0
+            else:
+                cur = [p_with_sep]
+                cur_len = len(p_with_sep)
+    if cur:
+        parts.append(''.join(cur).rstrip())
+    return parts
 
 def get_apprise_instance():
     """
@@ -388,6 +511,7 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
 
         # Optionally attach full job log as a file instead of inlining it
         attach_path = None
+        temp_files = []  # track temp files we create so we can cleanup reliably
         try:
             # Decide whether to attach the log based on settings and job outcome
             should_attach = False
@@ -411,6 +535,7 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                         tf.write(job_log)
                         tf.flush()
                         attach_path = tf.name
+                        temp_files.append(tf.name)
                     finally:
                         tf.close()
         except Exception as e:
@@ -492,6 +617,7 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                             tf.write(job_log_text)
                             tf.flush()
                             attach_for_non_email = tf.name
+                            temp_files.append(tf.name)
                             temp_attach_created = True
                         finally:
                             tf.close()
@@ -509,6 +635,7 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                                 tf.write(text_body)
                                 tf.flush()
                                 attach_for_non_email = tf.name
+                                temp_files.append(tf.name)
                                 temp_attach_created = True
                             finally:
                                 tf.close()
@@ -865,8 +992,25 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
             finally:
                 try:
                     import os
+                    # Remove any temp files we created
+                    try:
+                        for p in list(temp_files):
+                            if p and os.path.exists(p):
+                                os.unlink(p)
+                    except Exception:
+                        pass
+                    # Clean up non-email temp attach if distinct
                     if temp_attach_created and attach_for_non_email and os.path.exists(attach_for_non_email) and attach_for_non_email != attach_path:
-                        os.unlink(attach_for_non_email)
+                        try:
+                            os.unlink(attach_for_non_email)
+                        except Exception:
+                            pass
+                    # Also cleanup attach_path if we created it
+                    if attach_path and os.path.exists(attach_path):
+                        try:
+                            os.unlink(attach_path)
+                        except Exception:
+                            pass
                 except Exception:
                     pass
         except Exception as e:
@@ -911,12 +1055,11 @@ def send_retention_notification(archive_name, deleted_count, deleted_dirs, delet
         if body_format == apprise.NotifyFormat.TEXT:
             body = strip_html_tags(body)
         
-        # Send notification
-        apobj.notify(
-            body=body,
-            title=title,
-            body_format=body_format
-        )
+        # Send notification via centralized helper
+        try:
+            _ = _apprise_notify(apobj, title, body, body_format, context=f'retention_{archive_name}')
+        except Exception as e:
+            logger.exception("Failed to send retention notification: %s", e)
         
     except Exception as e:
         logger.exception("Failed to send notification: %s", e)
@@ -1115,7 +1258,7 @@ def send_error_notification(archive_name, error_message):
 <code>{error_message}</code>
 </p>
 <hr>
-<p><small>Docker Archiver: <a href="{base_url}">{base_url}</a></small></p>"""
+<p><small>Docker Archiver: <a href=\"{base_url}\">{base_url}</a></small></p>"""
         
         # Get format preference
         body_format = get_notification_format()
@@ -1125,12 +1268,11 @@ def send_error_notification(archive_name, error_message):
         if body_format == apprise.NotifyFormat.TEXT:
             body = strip_html_tags(body)
         
-        # Send notification
-        apobj.notify(
-            body=body,
-            title=title,
-            body_format=body_format
-        )
+        # Send notification via centralized helper
+        try:
+            _ = _apprise_notify(apobj, title, body, body_format, context='error_notification')
+        except Exception as e:
+            logger.exception("Failed to send error notification: %s", e)
         
     except Exception as e:
         logger.exception("Failed to send notification: %s", e)
@@ -1166,12 +1308,11 @@ def send_test_notification():
         if body_format == apprise.NotifyFormat.TEXT:
             body = strip_html_tags(body)
         
-        # Send notification
-        apobj.notify(
-            body=body,
-            title=title,
-            body_format=body_format
-        )
+        # Send notification via centralized helper
+        try:
+            _ = _apprise_notify(apobj, title, body, body_format, context='test_notification')
+        except Exception as e:
+            raise Exception(f"Failed to send test notification: {e}")
         
     except Exception as e:
         raise Exception(f"Failed to send test notification: {e}")
