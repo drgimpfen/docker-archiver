@@ -300,7 +300,7 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                 if m:
                     body += f"    {m.group(0)}\n"
                 else:
-                    body += "    No files older than configured retention were deleted.\n"
+                    body += "    No archives older than configured retention were deleted.\n"
             else:
                 body += f"    Freed space: <strong>{format_bytes(reclaimed)}</strong>\n"
             body += "  </p>\n"
@@ -564,7 +564,7 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                             elif reclaimed == 0:
                                 lines.append("RETENTION SUMMARY")
                                 lines.append("")
-                                lines.append("No files older than configured retention were deleted.")
+                                lines.append("No archives older than configured retention were deleted.")
                                 lines.append("")
                             else:
                                 lines.append("RETENTION SUMMARY")
@@ -689,7 +689,7 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                                     if reclaimed is None:
                                         sections.append('RETENTION SUMMARY\n\nNo retention information available.')
                                     elif reclaimed == 0:
-                                        sections.append('RETENTION SUMMARY\n\nNo files older than configured retention were deleted.')
+                                        sections.append('RETENTION SUMMARY\n\nNo archives older than configured retention were deleted.')
                                     else:
                                         sections.append(f'RETENTION SUMMARY\n\nFreed space: {format_bytes(reclaimed)}')
                                 except Exception:
@@ -713,137 +713,115 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                                 # Footer
                                 sections.append(f"View details: {base_url}/history?job={job_id}")
 
-                                # Now split each section further if needed and send sequentially
--                                sent_any = False
--                                import time
--                                for i, sec in enumerate(sections):
--                                    parts = split_section_by_length(sec, max_len)
--                                    for j, part in enumerate(parts):
--                                        # Attach file only on the last part of the last section
--                                        attach_here = attach_for_non_email if (i == len(sections)-1 and j == len(parts)-1) else None
--                                        try:
--                                            ok = _apprise_notify(ap_disc, title, part, apprise.NotifyFormat.TEXT, attach=attach_here, context=f'non_email_{archive_name}_{job_id}_part{i+1}_{j+1}')
--                                            if ok:
--                                                sent_any = True
--                                            else:
--                                                logger.warning("Apprise: part %s/%s failed for archive=%s job=%s", i+1, j+1, archive_name, job_id)
--                                        except Exception as e:
--                                            logger.exception("Apprise: exception while sending part %s/%s for %s job %s: %s", i+1, j+1, archive_name, job_id, e)
--                                        # Small pause to avoid rate limits
--                                        time.sleep(0.25)
--                                if sent_any:
--                                    logger.info("Apprise: sent multipart notification to Discord for archive=%s job=%s (parts=%s)", archive_name, job_id, sum(len(split_section_by_length(s, max_len)) for s in sections))
--                                else:
--                                    logger.error("Apprise: multipart Discord notification failed for archive=%s job=%s", archive_name, job_id)
-+                                sent_any = False
-+                                import time, requests, json
-+
-+                                # Helper: normalize possible discord apprise schemes to webhook URL
-+                                def normalize_discord_webhook(u):
-+                                    try:
-+                                        low = u.lower()
-+                                        if low.startswith('discord://'):
-+                                            # apprise style: discord://<id>/<token>
-+                                            return 'https://discord.com/api/webhooks/' + u.split('://', 1)[1].lstrip('/')
-+                                        if 'discord' in low and '/webhooks/' in low:
-+                                            # likely a full https url already
-+                                            if low.startswith('http'):
-+                                                return u
-+                                            else:
-+                                                return 'https://' + u
-+                                        # Fallback: return original
-+                                        return u
-+                                    except Exception:
-+                                        return u
-+
-+                                # Build embeds from sections; each embed description <= 4096 chars, title <=256
-+                                embeds = []
-+                                for sec in sections:
-+                                    sec_lines = sec.split('\n')
-+                                    title_line = sec_lines[0] if sec_lines else ''
-+                                    desc = '\n'.join(sec_lines[1:]).strip() if len(sec_lines) > 1 else ''
-+                                    # Split desc into chunks of <= 4000 to be safe
-+                                    max_desc = 4000
-+                                    if not desc:
-+                                        desc = ''
-+                                    if len(desc) <= max_desc:
-+                                        embeds.append({'title': title_line[:250], 'description': desc})
-+                                    else:
-+                                        # Split by paragraphs
-+                                        paras = desc.split('\n\n')
-+                                        cur = ''
-+                                        for p in paras:
-+                                            piece = (p + '\n\n')
-+                                            if len(cur) + len(piece) <= max_desc:
-+                                                cur += piece
-+                                            else:
-+                                                if cur:
-+                                                    embeds.append({'title': title_line[:250], 'description': cur.rstrip()})
-+                                                # large single paragraph? split it raw
-+                                                if len(piece) > max_desc:
-+                                                    for i in range(0, len(piece), max_desc):
-+                                                        chunk = piece[i:i+max_desc]
-+                                                        embeds.append({'title': title_line[:250], 'description': chunk})
-+                                                    cur = ''
-+                                                else:
-+                                                    cur = piece
-+                                        if cur:
-+                                            embeds.append({'title': title_line[:250], 'description': cur.rstrip()})
-+
-+                                # Send in batches of up to 10 embeds per webhook request
-+                                for webhook in discord_urls:
-+                                    wh_url = normalize_discord_webhook(webhook)
-+                                    try:
-+                                        batch_size = 10
-+                                        total_sent = 0
-+                                        for i in range(0, len(embeds), batch_size):
-+                                            batch = embeds[i:i+batch_size]
-+                                            payload = {'embeds': [{k: v for k, v in e.items() if v} for e in batch]}
-+                                            # Attach log only on final batch
-+                                            attach_file = attach_for_non_email if (i + batch_size >= len(embeds)) else None
-+                                            headers = {'Content-Type': 'application/json'}
-+                                            if attach_file:
-+                                                # multipart: payload_json + file
-+                                                try:
-+                                                    with open(attach_file, 'rb') as fh:
-+                                                        files = {'file': (attach_file.split('/')[-1], fh)}
-+                                                        data = {'payload_json': json.dumps(payload)}
-+                                                        r = requests.post(wh_url, data=data, files=files, timeout=10)
-+                                                except Exception as fe:
-+                                                    logger.exception("Apprise/Discord: failed to attach/send file to %s: %s", wh_url, fe)
-+                                                    r = None
-+                                            else:
-+                                                try:
-+                                                    r = requests.post(wh_url, json=payload, headers=headers, timeout=10)
-+                                                except Exception as re:
-+                                                    logger.exception("Apprise/Discord: request to %s failed: %s", wh_url, re)
-+                                                    r = None
-+
-+                                            ok = False
-+                                            if r is not None:
-+                                                try:
-+                                                    if 200 <= r.status_code < 300:
-+                                                        ok = True
-+                                                    else:
-+                                                        logger.warning("Apprise/Discord: webhook %s returned status %s: %s", wh_url, r.status_code, getattr(r, 'text', ''))
-+                                                except Exception:
-+                                                    logger.exception("Apprise/Discord: could not interpret response from %s", wh_url)
-+                                            if ok:
-+                                                total_sent += 1
-+                                            # small pause to avoid rate limits
-+                                            time.sleep(0.25)
-+                                        if total_sent > 0:
-+                                            sent_any = True
-+                                            logger.info("Apprise/Discord: sent %s embed batch messages to %s for archive=%s job=%s", total_sent, wh_url, archive_name, job_id)
-+                                        else:
-+                                            logger.error("Apprise/Discord: failed to send any embeds to %s for archive=%s job=%s", wh_url, archive_name, job_id)
-+                                    except Exception as e:
-+                                        logger.exception("Apprise/Discord: exception while sending embeds to %s: %s", webhook, e)
-+
-+                                if sent_any:
-+                                    logger.info("Apprise: sent multipart embed notification to Discord for archive=%s job=%s (embeds=%s)", archive_name, job_id, len(embeds))
-+                                else:
-+                                    logger.error("Apprise: multipart embed Discord notification failed for archive=%s job=%s", archive_name, job_id)
+                                sent_any = False
+                                import time, requests, json
+
+                                # Helper: normalize possible discord apprise schemes to webhook URL
+                                def normalize_discord_webhook(u):
+                                    try:
+                                        low = u.lower()
+                                        if low.startswith('discord://'):
+                                            # apprise style: discord://<id>/<token>
+                                            return 'https://discord.com/api/webhooks/' + u.split('://', 1)[1].lstrip('/')
+                                        if 'discord' in low and '/webhooks/' in low:
+                                            # likely a full https url already
+                                            if low.startswith('http'):
+                                                return u
+                                            else:
+                                                return 'https://' + u
+                                        # Fallback: return original
+                                        return u
+                                    except Exception:
+                                        return u
+
+                                # Build embeds from sections; each embed description <= 4096 chars, title <=256
+                                embeds = []
+                                for sec in sections:
+                                    sec_lines = sec.split('\n')
+                                    title_line = sec_lines[0] if sec_lines else ''
+                                    desc = '\n'.join(sec_lines[1:]).strip() if len(sec_lines) > 1 else ''
+                                    # Split desc into chunks of <= 4000 to be safe
+                                    max_desc = 4000
+                                    if not desc:
+                                        desc = ''
+                                    if len(desc) <= max_desc:
+                                        embeds.append({'title': title_line[:250], 'description': desc})
+                                    else:
+                                        # Split by paragraphs
+                                        paras = desc.split('\n\n')
+                                        cur = ''
+                                        for p in paras:
+                                            piece = (p + '\n\n')
+                                            if len(cur) + len(piece) <= max_desc:
+                                                cur += piece
+                                            else:
+                                                if cur:
+                                                    embeds.append({'title': title_line[:250], 'description': cur.rstrip()})
+                                                # large single paragraph? split it raw
+                                                if len(piece) > max_desc:
+                                                    for i in range(0, len(piece), max_desc):
+                                                        chunk = piece[i:i+max_desc]
+                                                        embeds.append({'title': title_line[:250], 'description': chunk})
+                                                    cur = ''
+                                                else:
+                                                    cur = piece
+                                        if cur:
+                                            embeds.append({'title': title_line[:250], 'description': cur.rstrip()})
+
+                                # Send in batches of up to 10 embeds per webhook request
+                                for webhook in discord_urls:
+                                    wh_url = normalize_discord_webhook(webhook)
+                                    try:
+                                        batch_size = 10
+                                        total_sent = 0
+                                        for i in range(0, len(embeds), batch_size):
+                                            batch = embeds[i:i+batch_size]
+                                            payload = {'embeds': [{k: v for k, v in e.items() if v} for e in batch]}
+                                            # Attach log only on final batch
+                                            attach_file = attach_for_non_email if (i + batch_size >= len(embeds)) else None
+                                            headers = {'Content-Type': 'application/json'}
+                                            if attach_file:
+                                                # multipart: payload_json + file
+                                                try:
+                                                    with open(attach_file, 'rb') as fh:
+                                                        files = {'file': (attach_file.split('/')[-1], fh)}
+                                                        data = {'payload_json': json.dumps(payload)}
+                                                        r = requests.post(wh_url, data=data, files=files, timeout=10)
+                                                except Exception as fe:
+                                                    logger.exception("Apprise/Discord: failed to attach/send file to %s: %s", wh_url, fe)
+                                                    r = None
+                                            else:
+                                                try:
+                                                    r = requests.post(wh_url, json=payload, headers=headers, timeout=10)
+                                                except Exception as re:
+                                                    logger.exception("Apprise/Discord: request to %s failed: %s", wh_url, re)
+                                                    r = None
+
+                                            ok = False
+                                            if r is not None:
+                                                try:
+                                                    if 200 <= r.status_code < 300:
+                                                        ok = True
+                                                    else:
+                                                        logger.warning("Apprise/Discord: webhook %s returned status %s: %s", wh_url, r.status_code, getattr(r, 'text', ''))
+                                                except Exception:
+                                                    logger.exception("Apprise/Discord: could not interpret response from %s", wh_url)
+                                            if ok:
+                                                total_sent += 1
+                                            # small pause to avoid rate limits
+                                            time.sleep(0.25)
+                                        if total_sent > 0:
+                                            sent_any = True
+                                            logger.info("Apprise/Discord: sent %s embed batch messages to %s for archive=%s job=%s", total_sent, wh_url, archive_name, job_id)
+                                        else:
+                                            logger.error("Apprise/Discord: failed to send any embeds to %s for archive=%s job=%s", wh_url, archive_name, job_id)
+                                    except Exception as e:
+                                        logger.exception("Apprise/Discord: exception while sending embeds to %s: %s", webhook, e)
+
+                                if sent_any:
+                                    logger.info("Apprise: sent multipart embed notification to Discord for archive=%s job=%s (embeds=%s)", archive_name, job_id, len(embeds))
+                                else:
+                                    logger.error("Apprise: multipart embed Discord notification failed for archive=%s job=%s", archive_name, job_id)
 
                         # Non-discord non-email services: send as a single message (truncate if needed)
                         if other_non_email_urls:
@@ -897,7 +875,7 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
         logger.exception("Failed to send notification: %s", e)
 
 
-def send_retention_notification(archive_name, deleted_count, reclaimed_bytes):
+def send_retention_notification(archive_name, deleted_count, deleted_dirs, deleted_files, reclaimed_bytes):
     """Send notification for retention job completion."""
     if not should_notify('success'):
         return
@@ -919,11 +897,11 @@ def send_retention_notification(archive_name, deleted_count, reclaimed_bytes):
         title = get_subject_with_tag(f"🗑️ Retention Cleanup: {archive_name}")
         body = f"""<h2>Retention cleanup completed for: {archive_name}</h2>
 <p>
-<strong>Files deleted:</strong> {deleted_count}<br>
+<strong>Archives deleted:</strong> {deleted_count} <small>({deleted_dirs} dirs, {deleted_files} files)</small><br>
 <strong>Space freed:</strong> {size_str}
 </p>
 <hr>
-<p><small>Docker Archiver: <a href="{base_url}">{base_url}</a></small></p>"""
+<p><small>Docker Archiver: <a href=\"{base_url}\">{base_url}</a></small></p>"""
         
         # Get format preference
         body_format = get_notification_format()
@@ -942,7 +920,6 @@ def send_retention_notification(archive_name, deleted_count, reclaimed_bytes):
         
     except Exception as e:
         logger.exception("Failed to send notification: %s", e)
-
 
 def send_permissions_fix_notification(result, report_path=None):
     """Send notification after a permissions fix run.

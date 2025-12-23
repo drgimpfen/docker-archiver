@@ -480,9 +480,13 @@ def run_retention_only(archive_id):
                     logger.exception("Failed to import run_retention at execution time: %s", _e)
                     raise
 
-                reclaimed = run_retention(archive_dict, job_id, is_dry_run=False, log_callback=log_message)
-                
-                log_message('INFO', f"Retention completed, reclaimed {reclaimed} bytes")
+                result = run_retention(archive_dict, job_id, is_dry_run=False, log_callback=log_message)
+                reclaimed = result.get('reclaimed') if isinstance(result, dict) else result
+                deleted = result.get('deleted') if isinstance(result, dict) else 0
+                deleted_dirs = result.get('deleted_dirs') if isinstance(result, dict) else 0
+                deleted_files = result.get('deleted_files') if isinstance(result, dict) else 0
+
+                log_message('INFO', f"Retention completed, reclaimed {reclaimed} bytes (deleted {deleted}: dirs={deleted_dirs}, files={deleted_files})")
                 
                 # Update job status
                 with get_db() as conn:
@@ -490,12 +494,12 @@ def run_retention_only(archive_id):
                     end_time = now()
                     cur.execute("""
                         UPDATE jobs 
-                        SET status = 'success', end_time = %s, reclaimed_size_bytes = %s
+                        SET status = 'success', end_time = %s, reclaimed_bytes = %s, deleted_count = %s, deleted_dirs = %s, deleted_files = %s
                         WHERE id = %s;
-                    """, (end_time, reclaimed, job_id))
+                    """, (end_time, reclaimed, deleted, deleted_dirs, deleted_files, job_id))
                     conn.commit()
                 
-                send_retention_notification(archive['name'], 0, reclaimed)  # deleted_count not tracked
+                send_retention_notification(archive['name'], deleted, deleted_dirs, deleted_files, reclaimed)  # include counts
                 
             except Exception as e:
                 logger.exception("Manual retention run failed: %s", e)

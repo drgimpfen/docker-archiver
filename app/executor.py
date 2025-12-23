@@ -933,19 +933,23 @@ def _phase_2_retention(self):
         from app.retention import run_retention
         
         try:
-            reclaimed_bytes = run_retention(
+            result = run_retention(
                 self.config, 
                 self.job_id, 
                 is_dry_run=self.is_dry_run,
                 log_callback=self.log
             )
-            
-            # Update job with reclaimed bytes
+            reclaimed_bytes = result.get('reclaimed') if isinstance(result, dict) else result
+            deleted = result.get('deleted') if isinstance(result, dict) else 0
+            deleted_dirs = result.get('deleted_dirs') if isinstance(result, dict) else 0
+            deleted_files = result.get('deleted_files') if isinstance(result, dict) else 0
+
+            # Update job with reclaimed bytes and deleted counts
             with get_db() as conn:
                 cur = conn.cursor()
                 cur.execute(
-                    "UPDATE jobs SET reclaimed_bytes = %s WHERE id = %s;",
-                    (reclaimed_bytes, self.job_id)
+                    "UPDATE jobs SET reclaimed_bytes = %s, deleted_count = %s, deleted_dirs = %s, deleted_files = %s WHERE id = %s;",
+                    (reclaimed_bytes, deleted, deleted_dirs, deleted_files, self.job_id)
                 )
                 conn.commit()
                 

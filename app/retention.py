@@ -170,6 +170,8 @@ def run_retention(archive_config, job_id, is_dry_run=False, log_callback=None):
 
     total_reclaimed = 0
     total_deleted = 0
+    total_deleted_dirs = 0
+    total_deleted_files = 0
 
     log('INFO', f"Found {len(grouped)} stack(s) to evaluate for retention")
 
@@ -207,8 +209,10 @@ def run_retention(archive_config, job_id, is_dry_run=False, log_callback=None):
                     if archive['is_dir']:
                         import shutil
                         shutil.rmtree(path)
+                        total_deleted_dirs += 1
                     else:
                         path.unlink()
+                        total_deleted_files += 1
                     total_reclaimed += size
                     total_deleted += 1
 
@@ -219,6 +223,10 @@ def run_retention(archive_config, job_id, is_dry_run=False, log_callback=None):
                     logger.exception("[Retention] Failed to delete %s: %s", path.name, e)
             else:
                 total_reclaimed += size
+                if archive['is_dir']:
+                    total_deleted_dirs += 1
+                else:
+                    total_deleted_files += 1
                 total_deleted += 1
     
     reclaimed_mb = total_reclaimed / (1024 * 1024)
@@ -229,9 +237,18 @@ def run_retention(archive_config, job_id, is_dry_run=False, log_callback=None):
     else:
         size_str = f"{reclaimed_mb:.1f}MB"
     
-    log('INFO', f"Retention cleanup finished. Total files deleted: {total_deleted}. Freed space: {size_str}")
+    if total_deleted == 0:
+        log('INFO', "Retention cleanup finished. No archives needed deletion.")
+    else:
+        log('INFO', f"Retention cleanup finished. Deleted {total_deleted} archive(s) ({total_deleted_dirs} directories, {total_deleted_files} files), freeing {size_str}.")
     
-    return total_reclaimed
+    # Return structured results for callers to update DB / notifications
+    return {
+        'reclaimed': total_reclaimed,
+        'deleted': total_deleted,
+        'deleted_dirs': total_deleted_dirs,
+        'deleted_files': total_deleted_files
+    }
 
 
 def filter_one_per_day(archives, log):

@@ -198,6 +198,26 @@ def init_db():
                 ) THEN
                     ALTER TABLE jobs ADD COLUMN error_message TEXT;
                 END IF;
+
+                -- Add deleted counts for retention reporting
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name='jobs' AND column_name='deleted_count'
+                ) THEN
+                    ALTER TABLE jobs ADD COLUMN deleted_count INTEGER DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name='jobs' AND column_name='deleted_dirs'
+                ) THEN
+                    ALTER TABLE jobs ADD COLUMN deleted_dirs INTEGER DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name='jobs' AND column_name='deleted_files'
+                ) THEN
+                    ALTER TABLE jobs ADD COLUMN deleted_files INTEGER DEFAULT 0;
+                END IF;
             END $$;
         """)
         
