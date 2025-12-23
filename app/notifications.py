@@ -76,12 +76,14 @@ def get_apprise_instance():
     # Add URLs from settings and log add status
     apprise_urls = get_setting('apprise_urls', '')
     added = 0
+    configured_urls = []
     for url in apprise_urls.strip().split('\n'):
         url = url.strip()
         if not url:
             continue
         try:
             ok = apobj.add(url)
+            configured_urls.append(url)
             if ok:
                 logger.info("Apprise: added URL: %s", url)
                 added += 1
@@ -89,6 +91,7 @@ def get_apprise_instance():
                 logger.warning("Apprise: failed to add URL: %s", url)
         except Exception as e:
             logger.exception("Apprise: exception while adding URL %s: %s", url, e)
+
 
     # Add SMTP/Email if configured via environment variables (mailto scheme)
     smtp_server = os.environ.get('SMTP_SERVER')
@@ -404,38 +407,120 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
         except Exception as e:
             logger.exception("Failed to prepare log attachment: %s", e)
 
-        # Send notification using central Apprise helper with retry and logging
+        # Send notification: split by service type so we send a compact message to non-email services
         try:
-            # Log available services (count and hosts) at INFO so it's visible in normal logs
-            try:
-                urls = getattr(apobj, '_urls', []) or []
-                hosts = []
-                from urllib.parse import urlparse
+            # Get configured raw URLs from settings so we can classify them
+            raw_urls = [u.strip() for u in get_setting('apprise_urls', '').split('\n') if u.strip()]
+            discord_urls = [u for u in raw_urls if 'discord' in u.lower()]
+            other_urls = [u for u in raw_urls if u not in discord_urls]
+
+            # Helper to build Apprise instance for a set of URLs and optionally add SMTP mailtos
+            import apprise
+            def build_apprise_for(urls, include_smtp=True):
+                a = apprise.Apprise()
+                added_count = 0
                 for u in urls:
                     try:
-                        p = urlparse(u)
-                        hosts.append(p.netloc or u[:40])
-                    except Exception:
-                        hosts.append(u[:40])
-                logger.info("Apprise services configured: count=%d hosts=%s", len(urls), hosts)
-            except Exception:
-                logger.info("Apprise services configured: unable to enumerate services")
+                        ok = a.add(u)
+                        if ok:
+                            logger.info("Apprise: added URL: %s", u)
+                            added_count += 1
+                        else:
+                            logger.warning("Apprise: failed to add URL: %s", u)
+                    except Exception as e:
+                        logger.exception("Apprise: exception while adding URL %s: %s", u, e)
+                # Add SMTP mailto addresses if requested and configured via environment
+                if include_smtp:
+                    smtp_server = os.environ.get('SMTP_SERVER')
+                    smtp_user = os.environ.get('SMTP_USER')
+                    smtp_password = os.environ.get('SMTP_PASSWORD')
+                    smtp_port = os.environ.get('SMTP_PORT', '587')
+                    smtp_from = os.environ.get('SMTP_FROM')
+                    if smtp_server and smtp_user and smtp_password and smtp_from:
+                        user_emails = get_user_emails()
+                        for email in user_emails:
+                            try:
+                                mailto_url = f"mailtos://{smtp_user}:{smtp_password}@{smtp_server}:{smtp_port}/?from={smtp_from}&to={email}"
+                                ok = a.add(mailto_url)
+                                if ok:
+                                    logger.info("Apprise: added SMTP mailto for %s", email)
+                                    added_count += 1
+                                else:
+                                    logger.warning("Apprise: failed to add SMTP mailto for %s", email)
+                            except Exception as e:
+                                logger.exception("Apprise: exception while adding SMTP mailto for %s: %s", email, e)
+                if added_count == 0:
+                    logger.warning("Apprise: no services configured for this subset (urls=%s, include_smtp=%s)", urls, include_smtp)
+                return a
 
+            # Prepare an attachment for non-email services containing the full HTML report (best-effort)
+            attach_for_discord = None
+            temp_attach_created = False
             try:
-                sent = _apprise_notify(apobj, title, send_body, body_format, attach=attach_path, context=f'archive_{archive_name}_{job_id}')
-                if not sent:
-                    logger.error("Apprise: notification failed for archive=%s job=%s", archive_name, job_id)
-            except Exception as e:
-                logger.exception("Apprise: exception while sending archive notification for %s job %s: %s", archive_name, job_id, e)
-        finally:
-            # Cleanup temporary file if used
-            try:
-                import os
-                if attach_path and os.path.exists(attach_path):
-                    os.unlink(attach_path)
-            except Exception:
-                pass
-        
+                if discord_urls:
+                    import tempfile, os
+                    tf = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html', prefix=f'notif_{job_id}_')
+                    try:
+                        tf.write(body_to_send)
+                        tf.flush()
+                        attach_for_discord = tf.name
+                        temp_attach_created = True
+                    finally:
+                        tf.close()
+
+                    # Build a compact text summary for Discord
+                    compact_text = None
+                    try:
+                        if verbosity == 'short':
+                            compact_text = short_body
+                        else:
+                            compact_text = strip_html_tags(body_to_send)
+                        # Truncate to safe length for Discord (buffer under limit)
+                        if len(compact_text) > 1500:
+                            compact_text = compact_text[:1500] + '…'
+                        compact_text = compact_text + f"\n\nView details: {base_url}/history?job={job_id}"
+                    except Exception:
+                        compact_text = f"Archive: {archive_name} completed. See details: {base_url}/history?job={job_id}"
+
+                    ap_disc = build_apprise_for(discord_urls, include_smtp=False)
+                    try:
+                        sent_disc = _apprise_notify(ap_disc, title, compact_text, apprise.NotifyFormat.TEXT, attach=attach_for_discord, context=f'discord_{archive_name}_{job_id}')
+                        if sent_disc:
+                            logger.info("Apprise: sent compact notification with attachment to Discord for archive=%s job=%s", archive_name, job_id)
+                        else:
+                            logger.error("Apprise: Discord notification failed for archive=%s job=%s", archive_name, job_id)
+                    except Exception as e:
+                        logger.exception("Apprise: exception while sending Discord notification for %s job %s: %s", archive_name, job_id, e)
+
+                # Send full notification to other services (including SMTP emails)
+                if other_urls:
+                    ap_other = build_apprise_for(other_urls, include_smtp=True)
+                    try:
+                        sent_other = _apprise_notify(ap_other, title, send_body, body_format, attach=attach_path, context=f'archive_{archive_name}_{job_id}')
+                        if not sent_other:
+                            logger.error("Apprise: non-Discord notification failed for archive=%s job=%s", archive_name, job_id)
+                    except Exception as e:
+                        logger.exception("Apprise: exception while sending non-Discord notification for %s job %s: %s", archive_name, job_id, e)
+
+                # If there were no configured URLs at all, fall back to original apobj send for compatibility
+                if not discord_urls and not other_urls:
+                    try:
+                        sent = _apprise_notify(apobj, title, send_body, body_format, attach=attach_path, context=f'archive_{archive_name}_{job_id}')
+                        if not sent:
+                            logger.error("Apprise: notification failed for archive=%s job=%s", archive_name, job_id)
+                    except Exception as e:
+                        logger.exception("Apprise: exception while sending archive notification for %s job %s: %s", archive_name, job_id, e)
+
+            finally:
+                # Cleanup temp attachment if created
+                try:
+                    import os
+                    if temp_attach_created and attach_for_discord and os.path.exists(attach_for_discord):
+                        os.unlink(attach_for_discord)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.exception("Apprise: unexpected error sending notifications for %s job %s: %s", archive_name, job_id, e)        
     except Exception as e:
         logger.exception("Failed to send notification: %s", e)
 
