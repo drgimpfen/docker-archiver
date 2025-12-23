@@ -50,17 +50,26 @@ def get_notification_format():
 
 
 def strip_html_tags(html_text):
-    """Convert HTML to plain text by removing tags and converting entities."""
+    """Convert HTML to plain text by removing tags and converting entities.
+
+    Also removes <style> and <script> blocks to avoid leaving CSS/JS content behind.
+    """
     import re
+    if not html_text:
+        return ''
+    # Remove style/script blocks entirely
+    text = re.sub(r'<(script|style)[\s\S]*?>[\s\S]*?<\/\1>', '', html_text, flags=re.IGNORECASE)
     # Remove HTML tags
-    text = re.sub(r'<[^>]+>', '', html_text)
+    text = re.sub(r'<[^>]+>', '', text)
     # Convert common HTML entities
     text = text.replace('&nbsp;', ' ')
     text = text.replace('&lt;', '<')
     text = text.replace('&gt;', '>')
     text = text.replace('&amp;', '&')
-    # Clean up multiple newlines
+    # Normalize whitespace and clean up multiple newlines
+    text = re.sub(r'\r\n?', '\n', text)
     text = re.sub(r'\n\s*\n', '\n\n', text)
+    text = re.sub(r'[ \t]+', ' ', text)
     return text.strip()
 
 
@@ -464,50 +473,283 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                     logger.warning("Apprise: no services configured for this subset (urls=%s, include_smtp=%s)", urls, include_smtp)
                 return a
 
-            # Prepare a temp attachment (full HTML report) for non-email services if needed
+            # Prepare a temp attachment (full job log preferred) for non-email services if needed
             attach_for_non_email = None
             temp_attach_created = False
             try:
                 if non_email_urls:
-                    # Prefer attaching existing job log when available (text). Otherwise create a plain-text
-                    # attachment by stripping HTML to keep the attachment small and text-only.
-                    if attach_path:
-                        attach_for_non_email = attach_path
-                    else:
-                        tf = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.log', prefix=f'notif_{job_id}_')
+                    # Prefer attaching the actual job log content (if available), otherwise fall back to a
+                    # plain-text extraction of the notification body.
+                    job_log_text = None
+                    try:
+                        job_log_text = job_row.get('log') if job_row else None
+                    except Exception:
+                        job_log_text = None
+
+                    if job_log_text:
+                        tf = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.log', prefix=f'job_{job_id}_')
                         try:
-                            # Strip HTML tags to create a plain-text summary file
-                            try:
-                                text_body = strip_html_tags(body_to_send)
-                            except Exception:
-                                text_body = body_to_send
-                            tf.write(text_body)
+                            tf.write(job_log_text)
                             tf.flush()
                             attach_for_non_email = tf.name
                             temp_attach_created = True
                         finally:
                             tf.close()
-
-                    # Build compact plain-text summary (truncate to safe length)
-                    try:
-                        if verbosity == 'short' and 'short_body' in locals():
-                            compact_text = strip_html_tags(short_body)
+                    else:
+                        # Fallback: create a plain-text attachment by stripping HTML
+                        if attach_path:
+                            attach_for_non_email = attach_path
                         else:
-                            compact_text = strip_html_tags(body_to_send)
-                        if len(compact_text) > 1500:
-                            compact_text = compact_text[:1500] + '…'
-                        compact_text = compact_text + f"\n\nView details: {base_url}/history?job={job_id}"
+                            tf = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.log', prefix=f'notif_{job_id}_')
+                            try:
+                                try:
+                                    text_body = strip_html_tags(body_to_send)
+                                except Exception:
+                                    text_body = body_to_send
+                                tf.write(text_body)
+                                tf.flush()
+                                attach_for_non_email = tf.name
+                                temp_attach_created = True
+                            finally:
+                                tf.close()
+
+                    # Build structured plain-text summary from available data (avoid CSS remnants)
+                    try:
+                        lines = []
+                        lines.append(f"{status_emoji} Archive job completed: {archive_name}")
+                        lines.append(f"Stacks: {success_count}/{stack_count} successful  |  Total size: {size_str}  |  Duration: {duration_str}")
+                        lines.append("")
+
+                        # SUMMARY OF CREATED ARCHIVES
+                        if created_archives:
+                            lines.append("SUMMARY OF CREATED ARCHIVES")
+                            lines.append("")
+                            for a in created_archives:
+                                lines.append(f"{format_bytes(a['size'])} {a['path']}")
+                            lines.append("")
+                            lines.append(f"Total: {format_bytes(total_size)}")
+                            lines.append("")
+
+                        # DISK USAGE
+                        try:
+                            disk = get_disk_usage()
+                            if disk and disk['total']:
+                                lines.append("DISK USAGE (on /archives)")
+                                lines.append("")
+                                lines.append(f"Total: {format_bytes(disk['total'])}   Used: {format_bytes(disk['used'])} ({disk['percent']:.0f}% used)")
+                                # Attempt to compute backup content size if available
+                                try:
+                                    total_archives_size = 0
+                                    for root, dirs, files in __import__('os').walk(get_archives_path()):
+                                        for fn in files:
+                                            fp = __import__('os').path.join(root, fn)
+                                            try:
+                                                total_archives_size += __import__('os').path.getsize(fp)
+                                            except Exception:
+                                                continue
+                                    lines.append(f"Backup Content Size (/archives): {format_bytes(total_archives_size)}")
+                                except Exception:
+                                    pass
+                                lines.append("")
+                        except Exception:
+                            pass
+
+                        # RETENTION SUMMARY
+                        try:
+                            if reclaimed is None:
+                                lines.append("RETENTION SUMMARY")
+                                lines.append("")
+                                lines.append("No retention information available.")
+                                lines.append("")
+                            elif reclaimed == 0:
+                                lines.append("RETENTION SUMMARY")
+                                lines.append("")
+                                lines.append("No files older than configured retention were deleted.")
+                                lines.append("")
+                            else:
+                                lines.append("RETENTION SUMMARY")
+                                lines.append("")
+                                lines.append(f"Freed space: {format_bytes(reclaimed)}")
+                                lines.append("")
+                        except Exception:
+                            pass
+
+                        # STACKS PROCESSED
+                        if stack_metrics:
+                            lines.append("STACKS PROCESSED")
+                            lines.append("")
+                            for metric in stack_metrics:
+                                ok = '✓' if metric.get('status') == 'success' else '✗'
+                                st_size = format_bytes(metric.get('archive_size_bytes') or 0)
+                                archive_p = metric.get('archive_path') or 'N/A'
+                                lines.append(f"{metric['stack_name']} {ok} {st_size} {archive_p}")
+                            lines.append("")
+
+                        # Named volumes warning
+                        if stacks_with_volumes:
+                            lines.append("⚠️ Named Volumes Warning")
+                            lines.append("Named volumes are NOT included in the backup archives. Consider backing them up separately.")
+                            lines.append("")
+                            for metric in stacks_with_volumes:
+                                volumes = metric.get('named_volumes') or []
+                                lines.append(f"{metric['stack_name']}: {', '.join(volumes)}")
+                            lines.append("")
+
+                        compact_text = "\n".join(lines)
+
+                        # Truncate to safe size for chat services (Discord message limit ~2000 chars)
+                        max_len = 1800
+                        if len(compact_text) > max_len:
+                            compact_text = compact_text[:max_len] + "\n\n[Message truncated; full log attached]"
+
                     except Exception:
-                        compact_text = f"Archive: {archive_name} completed. See details: {base_url}/history?job={job_id}"
+                        compact_text = f"Archive job completed: {archive_name}. See details: {base_url}/history?job={job_id}"
 
                     # Send plain-text + attachment to non-email services
-                    ap_non = build_apprise_for(non_email_urls, include_smtp=False)
+                    # Detect Discord endpoints so we can split into multipart messages by section when needed
+                    discord_urls = [u for u in non_email_urls if 'discord' in u.lower()]
+                    other_non_email_urls = [u for u in non_email_urls if u not in discord_urls]
+
+                    # Helper to split a long section into chunks respecting max_len
+                    def split_section_by_length(text, max_len):
+                        if len(text) <= max_len:
+                            return [text]
+                        parts = []
+                        # Prefer splitting by double-newline paragraphs
+                        paras = text.split('\n\n')
+                        cur = []
+                        cur_len = 0
+                        for p in paras:
+                            p_with_sep = (p + '\n\n') if p else '\n\n'
+                            if cur_len + len(p_with_sep) <= max_len:
+                                cur.append(p_with_sep)
+                                cur_len += len(p_with_sep)
+                            else:
+                                if cur:
+                                    parts.append(''.join(cur).rstrip())
+                                # If single paragraph too large, split by fixed chunk
+                                if len(p) > max_len:
+                                    for i in range(0, len(p), max_len):
+                                        parts.append(p[i:i+max_len])
+                                    cur = []
+                                    cur_len = 0
+                                else:
+                                    cur = [p_with_sep]
+                                    cur_len = len(p_with_sep)
+                        if cur:
+                            parts.append(''.join(cur).rstrip())
+                        return parts
+
                     try:
-                        sent_non = _apprise_notify(ap_non, title, compact_text, apprise.NotifyFormat.TEXT, attach=attach_for_non_email, context=f'non_email_{archive_name}_{job_id}')
-                        if sent_non:
-                            logger.info("Apprise: sent compact text notification with attachment to non-email services for archive=%s job=%s", archive_name, job_id)
-                        else:
-                            logger.error("Apprise: non-email notification failed for archive=%s job=%s", archive_name, job_id)
+                        if discord_urls:
+                            ap_disc = build_apprise_for(discord_urls, include_smtp=False)
+                            max_len = 1800
+                            if len(compact_text) <= max_len:
+                                sent_non = _apprise_notify(ap_disc, title, compact_text, apprise.NotifyFormat.TEXT, attach=attach_for_non_email, context=f'non_email_{archive_name}_{job_id}')
+                                if sent_non:
+                                    logger.info("Apprise: sent compact text notification with attachment to Discord for archive=%s job=%s", archive_name, job_id)
+                                else:
+                                    logger.error("Apprise: Discord notification failed for archive=%s job=%s", archive_name, job_id)
+                            else:
+                                # Build section blocks
+                                sections = []
+                                # Header and summary
+                                sections.append('\n'.join(lines[0:2]))
+                                # Optional blocks
+                                idx = 2
+                                if created_archives:
+                                    s = ['SUMMARY OF CREATED ARCHIVES', '']
+                                    for a in created_archives:
+                                        s.append(f"{format_bytes(a['size'])} {a['path']}")
+                                    s.append('')
+                                    s.append(f"Total: {format_bytes(total_size)}")
+                                    sections.append('\n'.join(s))
+                                # Disk usage block
+                                try:
+                                    disk = get_disk_usage()
+                                    if disk and disk['total']:
+                                        s = ['DISK USAGE (on /archives)', '', f"Total: {format_bytes(disk['total'])}   Used: {format_bytes(disk['used'])} ({disk['percent']:.0f}% used)"]
+                                        try:
+                                            total_archives_size = 0
+                                            for root, dirs, files in __import__('os').walk(get_archives_path()):
+                                                for fn in files:
+                                                    fp = __import__('os').path.join(root, fn)
+                                                    try:
+                                                        total_archives_size += __import__('os').path.getsize(fp)
+                                                    except Exception:
+                                                        continue
+                                            s.append(f"Backup Content Size (/archives): {format_bytes(total_archives_size)}")
+                                        except Exception:
+                                            pass
+                                        sections.append('\n'.join(s))
+                                except Exception:
+                                    pass
+                                # Retention
+                                try:
+                                    if reclaimed is None:
+                                        sections.append('RETENTION SUMMARY\n\nNo retention information available.')
+                                    elif reclaimed == 0:
+                                        sections.append('RETENTION SUMMARY\n\nNo files older than configured retention were deleted.')
+                                    else:
+                                        sections.append(f'RETENTION SUMMARY\n\nFreed space: {format_bytes(reclaimed)}')
+                                except Exception:
+                                    pass
+                                # Stacks processed
+                                if stack_metrics:
+                                    s = ['STACKS PROCESSED', '']
+                                    for metric in stack_metrics:
+                                        ok = '✓' if metric.get('status') == 'success' else '✗'
+                                        st_size = format_bytes(metric.get('archive_size_bytes') or 0)
+                                        archive_p = metric.get('archive_path') or 'N/A'
+                                        s.append(f"{metric['stack_name']} {ok} {st_size} {archive_p}")
+                                    sections.append('\n'.join(s))
+                                # Named volumes
+                                if stacks_with_volumes:
+                                    s = ['⚠️ Named Volumes Warning', 'Named volumes are NOT included in the backup archives. Consider backing them up separately.', '']
+                                    for metric in stacks_with_volumes:
+                                        volumes = metric.get('named_volumes') or []
+                                        s.append(f"{metric['stack_name']}: {', '.join(volumes)}")
+                                    sections.append('\n'.join(s))
+                                # Footer
+                                sections.append(f"View details: {base_url}/history?job={job_id}")
+
+                                # Now split each section further if needed and send sequentially
+                                sent_any = False
+                                import time
+                                for i, sec in enumerate(sections):
+                                    parts = split_section_by_length(sec, max_len)
+                                    for j, part in enumerate(parts):
+                                        # Attach file only on the last part of the last section
+                                        attach_here = attach_for_non_email if (i == len(sections)-1 and j == len(parts)-1) else None
+                                        try:
+                                            ok = _apprise_notify(ap_disc, title, part, apprise.NotifyFormat.TEXT, attach=attach_here, context=f'non_email_{archive_name}_{job_id}_part{i+1}_{j+1}')
+                                            if ok:
+                                                sent_any = True
+                                            else:
+                                                logger.warning("Apprise: part %s/%s failed for archive=%s job=%s", i+1, j+1, archive_name, job_id)
+                                        except Exception as e:
+                                            logger.exception("Apprise: exception while sending part %s/%s for %s job %s: %s", i+1, j+1, archive_name, job_id, e)
+                                        # Small pause to avoid rate limits
+                                        time.sleep(0.25)
+                                if sent_any:
+                                    logger.info("Apprise: sent multipart notification to Discord for archive=%s job=%s (parts=%s)", archive_name, job_id, sum(len(split_section_by_length(s, max_len)) for s in sections))
+                                else:
+                                    logger.error("Apprise: multipart Discord notification failed for archive=%s job=%s", archive_name, job_id)
+                        # Non-discord non-email services: send as a single message (truncate if needed)
+                        if other_non_email_urls:
+                            ap_non_other = build_apprise_for(other_non_email_urls, include_smtp=False)
+                            message_text = compact_text
+                            max_len_other = 1500
+                            if len(message_text) > max_len_other:
+                                message_text = message_text[:max_len_other] + "\n\n[Message truncated; full log attached]"
+                            try:
+                                sent_other = _apprise_notify(ap_non_other, title, message_text, apprise.NotifyFormat.TEXT, attach=attach_for_non_email, context=f'non_email_other_{archive_name}_{job_id}')
+                                if sent_other:
+                                    logger.info("Apprise: sent compact text notification with attachment to non-email services (non-Discord) for archive=%s job=%s", archive_name, job_id)
+                                else:
+                                    logger.error("Apprise: non-email (non-Discord) notification failed for archive=%s job=%s", archive_name, job_id)
+                            except Exception as e:
+                                logger.exception("Apprise: exception while sending non-email (non-Discord) notification for %s job %s: %s", archive_name, job_id, e)
                     except Exception as e:
                         logger.exception("Apprise: exception while sending non-email notification for %s job %s: %s", archive_name, job_id, e)
 
