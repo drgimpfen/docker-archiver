@@ -761,7 +761,8 @@ def _create_archive(self, stack_name, stack_path):
             tz_name = os.environ.get('TZ', 'UTC')
             iso_local = timestamp
             iso_utc = ''
-        self.log('INFO', f"Using archive timestamp {timestamp} (display TZ={tz_name}, local={iso_local}, utc={iso_utc})")
+        # Keep the job log message concise and user friendly
+        self.log('INFO', f"Archive timestamp: {timestamp}")
         
         if ext:
             # Store packed archives inside the stack folder as <timestamp>_<stackname>.<ext>
