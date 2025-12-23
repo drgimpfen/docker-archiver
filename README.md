@@ -311,6 +311,55 @@ Notes:
 > **Note:** On startup the app will mark any jobs still in `running` state that **do not have an `end_time`** as `failed` to avoid stuck jobs and UI confusion; this behavior is automatic and not configurable via environment variables.
 
 
+### Troubleshooting — Logs & Notifications 🔧
+
+If you cannot find notification output (e.g., Discord, Email) in the normal container logs, check the per-job log files — scheduled and detached jobs write their stdout/stderr to per-job files under `/var/log/archiver`.
+
+Why? Scheduled archive jobs are executed as detached subprocesses (see `app.run_job`) and their stdout/stderr are redirected into a job-specific log file so the job can run independently of the web worker process. For this reason you will often find the notification traces (Apprise logs) in the per-job log rather than in the central `docker compose logs` output.
+
+Quick commands (run on host):
+
+- List recent job logs:
+
+```bash
+docker compose exec -T app ls -ltr /var/log/archiver | tail -n 10
+```
+
+- Tail a specific job log and filter for notification entries:
+
+```bash
+docker compose exec -T app tail -n 300 /var/log/archiver/<JOB_LOG_FILE>.log | grep -E "Notifications:|Apprise:|Sent Discord|Sent Email"
+```
+
+- Follow central app logs (shows what the web worker emits):
+
+```bash
+docker compose logs -f --tail=200 app
+# or
+docker compose exec -T app journalctl -u docker -n 200  # if you use systemd/journald integration
+```
+
+- Run a manual in-container test (writes to container logs and/or per-job files depending on context):
+
+```bash
+docker compose exec -T app python -c "from app.main import app; ctx=app.app_context(); ctx.push(); from app.notifications import send_archive_notification; send_archive_notification({'name':'Test-Archive'}, 9999, [], 1, 0); ctx.pop()"
+```
+
+What to look for in logs:
+
+- `Notifications: send_archive_notification called ...` — entry point from the archiver into the notifications code
+- `Apprise: added URL: ...` — Apprise service URL(s) that were configured and accepted
+- `apprise: Sent Discord notification.` and `apprise: Sent Email notification ...` — service-level success messages
+- `Apprise: notification failed` / exception traces — indicates a problem sending to one or more services (check webhook validity, network access, rate limits)
+
+Tips:
+
+- Set `LOG_LEVEL=DEBUG` in `.env` if you need more detailed debugging output. Restart the `app` service after changing env vars.
+- `docker compose run --rm` spawns a short-lived container and its logs may not appear in `docker compose logs`; prefer `docker compose exec` or inspect the per-job log files for scheduled runs.
+- If you want important job summaries to also appear in the container's central logs, consider running a short command at the end of a job to emit a compact summary to stderr (this is a safe, small change we can help implement).
+
+---
+
 ### Retention Policy
 
 **GFS (Grandfather-Father-Son)**:
