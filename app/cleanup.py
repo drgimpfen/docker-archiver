@@ -76,9 +76,9 @@ def run_cleanup(dry_run_override=None, job_id=None):
     try:
         orphaned_stats = cleanup_orphaned_archives(is_dry_run, log_message)
         log_stats = cleanup_old_logs(log_retention_days, is_dry_run, log_message)
-        temp_stats = cleanup_unreferenced_dirs(is_dry_run, log_message)
+        unreferenced_dirs_stats = cleanup_unreferenced_dirs(is_dry_run, log_message)
         
-        total_reclaimed = orphaned_stats.get('reclaimed', 0) + temp_stats.get('reclaimed', 0)
+        total_reclaimed = orphaned_stats.get('reclaimed', 0) + unreferenced_dirs_stats.get('reclaimed', 0)
         
         # Handle unreferenced files: list in dry-run or delete in live run
         try:
@@ -96,17 +96,17 @@ def run_cleanup(dry_run_override=None, job_id=None):
         try:
             orphaned_count = orphaned_stats.get('count', 0)
             orphaned_reclaimed = orphaned_stats.get('reclaimed', 0)
-            temp_count = temp_stats.get('count', 0)
-            temp_reclaimed = temp_stats.get('reclaimed', 0)
+            unreferenced_dirs_count = unreferenced_dirs_stats.get('count', 0)
+            unreferenced_dirs_reclaimed = unreferenced_dirs_stats.get('reclaimed', 0)
             old_logs = log_stats.get('count', 0)
             unref_count = uf_stats.get('count', 0)
             unref_reclaimed = uf_stats.get('reclaimed', 0)
 
             summary = (
-                f"Summary: Orphaned Archives: {orphaned_count} ({format_bytes(orphaned_reclaimed)}), "
-                f"Unreferenced files: {unref_count} ({format_bytes(unref_reclaimed)}), "
-                f"Unreferenced Directories: {temp_count} ({format_bytes(temp_reclaimed)}), "
-                f"Old Logs: {old_logs}, Total Reclaimed: {format_bytes(total_reclaimed)}"
+                f"Summary: Orphaned Archives: {orphaned_count} ({format_bytes(orphaned_reclaimed)}); "
+                f"Unreferenced files: {unref_count} ({format_bytes(unref_reclaimed)}); "
+                f"Unreferenced Directories: {unreferenced_dirs_count} ({format_bytes(unreferenced_dirs_reclaimed)}); "
+                f"Old Logs: {old_logs}; Total Reclaimed: {format_bytes(total_reclaimed)}"
             )
             log_message('INFO', summary)
         except Exception:
@@ -128,7 +128,7 @@ def run_cleanup(dry_run_override=None, job_id=None):
         
         # Send notification if enabled
         if notify_cleanup:
-            send_cleanup_notification(orphaned_stats, log_stats, temp_stats, uf_stats, total_reclaimed, is_dry_run, job_id=job_id)
+            send_cleanup_notification(orphaned_stats, log_stats, unreferenced_dirs_stats, uf_stats, total_reclaimed, is_dry_run, job_id=job_id)
             
     except Exception as e:
         log_message('ERROR', f"Cleanup failed: {str(e)}")
@@ -630,7 +630,7 @@ def cleanup_unreferenced_files(is_dry_run=False, log_callback=None):
 
 
 
-def send_cleanup_notification(orphaned_stats, log_stats, temp_stats, uf_stats, total_reclaimed, is_dry_run, job_id=None):
+def send_cleanup_notification(orphaned_stats, log_stats, unreferenced_dirs_stats, uf_stats, total_reclaimed, is_dry_run, job_id=None):
     """Send notification about cleanup results. Includes job log when available."""
     try:
         # Debug log to assist with dry-run notification troubleshooting
@@ -656,8 +656,8 @@ def send_cleanup_notification(orphaned_stats, log_stats, temp_stats, uf_stats, t
 <ul>
     <li><strong>Orphaned Archives:</strong> {orphaned_stats.get('count', 0)} removed ({format_bytes(orphaned_stats.get('reclaimed', 0))})</li>
     <li><strong>Unreferenced files total:</strong> {uf_stats.get('count', 0)} ({format_bytes(uf_stats.get('reclaimed', 0))})</li>
+    <li><strong>Unreferenced Directories:</strong> {unreferenced_dirs_stats.get('count', 0)} removed ({format_bytes(unreferenced_dirs_stats.get('reclaimed', 0))})</li>
     <li><strong>Old Logs:</strong> {log_stats.get('count', 0)} deleted</li>
-    <li><strong>Unreferenced Directories:</strong> {temp_stats.get('count', 0)} removed ({format_bytes(temp_stats.get('reclaimed', 0))})</li>
     <li><strong>Total Reclaimed:</strong> {format_bytes(total_reclaimed)}</li>
 </ul>
 """
