@@ -569,11 +569,12 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
 
                             max_len = 1800
                             if len(compact_text) <= max_len:
-                                res = discord_adapter.send(title, compact_text, body_format=__import__('apprise').NotifyFormat.TEXT, attach=attach_for_non_email, context=f'non_email_{archive_name}_{job_id}', embed_options=emb_opts)
+                                # Send the full HTML body via Discord adapter to ensure Apprise renders rich embeds
+                                res = discord_adapter.send(title, send_body, body_format=__import__('apprise').NotifyFormat.HTML, attach=attach_for_non_email, context=f'non_email_{archive_name}_{job_id}', embed_options=emb_opts)
                                 if res.success:
                                     logger.info("Discord adapter: sent embed notification to Discord for archive=%s job=%s", archive_name, job_id)
                                 else:
-                                    logger.error("Discord adapter: send failed for archive=%s job=%s: %s", archive_name, job_id, res.detail)
+                                    logger.error("Discord adapter: embed send failed for archive=%s job=%s: %s", archive_name, job_id, res.detail)
                             else:
                                 # Build section blocks
                                 sections = []

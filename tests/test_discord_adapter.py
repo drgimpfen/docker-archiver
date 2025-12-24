@@ -31,5 +31,6 @@ def test_discord_adapter_sends_via_apprise(monkeypatch):
     assert res.success is True
     # URLs are normalized to https webhook form
     assert 'discord.com/api/webhooks' in calls['urls'][0]
-    assert 'Result' in calls['body'] or 'All stacks' in calls['body']
+    # body should be HTML (we send send_body as HTML to allow Apprise to render embeds)
+    assert '<h2>' in calls['body'] or '<p>' in calls['body']
     assert calls['attach'] == 'path/to/file.log'
