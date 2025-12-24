@@ -557,11 +557,21 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
 
                     try:
                         if discord_urls and discord_adapter:
+                            # Build embed metadata
+                            status_color = 0x2ECC71 if failed_count == 0 else 0xE67E22
+                            embed_fields = [
+                                {'name': 'Stacks', 'value': f"{success_count}/{stack_count}", 'inline': True},
+                                {'name': 'Total Size', 'value': size_str, 'inline': True},
+                                {'name': 'Duration', 'value': duration_str, 'inline': True}
+                            ]
+                            footer_text = f"Job {job_id} — Archive: {archive_name}"
+                            emb_opts = {'color': status_color, 'footer': footer_text, 'fields': embed_fields}
+
                             max_len = 1800
                             if len(compact_text) <= max_len:
-                                res = discord_adapter.send(title, compact_text, body_format=__import__('apprise').NotifyFormat.TEXT, attach=attach_for_non_email, context=f'non_email_{archive_name}_{job_id}')
+                                res = discord_adapter.send(title, compact_text, body_format=__import__('apprise').NotifyFormat.TEXT, attach=attach_for_non_email, context=f'non_email_{archive_name}_{job_id}', embed_options=emb_opts)
                                 if res.success:
-                                    logger.info("Discord adapter: sent compact text notification with attachment to Discord for archive=%s job=%s", archive_name, job_id)
+                                    logger.info("Discord adapter: sent embed notification to Discord for archive=%s job=%s", archive_name, job_id)
                                 else:
                                     logger.error("Discord adapter: send failed for archive=%s job=%s: %s", archive_name, job_id, res.detail)
                             else:
@@ -641,7 +651,12 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                                             is_final = (sec == sections[-1] and idx == len(parts) - 1)
                                             attach_file = attach_for_non_email if is_final else None
 
-                                            res = discord_adapter.send(sec_title[:250], sec_body or sec_title, body_format=__import__('apprise').NotifyFormat.TEXT, attach=attach_file, context=f'discord_section_{archive_name}_{job_id}')
+                                            # For sectioned embeds, only include footer on final part
+                                            sec_embed_opts = dict(emb_opts)
+                                            if not is_final:
+                                                sec_embed_opts.pop('footer', None)
+
+                                            res = discord_adapter.send(sec_title[:250], sec_body or sec_title, body_format=__import__('apprise').NotifyFormat.TEXT, attach=attach_file, context=f'discord_section_{archive_name}_{job_id}', embed_options=sec_embed_opts)
                                             if res.success:
                                                 sent_any = True
                                             # small pause to reduce rate-limiting risk
