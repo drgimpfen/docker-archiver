@@ -24,13 +24,18 @@ def _notify_with_retry(apobj: object, title: str, body: str, body_format: object
         res = apobj.notify(title=title, body=body, body_format=body_format, attach=attach)
         return bool(res), None
     except Exception as e:
+        # Log the full exception for improved diagnostics and attempt one retry
+        import traceback, time
+        traceback_str = traceback.format_exc()
         try:
-            import time
             time.sleep(0.5)
             res = apobj.notify(title=title, body=body, body_format=body_format, attach=attach)
             return bool(res), None
         except Exception as re:
-            return False, str(re)
+            # Include the original traceback and retry exception in the returned detail
+            retry_tb = traceback.format_exc()
+            detail = f"first: {traceback_str.strip()} | retry: {retry_tb.strip()}"
+            return False, detail
 
 
 from .base import AdapterBase, AdapterResult

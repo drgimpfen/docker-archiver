@@ -328,12 +328,13 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
 
             from app.notifications.adapters import GenericAdapter, DiscordAdapter, MailtoAdapter
 
-            # Instantiate adapters for the relevant URL sets
+            # All email-like URLs (mailto, mailtos, smtp, etc.) are handled by MailtoAdapter to avoid duplicate sends
+            # and centralize email-specific handling.
             discord_adapter = DiscordAdapter(webhooks=discord_urls) if discord_urls else None
             generic = GenericAdapter(urls=other_non_email_urls) if other_non_email_urls else None
-            explicit_email_adapter = GenericAdapter(urls=email_urls) if email_urls else None
-            # MailtoAdapter handles sending to configured mailto/mailtos/smtp-like Apprise URLs (reads settings)
-            mailto_adapter = MailtoAdapter()
+            explicit_email_adapter = None
+            # MailtoAdapter handles sending to any email-like Apprise URLs (we pass email_urls directly)
+            mailto_adapter = MailtoAdapter(urls=email_urls if email_urls else None)
 
             # Prepare a temp attachment (full job log preferred) for non-email services if needed
             attach_for_non_email = None
@@ -435,18 +436,12 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                 # Send full notification to email services.
                 email_sent_any = False
                 try:
-                    if explicit_email_adapter:
-                        res = explicit_email_adapter.send(title, send_body, body_format, attach=attach_path, context=f'email_explicit_{archive_name}_{job_id}')
-                        if res.success:
-                            email_sent_any = True
-                            logger.info("Generic adapter: sent full notification to explicit email URLs for archive=%s job=%s", archive_name, job_id)
-                        else:
-                            logger.error("Generic adapter: explicit email URLs send failed for archive=%s job=%s: %s", archive_name, job_id, res.detail)
+                    # Send all email-like URLs via the MailtoAdapter (centralized email handling)
                     if mailto_adapter:
                         res = mailto_adapter.send(title, send_body, body_format, attach=attach_path, context=f'email_mailto_{archive_name}_{job_id}')
                         if res.success:
                             email_sent_any = True
-                            logger.info("Mailto adapter: sent full notification via mailto/mailtos for archive=%s job=%s", archive_name, job_id)
+                            logger.info("Mailto adapter: sent full notification via mailto/mailtos/smtp for archive=%s job=%s", archive_name, job_id)
                         else:
                             logger.error("Mailto adapter: mailto send failed for archive=%s job=%s: %s", archive_name, job_id, res.detail)
 

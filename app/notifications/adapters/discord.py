@@ -25,6 +25,40 @@ class DiscordAdapter(AdapterBase):
         except Exception:
             return u
 
+    def _sanitize_embed_options(self, embed_options: dict) -> dict:
+        """Return a sanitized copy of embed_options where all names/values are strings.
+
+        This prevents passing unexpected structures through to HTML building and
+        ensures logging/serialization is deterministic for debugging.
+        """
+        if not embed_options:
+            return {}
+        out = {}
+        # color: keep numeric or convert to int if possible
+        color = embed_options.get('color')
+        if color is not None:
+            try:
+                out['color'] = int(color)
+            except Exception:
+                try:
+                    out['color'] = int(str(color), 0)
+                except Exception:
+                    out['color'] = str(color)
+        # footer
+        footer = embed_options.get('footer')
+        if footer is not None:
+            out['footer'] = str(footer)
+        # fields
+        fields = embed_options.get('fields') or []
+        out_fields = []
+        for f in fields:
+            name = str(f.get('name')) if f and f.get('name') is not None else ''
+            value = str(f.get('value')) if f and f.get('value') is not None else ''
+            inline = bool(f.get('inline')) if f and 'inline' in f else False
+            out_fields.append({'name': name, 'value': value, 'inline': inline})
+        out['fields'] = out_fields
+        return out
+
     def _build_html_body(self, title: str, body: str, embed_options: dict = None) -> str:
         """Construct an HTML body for Apprise/Discord that approximates an embed.
         Apprise will translate this to a suitable Discord message.
@@ -41,20 +75,22 @@ class DiscordAdapter(AdapterBase):
 
         html = f"<h2>{title}</h2>\n" + desc_html
 
-        if embed_options:
-            # fields
-            fields = embed_options.get('fields', [])
-            if fields:
-                html += "<hr><table>"
-                for f in fields:
-                    name = str(f.get('name')) if f.get('name') is not None else ''
-                    value = str(f.get('value')) if f.get('value') is not None else ''
-                    html += f"<tr><th style='text-align:left;padding-right:8px'>{name}</th><td>{value}</td></tr>"
-                html += "</table>"
-            # footer
-            footer = embed_options.get('footer')
-            if footer is not None:
-                html += f"<p style='color: #666;font-size:90%'>" + str(footer) + "</p>"
+        # Use sanitized embed options for building the HTML
+        sopts = self._sanitize_embed_options(embed_options or {})
+
+        fields = sopts.get('fields', [])
+        if fields:
+            html += "<hr><table>"
+            for f in fields:
+                name = f.get('name', '')
+                value = f.get('value', '')
+                html += f"<tr><th style='text-align:left;padding-right:8px'>{name}</th><td>{value}</td></tr>"
+            html += "</table>"
+
+        footer = sopts.get('footer')
+        if footer:
+            html += f"<p style='color: #666;font-size:90%'>{footer}</p>"
+
         return html
 
     def send(self, title: str, body: str, body_format: object = None, attach: Optional[str] = None, context: str = '', embed_options: dict = None) -> AdapterResult:
