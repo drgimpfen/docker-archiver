@@ -12,6 +12,7 @@ import json
 import os
 import sys
 from pathlib import Path
+import logging
 
 from app.db import get_db
 from app.executor import ArchiveExecutor
