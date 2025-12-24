@@ -41,17 +41,53 @@ def request_download(job_id):
             """, (token, job_id, stack_name, archive_path, is_folder, expires_at))
             conn.commit()
 
-        # If it's a folder, start background compression
+        # If it's a folder, avoid creating duplicate preparations for the same job/stack
         if is_folder:
+            # Check for existing preparing token for same job/stack
+            try:
+                with get_db() as conn2:
+                    cur2 = conn2.cursor()
+                    cur2.execute("""
+                        SELECT token, is_preparing FROM download_tokens
+                        WHERE job_id = %s AND stack_name = %s AND is_preparing = true AND expires_at > NOW()
+                        LIMIT 1;
+                    """, (job_id, stack_name))
+                    existing = cur2.fetchone()
+                    if existing:
+                        # Return existing token so clients reuse it instead of starting a new job
+                        return jsonify({
+                            'success': True,
+                            'message': 'An archive is already being prepared for this stack',
+                            'is_folder': True,
+                            'is_preparing': True,
+                            'token': existing['token']
+                        })
+            except Exception:
+                # If the check fails, fall back to starting a new preparation
+                pass
+
+            # Mark token as preparing and start background compression
+            try:
+                with get_db() as conn3:
+                    cur3 = conn3.cursor()
+                    cur3.execute("UPDATE download_tokens SET is_preparing = true WHERE token = %s;", (token,))
+                    conn3.commit()
+            except Exception:
+                # If setting the flag fails, continue but attempts to regenerate may duplicate
+                pass
+
             threading.Thread(
                 target=_prepare_folder_download,
-                args=(token, archive_path, stack_name, get_current_user()['email'])
+                args=(token, archive_path, stack_name, get_current_user()['email']),
+                daemon=True
             ).start()
 
             return jsonify({
                 'success': True,
                 'message': 'Archive is being prepared. You will receive a notification when ready.',
-                'is_folder': True
+                'is_folder': True,
+                'is_preparing': True,
+                'token': token
             })
         else:
             # File is ready, return download link
@@ -114,11 +150,12 @@ def _prepare_folder_download(token, folder_path, stack_name, user_email):
                 get_logger(__name__).exception("Failed to send download notification: %s", e)
     except Exception as e:
         print(f"[ERROR] Failed to prepare download: {e}")
-
-
-def _get_base_url():
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT value FROM settings WHERE key = 'base_url';")
-        result = cur.fetchone()
-        return result['value'] if result else 'http://localhost:8080'
+    finally:
+        # Clear is_preparing flag so subsequent requests will attempt fresh regenerations if needed
+        try:
+            with get_db() as conn4:
+                cur4 = conn4.cursor()
+                cur4.execute("UPDATE download_tokens SET is_preparing = false WHERE token = %s;", (token,))
+                conn4.commit()
+        except Exception:
+            pass
