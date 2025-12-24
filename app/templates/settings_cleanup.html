@@ -3,51 +3,53 @@
 {% block title %}Cleanup Settings - Docker Archiver{% endblock %}
 
 {% block content %}
-<div class="mb-4">
-    <h2><i class="bi bi-recycle me-2"></i> Cleanup</h2>
+<div class="container-fluid py-4">
+    <div class="mb-4">
+        <h2><i class="bi bi-recycle me-2"></i> Cleanup</h2>
+    </div>
+
+    <form method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Automated Cleanup</h5>
+            </div>
+            <div class="card-body">
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" role="switch" 
+                           id="cleanupEnabled" name="cleanup_enabled"
+                           {% if settings.get('cleanup_enabled', 'true') == 'true' %}checked{% endif %}>
+                    <label class="form-check-label" for="cleanupEnabled">
+                        <strong>Enable Scheduled Cleanup</strong>
+                    </label>
+                </div>
+                <div class="mb-3">
+                    <label for="cleanupCron" class="form-label">Cleanup schedule (cron)</label>
+                    <input type="text" class="form-control" id="cleanupCron" name="cleanup_cron" value="{{ settings.get('cleanup_cron', '30 2 * * *') }}">
+                    <div class="form-text">Cron expression (minute hour day month day_of_week).</div>
+                </div>
+                <div class="mb-3">
+                    <label for="logRetentionDays" class="form-label">Log Retention (Days)</label>
+                    <input type="number" class="form-control" id="logRetentionDays" name="cleanup_log_retention_days" value="{{ settings.get('cleanup_log_retention_days', '90') }}" min="0" max="3650">
+                </div>
+
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" role="switch" id="cleanupDryRun" name="cleanup_dry_run" {% if settings.get('cleanup_dry_run', 'false') == 'true' %}checked{% endif %}>
+                    <label class="form-check-label" for="cleanupDryRun">Dry Run Mode</label>
+                </div>
+
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" role="switch" id="notifyCleanup" name="notify_cleanup" {% if settings.get('notify_on_cleanup', 'false') == 'true' %}checked{% endif %}>
+                    <label class="form-check-label" for="notifyCleanup">Send Notification</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex gap-2 mt-3">
+            <button type="submit" class="btn btn-primary">Save</button>
+            <a href="{{ url_for('settings.manage_settings') }}" class="btn btn-outline-secondary">Back</a>
+        </div>
+    </form>
 </div>
-
-<form method="POST">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-
-    <div class="card mb-4">
-        <div class="card-header">
-            <h5 class="mb-0">Automated Cleanup</h5>
-        </div>
-        <div class="card-body">
-            <div class="form-check form-switch mb-3">
-                <input class="form-check-input" type="checkbox" role="switch" 
-                       id="cleanupEnabled" name="cleanup_enabled"
-                       {% if settings.get('cleanup_enabled', 'true') == 'true' %}checked{% endif %}>
-                <label class="form-check-label" for="cleanupEnabled">
-                    <strong>Enable Scheduled Cleanup</strong>
-                </label>
-            </div>
-            <div class="mb-3">
-                <label for="cleanupCron" class="form-label">Cleanup schedule (cron)</label>
-                <input type="text" class="form-control" id="cleanupCron" name="cleanup_cron" value="{{ settings.get('cleanup_cron', '30 2 * * *') }}">
-                <div class="form-text">Cron expression (minute hour day month day_of_week).</div>
-            </div>
-            <div class="mb-3">
-                <label for="logRetentionDays" class="form-label">Log Retention (Days)</label>
-                <input type="number" class="form-control" id="logRetentionDays" name="cleanup_log_retention_days" value="{{ settings.get('cleanup_log_retention_days', '90') }}" min="0" max="3650">
-            </div>
-
-            <div class="form-check form-switch mb-3">
-                <input class="form-check-input" type="checkbox" role="switch" id="cleanupDryRun" name="cleanup_dry_run" {% if settings.get('cleanup_dry_run', 'false') == 'true' %}checked{% endif %}>
-                <label class="form-check-label" for="cleanupDryRun">Dry Run Mode</label>
-            </div>
-
-            <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" role="switch" id="notifyCleanup" name="notify_cleanup" {% if settings.get('notify_on_cleanup', 'false') == 'true' %}checked{% endif %}>
-                <label class="form-check-label" for="notifyCleanup">Send Notification</label>
-            </div>
-        </div>
-    </div>
-
-    <div class="d-flex gap-2">
-        <button type="submit" class="btn btn-primary">Save</button>
-        <a href="{{ url_for('settings.manage_settings') }}" class="btn btn-outline-secondary">Back</a>
-    </div>
-</form>
 {% endblock %}

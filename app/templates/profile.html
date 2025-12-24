@@ -1,18 +1,20 @@
 {% extends "base.html" %}
 
+{% block title %}Profile - Docker Archiver{% endblock %}
+
 {% block content %}
 <div class="container-fluid py-4">
-    <div class="row justify-content-center">
-        <div class="col-lg-8">
+    <div class="row">
+        <div class="col-12">
             <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h4 class="mb-0">Profile Settings</h4>
+                <div class="card-header d-flex align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-person me-2"></i> Profile Settings</h5>
                 </div>
                 <div class="card-body">
                     <form method="POST" action="{{ url_for('profile.manage_profile') }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                         <!-- Account Information -->
-                        <h5 class="mb-3">Account Information</h5>
+                        <h6 class="mb-3">Account Information</h6>
                         
                         <div class="mb-3">
                             <label for="username" class="form-label">Username</label>
@@ -44,7 +46,7 @@
                         <hr class="my-4">
                         
                         <!-- Change Password -->
-                        <h5 class="mb-3">Change Password</h5>
+                        <h6 class="mb-3">Change Password</h6>
                         <p class="text-muted small">Leave blank if you don't want to change your password.</p>
                         
                         <div class="mb-3">
@@ -69,11 +71,9 @@
                         
                         <hr class="my-4">
                         
-                        <div class="d-flex justify-content-between">
+                        <div class="d-flex gap-2 mt-3">
                             <button type="submit" class="btn btn-primary">Save</button>
-                            <a href="{{ url_for('dashboard.index') }}" class="btn btn-secondary">
-                                <i class="bi bi-x-lg me-1"></i>Cancel
-                            </a>
+                            <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline-secondary">Cancel</a>
                         </div>
                     </form>
                 </div>
