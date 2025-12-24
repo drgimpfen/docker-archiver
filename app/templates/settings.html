@@ -85,10 +85,6 @@
                     <label for="smtpPort" class="form-label">SMTP Port</label>
                     <input type="text" class="form-control" id="smtpPort" name="smtp_port" value="{{ settings.get('smtp_port', '587') }}">
                 </div>
-                <div class="col-12 col-md-4">
-                    <label for="smtpFrom" class="form-label">From (sender)</label>
-                    <input type="email" class="form-control" id="smtpFrom" name="smtp_from" value="{{ settings.get('smtp_from', '') }}">
-                </div>
                 <div class="col-12 col-md-6">
                     <label for="smtpUser" class="form-label">SMTP User (optional)</label>
                     <input type="text" class="form-control" id="smtpUser" name="smtp_user" value="{{ settings.get('smtp_user', '') }}">
@@ -96,6 +92,10 @@
                 <div class="col-12 col-md-6">
                     <label for="smtpPassword" class="form-label">SMTP Password (optional)</label>
                     <input type="password" class="form-control" id="smtpPassword" name="smtp_password" value="{{ settings.get('smtp_password', '') }}">
+                </div>
+                <div class="col-12 col-md-6">
+                    <label for="smtpFrom" class="form-label">From (sender)</label>
+                    <input type="email" class="form-control" id="smtpFrom" name="smtp_from" value="{{ settings.get('smtp_from', '') }}">
                 </div>
                 <div class="col-12">
                     <div class="form-check">
