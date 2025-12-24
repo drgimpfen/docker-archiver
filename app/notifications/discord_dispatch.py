@@ -39,9 +39,17 @@ def send_to_discord(discord_adapter, title: str, body_html: str, compact_text: s
     try:
         # Simple case: send full html once
         if compact_text and len(compact_text) <= max_desc:
-            res = discord_adapter.send(title, body_html, body_format=__import__('apprise').NotifyFormat.HTML, attach=attach_file, context='discord_single', embed_options=embed_options)
+            try:
+                # Ensure we pass a string body to Apprise/Discord adapter
+                b_html = body_html if isinstance(body_html, str) else str(body_html)
+                res = discord_adapter.send(title, b_html, body_format=__import__('apprise').NotifyFormat.HTML, attach=attach_file, context='discord_single', embed_options=embed_options)
+            except Exception as e:
+                logger.exception("send_to_discord: exception during single send (title=%s): %s -- body_type=%s embed_type=%s", title, e, type(body_html), type(embed_options))
+                return {'sent_any': False, 'details': str(e)}
             if res.success:
                 return {'sent_any': True}
+            # Log the offending parameter types for debugging
+            logger.error("send_to_discord: single send failed - types: title=%s body_type=%s attach=%s embed_options_type=%s detail=%s", type(title), type(b_html), type(attach_file), type(embed_options), res.detail)
             return {'sent_any': False, 'details': res.detail}
 
         # Otherwise send sectioned messages
@@ -58,13 +66,25 @@ def send_to_discord(discord_adapter, title: str, body_html: str, compact_text: s
                     sec_embed_opts.pop('footer', None)
 
                 sec_html = build_section_html(part)
+                # Defensive: coerce to str to avoid passing a dict or other types to Apprise
+                if not isinstance(sec_html, str):
+                    logger.warning("send_to_discord: coerced non-str section html to str (type=%s)", type(sec_html))
+                    sec_html = str(sec_html)
                 # Limit title length—Discord embed title limitations
                 sec_title = (part.split('\n', 1)[0] or title)[:250]
 
-                res = discord_adapter.send(sec_title, sec_html, body_format=__import__('apprise').NotifyFormat.HTML, attach=attach, context='discord_section', embed_options=sec_embed_opts)
+                try:
+                    res = discord_adapter.send(sec_title, sec_html, body_format=__import__('apprise').NotifyFormat.HTML, attach=attach, context='discord_section', embed_options=sec_embed_opts)
+                except Exception as e:
+                    logger.exception("send_to_discord: exception during section send (title=%s): %s", sec_title, e)
+                    errors.append(str(e))
+                    continue
+
                 if res.success:
                     sent_any = True
                 else:
+                    # Log parameter types for debugging
+                    logger.error("send_to_discord: section send failed - types: title=%s body=%s attach=%s embed_options=%s detail=%s", type(sec_title), type(sec_html), type(attach), type(sec_embed_opts), res.detail)
                     errors.append(res.detail)
 
                 # Small pause to reduce rate-limit risk
