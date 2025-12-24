@@ -56,8 +56,8 @@ def manage_settings():
             notification_subject_tag = request.form.get('notification_subject_tag', '')
             notify_success = request.form.get('notify_success') == 'on'
             notify_error = request.form.get('notify_error') == 'on'
-            notify_html_format = request.form.get('notify_html_format') == 'on'
-            notify_report_verbosity = request.form.get('notify_report_verbosity', 'full')
+            # notify_html_format and notify_report_verbosity removed: HTML for email always, markdown for non-email always
+            notify_report_verbosity = 'full'
             notify_attach_log = request.form.get('notify_attach_log') == 'on'
             notify_attach_log_on_failure = request.form.get('notify_attach_log_on_failure') == 'on'
             apply_permissions = request.form.get('apply_permissions') == 'on'
@@ -94,7 +94,6 @@ def manage_settings():
                     ('notification_subject_tag', notification_subject_tag),
                     ('notify_on_success', 'true' if notify_success else 'false'),
                     ('notify_on_error', 'true' if notify_error else 'false'),
-                    ('notify_html_format', 'true' if notify_html_format else 'false'),
                     ('maintenance_mode', 'true' if maintenance_mode else 'false'),
                     ('max_token_downloads', max_token_downloads),
                     ('cleanup_enabled', 'true' if cleanup_enabled else 'false'),
@@ -102,7 +101,6 @@ def manage_settings():
                     ('cleanup_log_retention_days', cleanup_log_retention_days),
                     ('cleanup_dry_run', 'true' if cleanup_dry_run else 'false'),
                     ('notify_on_cleanup', 'true' if notify_cleanup else 'false'),
-                    ('notify_report_verbosity', notify_report_verbosity),
                     ('notify_attach_log', 'true' if notify_attach_log else 'false'),
                     ('notify_attach_log_on_failure', 'true' if notify_attach_log_on_failure else 'false'),
                     ('apply_permissions', 'true' if apply_permissions else 'false'),

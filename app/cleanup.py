@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime, timedelta
 from app.db import get_db
-from app.notifications import get_setting, get_apprise_instance, get_subject_with_tag, get_notification_format, strip_html_tags
+from app.notifications import get_setting, get_apprise_instance, get_subject_with_tag, strip_html_tags
 from app import utils
 from app.utils import setup_logging, get_logger, format_bytes
 

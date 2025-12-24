@@ -119,29 +119,6 @@
                 </div>
             </div>
 
-            <div class="form-check form-switch mb-3">
-                <input class="form-check-input" type="checkbox" role="switch" 
-                       id="notifyHtmlFormat" name="notify_html_format"
-                       {% if settings.get('notify_html_format', 'true') == 'true' %}checked{% endif %}>
-                <label class="form-check-label" for="notifyHtmlFormat">
-                    <strong>Send E-Mail notifications as HTML</strong><br>
-                    <small class="text-muted">Enable rich formatting for e‑mail notifications. Disable for plain text format.</small>
-                </label>
-            </div>
-
-            <div class="mb-3">
-                <label class="form-label">Report verbosity</label>
-                <div class="form-check">
-                    <input class="form-check-input" type="radio" name="notify_report_verbosity" id="verbosityFull" value="full"
-                           {% if settings.get('notify_report_verbosity', 'full') == 'full' %}checked{% endif %}>
-                    <label class="form-check-label" for="verbosityFull">Full report (includes tables and optional full log)</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="radio" name="notify_report_verbosity" id="verbosityShort" value="short"
-                           {% if settings.get('notify_report_verbosity', 'full') == 'short' %}checked{% endif %}>
-                    <label class="form-check-label" for="verbosityShort">Short summary (concise message only)</label>
-                </div>
-            </div>
 
             <div class="form-check mb-3">
                 <input class="form-check-input" type="checkbox" id="notifyAttachLog" name="notify_attach_log" {% if settings.get('notify_attach_log') == 'true' %}checked{% endif %}>

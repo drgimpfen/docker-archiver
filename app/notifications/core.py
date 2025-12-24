@@ -48,11 +48,6 @@ def get_subject_with_tag(subject):
     return subject
 
 
-def get_notification_format():
-    """Get notification format (html or text) from settings."""
-    import apprise
-    html_enabled = get_setting('notify_html_format', 'true').lower() == 'true'
-    return apprise.NotifyFormat.HTML if html_enabled else apprise.NotifyFormat.TEXT
 
 
 from .formatters import (
@@ -226,46 +221,36 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
             include_log_inline=True,
         )
 
-        # Get format preference and user settings
-        body_format = get_notification_format()
-        verbosity = get_setting('notify_report_verbosity', 'full')
+        # user settings for attachments
         attach_log_setting = get_setting('notify_attach_log', 'false').lower() == 'true'
         attach_on_failure_setting = get_setting('notify_attach_log_on_failure', 'false').lower() == 'true'
 
-        # If user chose short verbosity, construct compact message
-        if verbosity == 'short':
-            body_to_send = build_short_body(archive_name, status_emoji, success_count, stack_count, size_str, format_duration(duration), stack_metrics, base_url, job_id)
+        # Always build full HTML body for emails and a structured sections list for chat services
+        should_attach_log = attach_log_setting or (attach_on_failure_setting and failed_count > 0)
+        if should_attach_log:
+            html_body_to_send = build_full_body(
+                archive_name=archive_name,
+                status_emoji=status_emoji,
+                success_count=success_count,
+                stack_count=stack_count,
+                size_str=size_str,
+                duration_str=duration_str,
+                stack_metrics=stack_metrics,
+                created_archives=created_archives,
+                total_size=total_size,
+                reclaimed=reclaimed,
+                job_log=job_log,
+                base_url=base_url,
+                stacks_with_volumes=stacks_with_volumes,
+                job_id=job_id,
+                include_log_inline=False,
+            )
         else:
-            # If we will attach the full log, do not inline it in the HTML body
-            should_attach_log = attach_log_setting or (attach_on_failure_setting and failed_count > 0)
-            if should_attach_log:
-                body_to_send = build_full_body(
-                    archive_name=archive_name,
-                    status_emoji=status_emoji,
-                    success_count=success_count,
-                    stack_count=stack_count,
-                    size_str=size_str,
-                    duration_str=duration_str,
-                    stack_metrics=stack_metrics,
-                    created_archives=created_archives,
-                    total_size=total_size,
-                    reclaimed=reclaimed,
-                    job_log=job_log,
-                    base_url=base_url,
-                    stacks_with_volumes=stacks_with_volumes,
-                    job_id=job_id,
-                    include_log_inline=False,
-                )
-            else:
-                body_to_send = body
+            html_body_to_send = body
 
-        # Convert to plain text if needed
-        import apprise
-        if body_format == apprise.NotifyFormat.TEXT:
-            send_body = strip_html_tags(body_to_send)
-        else:
-            send_body = body_to_send
-            send_body = body_to_send
+        # Build compact text and sections (plain-text) for non-email services
+        compact_text, lines = build_compact_text(archive_name, stack_metrics, created_archives, total_size, size_str, duration_str, stacks_with_volumes, reclaimed, base_url)
+        sections = build_sections(archive_name, lines, created_archives, total_size, stack_metrics, stacks_with_volumes, reclaimed, base_url, job_id)
 
         # Optionally attach full job log as a file instead of inlining it
         attach_path = None
@@ -409,7 +394,9 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                                 from app.notifications.discord_dispatch import send_to_discord
                                 sections = build_sections(archive_name, lines, created_archives, total_size, stack_metrics, stacks_with_volumes, reclaimed, base_url, job_id)
                                 view_url = f"{base_url}/history?job={job_id}"
-                                result = send_to_discord(discord_adapter, title, body_to_send, compact_text, sections, attach_for_non_email, embed_options=emb_opts, max_desc=NOTIFY_EMBED_DESC_MAX, view_url=view_url)
+                                # Construct Markdown body by joining sections (Discord prefers Markdown embeds)
+                                md_body = "\n\n".join(sections)
+                                result = send_to_discord(discord_adapter, title, md_body, compact_text, sections, attach_for_non_email, embed_options=emb_opts, max_desc=NOTIFY_EMBED_DESC_MAX, view_url=view_url)
                                 if result.get('sent_any'):
                                     logger.info("Discord adapter: sent notifications to Discord for archive=%s job=%s", archive_name, job_id)
                                 else:
@@ -424,9 +411,10 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                             if len(message_text) > max_len_other:
                                 message_text = message_text[:max_len_other] + "\n\n[Message truncated; full log attached]"
                             try:
-                                res = _adapter.send(title, message_text, body_format=__import__('apprise').NotifyFormat.TEXT, attach=attach_for_non_email, context=f'non_email_other_{archive_name}_{job_id}')
+                                # Use Markdown for non-SMTP (chat) notification bodies
+                                res = _adapter.send(title, message_text, body_format=__import__('apprise').NotifyFormat.MARKDOWN, attach=attach_for_non_email, context=f'non_email_other_{archive_name}_{job_id}')
                                 if res.success:
-                                    logger.info("Generic adapter: sent compact text notification with attachment to non-email services (non-Discord) for archive=%s job=%s", archive_name, job_id)
+                                    logger.info("Generic adapter: sent compact markdown notification with attachment to non-email services (non-Discord) for archive=%s job=%s", archive_name, job_id)
                                 else:
                                     logger.error("Generic adapter: non-email (non-Discord) notification failed for archive=%s job=%s: %s", archive_name, job_id, res.detail)
                             except Exception as e:
@@ -435,6 +423,11 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                         logger.exception("Apprise: exception while sending non-email notification for %s job %s: %s", archive_name, job_id, e)
 
                 # Send full notification to email services.
+                # For SMTP/email targets we use the HTML body
+                import apprise
+                send_body = html_body_to_send
+                body_format = apprise.NotifyFormat.HTML
+
                 email_sent_any = False
                 try:
                     # Send all email-like URLs via the MailtoAdapter (centralized email handling)
@@ -750,37 +743,82 @@ def send_error_notification(archive_name, error_message):
 
 
 def send_test_notification():
-    """Send a test notification to verify configuration."""
+    """Send a test notification to verify configuration.
+
+    Behavior:
+    - Sends **HTML** to email-like Apprise URLs (mailto/mailtos)
+    - Sends **Markdown** to all other Apprise URLs (Discord, Telegram, etc.)
+    """
     try:
-        # Create Apprise instance with all configured URLs and emails
-        apobj = get_apprise_instance()
-        
-        if not apobj:
+        # Read configured Apprise URLs and split into email vs non-email targets
+        import apprise
+        raw = get_setting('apprise_urls', '').strip()
+        if not raw:
             raise Exception("No notification services configured")
-        
+
+        email_urls = []
+        other_urls = []
+        for u in raw.split('\n'):
+            u = u.strip()
+            if not u:
+                continue
+            ul = u.lower()
+            if ul.startswith('mailto') or ul.startswith('mailtos'):
+                email_urls.append(u)
+            else:
+                other_urls.append(u)
+
         base_url = get_setting('base_url', 'http://localhost:8080')
-        
         title = get_subject_with_tag("🔔 Docker Archiver - Test Notification")
 
-        # Simple test notification body (don't include configured Apprise URLs)
+        # Compose HTML body for email
         body_html = f"""<h2>Test Notification from Docker Archiver</h2>
 <p>If you received this message, your notification configuration is working correctly!</p>
 <div style='border-top:1px solid #eee;margin:8px 0'></div>
 <p><small>Docker Archiver: <a href=\"{base_url}\">{base_url}</a></small></p>"""
-        body_text = "Test Notification from Docker Archiver\n\n"
-        body_text += "If you received this message, your notification configuration is working correctly!\n\n"
-        body_text += f"Docker Archiver: {base_url}\n"
 
-        # For test notifications we always send HTML so recipients see the rich test message
-        import apprise
-        body = body_html
-        body_format = apprise.NotifyFormat.HTML
+        # Compose Markdown body for chat services
+        md_body = f"## Test Notification from Docker Archiver\n\nIf you received this message, your notification configuration is working correctly!\n\nDocker Archiver: [{base_url}]({base_url})"
 
-        # Send notification via centralized helper
-        try:
-            _ = _apprise_notify(apobj, title, body, body_format, context='test_notification')
-        except Exception as e:
-            raise Exception(f"Failed to send test notification: {e}")
-        
+        sent_any = False
+        errors = []
+
+        # Send to non-email (chat) services as Markdown
+        if other_urls:
+            apobj_other = apprise.Apprise()
+            added = 0
+            for u in other_urls:
+                try:
+                    ok = apobj_other.add(u)
+                    added += 1 if ok else 0
+                except Exception as e:
+                    logger.exception("Failed to add Apprise URL %s: %s", u, e)
+            if added > 0:
+                try:
+                    _ = _apprise_notify(apobj_other, title, md_body, apprise.NotifyFormat.MARKDOWN, context='test_notification_non_email')
+                    sent_any = True
+                except Exception as e:
+                    errors.append(str(e))
+
+        # Send to email (mailto/mailtos) services as HTML
+        if email_urls:
+            apobj_mail = apprise.Apprise()
+            added = 0
+            for u in email_urls:
+                try:
+                    ok = apobj_mail.add(u)
+                    added += 1 if ok else 0
+                except Exception as e:
+                    logger.exception("Failed to add Apprise URL %s: %s", u, e)
+            if added > 0:
+                try:
+                    _ = _apprise_notify(apobj_mail, title, body_html, apprise.NotifyFormat.HTML, context='test_notification_email')
+                    sent_any = True
+                except Exception as e:
+                    errors.append(str(e))
+
+        if not sent_any:
+            raise Exception(f"No test notifications sent: {errors or ['no configured services']}" )
+
     except Exception as e:
         raise Exception(f"Failed to send test notification: {e}")

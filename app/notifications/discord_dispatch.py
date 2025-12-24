@@ -37,16 +37,17 @@ def send_to_discord(discord_adapter, title: str, body_html: str, compact_text: s
     errors = []
 
     try:
-        # If compact_text fits within max_desc, send structured markdown built from sections.
-        # Do NOT fallback to a single truncated summary — prefer section splitting.
-        if compact_text and len(compact_text) <= max_desc:
-            try:
-                md_parts = []
-                for sec in sections:
-                    first, rest = sec.split('\n', 1) if '\n' in sec else (sec, '')
-                    md_parts.append(f"## {first}\n{rest}")
-                md_body = '\n\n'.join(md_parts)
+        # Build markdown body from sections (prefer a single Markdown send following borg-ui style)
+        md_parts = []
+        for sec in sections:
+            first, rest = sec.split('\n', 1) if '\n' in sec else (sec, '')
+            md_parts.append(f"## {first}\n{rest}")
+        md_body = '\n\n'.join(md_parts)
 
+        # If the composed markdown fits within a conservative per-embed limit, send as a single message
+        effective_limit = min(max_desc, 1800)
+        if md_body and len(md_body) <= effective_limit:
+            try:
                 # If there's an attachment, perform a two-step send: first embeds (no attach), then a short attach message
                 if attach_file:
                     res_embed = discord_adapter.send(title, md_body, body_format=__import__('apprise').NotifyFormat.MARKDOWN, attach=None, context='discord_single', embed_options=embed_options)
@@ -84,7 +85,10 @@ def send_to_discord(discord_adapter, title: str, body_html: str, compact_text: s
 
         # Otherwise send sectioned messages
         # Build parts for all sections first (so we can batch them into larger embeds)
-        per_part_limit = min(max_desc, 1000)
+        # Use a conservative per-batch limit to avoid Apprise/Discord internally
+        # splitting embeds into multiple posts (Discord description/field limits).
+        effective_max_desc = min(max_desc, 1800)
+        per_part_limit = min(effective_max_desc, 1000)
         parts = []
         for sec in sections:
             sec_title = (sec.split('\n', 1)[0] or title)[:250]

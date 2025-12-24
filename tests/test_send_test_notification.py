@@ -13,11 +13,9 @@ def test_send_test_notification_includes_apprise_urls(monkeypatch):
     """
     monkeypatch.setattr('app.notifications.core.get_setting', lambda k, d='': urls)
 
-    captured = {}
+    captured = {'calls': []}
     def fake_notify(apobj, title, body, body_format, context=None):
-        captured['title'] = title
-        captured['body'] = body
-        captured['format'] = body_format
+        captured['calls'].append({'title': title, 'body': body, 'format': body_format, 'context': context})
         return True
 
     monkeypatch.setattr('app.notifications.core._apprise_notify', fake_notify)
@@ -25,12 +23,13 @@ def test_send_test_notification_includes_apprise_urls(monkeypatch):
     # Should not raise
     send_test_notification()
 
-    # Ensure the test notification contains the human-friendly confirmation
-    assert 'notification configuration is working correctly' in captured['body'].lower()
-    # Ensure we do not include a 'Configured Apprise URLs' section
-    assert 'configured apprise urls' not in captured['body'].lower()
+    # Ensure at least one call was made
+    assert captured['calls'], "No notify calls were made"
 
-    # Ensure HTML is sent for test notification
+    # Ensure the test notification contains the human-friendly confirmation in at least one send
+    assert any('notification configuration is working correctly' in c['body'].lower() for c in captured['calls'])
+    # Ensure HTML is sent for email targets and MARKDOWN is used for chat targets
     import apprise
-    assert captured['format'] == apprise.NotifyFormat.HTML
-    assert '<h2>' in captured['body'] or '<p>' in captured['body']
+    formats = {c['format'] for c in captured['calls']}
+    assert apprise.NotifyFormat.HTML in formats, "No HTML send detected for email targets"
+    assert apprise.NotifyFormat.MARKDOWN in formats, "No MARKDOWN send detected for non-email targets"

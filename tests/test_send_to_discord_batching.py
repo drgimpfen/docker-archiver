@@ -21,8 +21,10 @@ def test_batches_sections_to_reduce_posts():
 
     res = send_to_discord(fa, title, body_html, compact_text, sections, attach_file=None, embed_options={'footer': 'F'}, max_desc=4000, pause=0)
     assert res['sent_any'] is True
-    # We expect fewer calls than sections (batched)
+    # We expect batching to reduce number of calls (ideally 1)
     assert len(fa.calls) <= len(sections)
     # Footer should be present in last embed
     last_embed = fa.calls[-1]
     assert 'footer' in (last_embed['embed_options'] or {})
+    # And ideally we should send at most 2 posts for three small sections
+    assert len(fa.calls) <= 2
