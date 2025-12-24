@@ -32,13 +32,16 @@
     .nav-link.open .bi-chevron-down { transform: rotate(180deg); }
 
     /* Card header / title consistency */
-    .card-header h5.mb-0, .card-header .card-title { display:flex; align-items:center; gap:.5rem; font-size:1rem; margin:0; }
-    .card-header .bi { font-size:1.05rem; }
+    .card-header h5.mb-0, .card-header .card-title { display:flex; align-items:center; gap:.625rem; font-size:1rem; margin:0; }
+    .card-header .bi { font-size:1.15rem; }
     /* Section headings inside card bodies */
     .card-body h6 { margin-top:0; margin-bottom:.75rem; font-size:0.95rem; font-weight:600; }
 
-    /* Consistent action bar spacing */
-    .form-actions { margin-top:1rem; display:flex; gap:0.5rem; }
+    /* Consistent action bar spacing (right-aligned on larger screens) */
+    .form-actions { margin-top:1rem; display:flex; gap:0.5rem; justify-content:flex-end; }
+    @media (max-width: 576px) {
+        .form-actions { justify-content:flex-start; }
+    }
     </style>
 </head>
 <body>
@@ -64,7 +67,6 @@
         <ul class="nav flex-column">
             <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard.index') }}"><i class="bi bi-house-door me-2"></i>Dashboard</a></li>
             <li class="nav-item"><a class="nav-link" href="{{ url_for('history.list_history') }}"><i class="bi bi-clock-history me-2"></i>History</a></li>
-            <li class="nav-item"><a class="nav-link" href="{{ url_for('profile.manage_profile') }}"><i class="bi bi-person me-2"></i>Profile</a></li>
             {% set _current_path = request.path %}
             {% set _endpoint = request.endpoint or '' %}
             {% set _settings_open = _endpoint.startswith('settings.') %}
@@ -79,6 +81,7 @@
                         <li class="nav-item"><a class="nav-link{% if _endpoint == 'settings.manage_notifications' %} active{% endif %}" href="{{ url_for('settings.manage_notifications') }}">Notifications</a></li>
                         <li class="nav-item"><a class="nav-link{% if _endpoint == 'settings.manage_security' %} active{% endif %}" href="{{ url_for('settings.manage_security') }}">Security</a></li>
                         <li class="nav-item"><a class="nav-link{% if _endpoint == 'settings.manage_cleanup' %} active{% endif %}" href="{{ url_for('settings.manage_cleanup') }}">Cleanup</a></li>
+                        <li class="nav-item"><a class="nav-link{% if _endpoint == 'settings.manage_profile' %} active{% endif %}" href="{{ url_for('settings.manage_profile') }}">Profile</a></li>
                     </ul>
                 </div>
             </li> 

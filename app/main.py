@@ -24,7 +24,7 @@ from pathlib import Path
 
 # Import blueprints
 # Core routes and blueprints
-from app.routes import history, settings, profile, api, dashboard
+from app.routes import history, settings, api, dashboard
 # Import API-specific archives blueprint from new location
 from app.routes.api import archives as api_archives
 # Legacy redirects removed — `/archives/*` legacy endpoints were deprecated and are no longer registered.
@@ -73,7 +73,6 @@ app.register_blueprint(api_archives.bp)
 
 app.register_blueprint(history.bp)
 app.register_blueprint(settings.bp)
-app.register_blueprint(profile.bp)
 app.register_blueprint(api.bp)
 app.register_blueprint(dashboard.bp)
 
