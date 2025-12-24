@@ -54,3 +54,6 @@ def test_send_to_discord_sectioned_with_attach_and_footer():
     if len(fa.calls) >= 2:
         last_embed_call = fa.calls[-2]
         assert 'footer' in (last_embed_call['embed_options'] or {})
+        # If view_url was passed earlier, it should appear in the footer when set
+        if 'View details' in last_embed_call['embed_options'].get('footer', ''):
+            assert 'View details:' in last_embed_call['embed_options']['footer']

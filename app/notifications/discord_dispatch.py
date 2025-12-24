@@ -40,15 +40,21 @@ def send_to_discord(discord_adapter, title: str, body_html: str, compact_text: s
         # Simple case: send full html once
         if compact_text and len(compact_text) <= max_desc:
             try:
-                # Ensure we pass a string body to Apprise/Discord adapter
-                b_html = body_html if isinstance(body_html, str) else str(body_html)
+                # Build a Markdown body from sections to encourage Apprise to create Embeds
+                # Use '## Title' style headers so apprise.extract_markdown_sections picks them up.
+                md_parts = []
+                for sec in sections:
+                    first, rest = sec.split('\n', 1) if '\n' in sec else (sec, '')
+                    md_parts.append(f"## {first}\n{rest}")
+                md_body = '\n\n'.join(md_parts)
+
                 # If there's an attachment, perform a two-step send: first embeds (no attach), then a short attach message
                 if attach_file:
-                    res_embed = discord_adapter.send(title, b_html, body_format=__import__('apprise').NotifyFormat.HTML, attach=None, context='discord_single', embed_options=embed_options)
+                    res_embed = discord_adapter.send(title, md_body, body_format=__import__('apprise').NotifyFormat.MARKDOWN, attach=None, context='discord_single', embed_options=embed_options)
                     # Prepare attach message content (plain text, include view_url if available)
                     try:
                         from app.notifications.formatters import strip_html_tags
-                        attach_body = strip_html_tags(b_html)
+                        attach_body = strip_html_tags(md_body)
                     except Exception:
                         attach_body = compact_text or ''
                     if view_url:
@@ -67,40 +73,43 @@ def send_to_discord(discord_adapter, title: str, body_html: str, compact_text: s
                         details.append(f"attach: {res_attach.detail}")
                     return {'sent_any': res_embed.success or res_attach.success, 'details': details}
                 else:
-                    res = discord_adapter.send(title, b_html, body_format=__import__('apprise').NotifyFormat.HTML, attach=None, context='discord_single', embed_options=embed_options)
+                    res = discord_adapter.send(title, md_body, body_format=__import__('apprise').NotifyFormat.MARKDOWN, attach=None, context='discord_single', embed_options=embed_options)
             except Exception as e:
                 logger.exception("send_to_discord: exception during single send (title=%s): %s -- body_type=%s embed_type=%s", title, e, type(body_html), type(embed_options))
                 return {'sent_any': False, 'details': str(e)}
             if res.success:
                 return {'sent_any': True}
             # Log the offending parameter types for debugging
-            logger.error("send_to_discord: single send failed - types: title=%s body_type=%s attach=%s embed_options_type=%s detail=%s", type(title), type(b_html), type(attach_file), type(embed_options), res.detail)
+            logger.error("send_to_discord: single send failed - types: title=%s body_type=%s attach=%s embed_options_type=%s detail=%s", type(title), type(md_body), type(attach_file), type(embed_options), res.detail)
             return {'sent_any': False, 'details': res.detail}
 
         # Otherwise send sectioned messages
         last_section = sections[-1] if sections else None
+        per_part_limit = min(max_desc, 1000)
         for sec in sections:
-            parts = split_section_by_length(sec, max_desc)
+            parts = split_section_by_length(sec, per_part_limit)
+            sec_title = (sec.split('\n', 1)[0] or title)[:250]
             for idx, part in enumerate(parts):
                 is_final = (sec == last_section and idx == len(parts) - 1)
-                attach = attach_file if is_final else None
 
                 # Per-part embed options: remove footer for intermediate parts
                 sec_embed_opts = copy.deepcopy(embed_options or {})
                 if not is_final and 'footer' in sec_embed_opts:
                     sec_embed_opts.pop('footer', None)
 
-                sec_html = build_section_html(part)
-                # Defensive: coerce to str to avoid passing a dict or other types to Apprise
-                if not isinstance(sec_html, str):
-                    logger.warning("send_to_discord: coerced non-str section html to str (type=%s)", type(sec_html))
-                    sec_html = str(sec_html)
-                # Limit title length—Discord embed title limitations
-                sec_title = (part.split('\n', 1)[0] or title)[:250]
+                # If this is the final embed part and a view_url is provided, append it to the footer
+                if is_final and view_url:
+                    footer = sec_embed_opts.get('footer')
+                    if footer:
+                        sec_embed_opts['footer'] = f"{footer} | View details: {view_url}"
+                    else:
+                        sec_embed_opts['footer'] = f"View details: {view_url}"
+
+                # Build markdown for this part so Apprise will convert it into an embed field
+                sec_md = f"## {sec_title}\n{part}"
 
                 try:
-                    # Always send sections without the attach parameter. Attachment will be sent as a single follow-up message after sections.
-                    res = discord_adapter.send(sec_title, sec_html, body_format=__import__('apprise').NotifyFormat.HTML, attach=None, context='discord_section', embed_options=sec_embed_opts)
+                    res = discord_adapter.send(sec_title, sec_md, body_format=__import__('apprise').NotifyFormat.MARKDOWN, attach=None, context='discord_section', embed_options=sec_embed_opts)
                 except Exception as e:
                     logger.exception("send_to_discord: exception during section send (title=%s): %s", sec_title, e)
                     errors.append(str(e))
@@ -110,7 +119,7 @@ def send_to_discord(discord_adapter, title: str, body_html: str, compact_text: s
                     sent_any = True
                 else:
                     # Log parameter types for debugging
-                    logger.error("send_to_discord: section send failed - types: title=%s body=%s attach=%s embed_options=%s detail=%s", type(sec_title), type(sec_html), type(attach), type(sec_embed_opts), res.detail)
+                    logger.error("send_to_discord: section send failed - types: title=%s body=%s attach=%s embed_options=%s detail=%s", type(sec_title), type(sec_md), None, type(sec_embed_opts), res.detail)
                     errors.append(res.detail)
 
                 # Small pause to reduce rate-limit risk
