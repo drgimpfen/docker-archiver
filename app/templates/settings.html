@@ -406,7 +406,16 @@ async function confirmRunCleanup(dry, bsModal, modalEl) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ dry_run: dry })
         });
-        const data = await resp.json();
+        // Guard against HTML redirects/pages returned when the user is not authenticated
+        const contentType = resp.headers.get('content-type') || '';
+        let data;
+        if (contentType.includes('application/json')) {
+            data = await resp.json();
+        } else {
+            const text = await resp.text();
+            // Provide a helpful error message instead of throwing a JSON parse exception
+            throw new Error('Server returned non-JSON response (possible redirect to login or server error). Response starts with: ' + text.slice(0,200));
+        }
         if (resp.status === 202) {
             // Show toast if available
             if (typeof showAlert === 'function') {
