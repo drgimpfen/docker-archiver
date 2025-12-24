@@ -11,6 +11,40 @@ from app.routes.api import bp, api_auth_required
 from app.db import get_db
 from app.auth import get_current_user
 from app import utils
+import shutil
+
+
+def _find_existing_archive(job_id, stack_name):
+    """Return a path to an existing generated archive for given job/stack, or None."""
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT archive_path FROM download_tokens
+                WHERE job_id = %s AND stack_name = %s AND archive_path IS NOT NULL AND expires_at > NOW()
+                ORDER BY created_at DESC LIMIT 1;
+            """, (job_id, stack_name))
+            row = cur.fetchone()
+            if row and row.get('archive_path') and Path(row['archive_path']).is_file():
+                return row['archive_path']
+    except Exception:
+        pass
+
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT archive_path FROM job_stack_metrics
+                WHERE job_id = %s AND stack_name = %s AND archive_path IS NOT NULL
+                ORDER BY start_time DESC LIMIT 1;
+            """, (job_id, stack_name))
+            row = cur.fetchone()
+            if row and row.get('archive_path') and Path(row['archive_path']).is_file():
+                return row['archive_path']
+    except Exception:
+        pass
+
+    return None
 
 
 @bp.route('/jobs/<int:job_id>/download', methods=['POST'])
@@ -28,22 +62,51 @@ def request_download(job_id):
         # Check if it's a folder - if yes, we need to create an archive
         is_folder = os.path.isdir(archive_path)
 
-        # Generate download token
-        token = secrets.token_urlsafe(32)
         expires_at = utils.now() + timedelta(hours=24)
 
-        # Store token in database
-        with get_db() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                INSERT INTO download_tokens (token, job_id, stack_name, archive_path, is_folder, expires_at)
-                VALUES (%s, %s, %s, %s, %s, %s);
-            """, (token, job_id, stack_name, archive_path, is_folder, expires_at))
-            conn.commit()
-
-        # If it's a folder, avoid creating duplicate preparations for the same job/stack
+        # If it's a folder, try to reuse an existing generated archive (avoid regenerating)
         if is_folder:
-            # Check for existing preparing token for same job/stack
+            existing_archive = _find_existing_archive(job_id, stack_name)
+            if existing_archive:
+                try:
+                    from app import downloads as _downloads
+                    existing_path = Path(existing_archive)
+                    if existing_path.exists() and existing_path.is_file():
+                        if str(existing_path.resolve()).startswith(str(_downloads.DOWNLOADS_PATH.resolve())):
+                            token = secrets.token_urlsafe(32)
+                            with get_db() as conn:
+                                cur = conn.cursor()
+                                cur.execute("""
+                                    INSERT INTO download_tokens (token, job_id, stack_name, archive_path, is_folder, expires_at)
+                                    VALUES (%s, %s, %s, %s, %s, %s);
+                                """, (token, job_id, stack_name, str(existing_path), False, expires_at))
+                                conn.commit()
+                            base_url = _get_base_url()
+                            download_url = f"{base_url}/download/{token}"
+                            return jsonify({'success': True, 'download_url': download_url, 'token': token, 'is_folder': False})
+                        else:
+                            new_name = f"{utils.local_now().strftime('%Y%m%d_%H%M%S')}_download_{utils.filename_safe(existing_path.name)}{existing_path.suffix}"
+                            dest = _downloads.DOWNLOADS_PATH / new_name
+                            try:
+                                shutil.copy2(str(existing_path), str(dest))
+                                token = secrets.token_urlsafe(32)
+                                with get_db() as conn:
+                                    cur = conn.cursor()
+                                    cur.execute("""
+                                        INSERT INTO download_tokens (token, job_id, stack_name, archive_path, is_folder, expires_at)
+                                        VALUES (%s, %s, %s, %s, %s, %s);
+                                    """, (token, job_id, stack_name, str(dest), False, expires_at))
+                                    conn.commit()
+                                base_url = _get_base_url()
+                                download_url = f"{base_url}/download/{token}"
+                                return jsonify({'success': True, 'download_url': download_url, 'token': token, 'is_folder': False})
+                            except Exception:
+                                # If copy fails, fall back to starting preparation
+                                pass
+                except Exception:
+                    pass
+
+            # First check for existing preparing token for same job/stack
             try:
                 with get_db() as conn2:
                     cur2 = conn2.cursor()
@@ -63,22 +126,59 @@ def request_download(job_id):
                             'token': existing['token']
                         })
             except Exception:
-                # If the check fails, fall back to starting a new preparation
+                # If the check fails, continue and attempt to create a new preparing token
                 pass
 
-            # Mark token as preparing and start background compression
+            # No existing preparing token found; attempt to create a new token and set is_preparing=true
+            token = secrets.token_urlsafe(32)
             try:
                 with get_db() as conn3:
                     cur3 = conn3.cursor()
-                    cur3.execute("UPDATE download_tokens SET is_preparing = true WHERE token = %s;", (token,))
+                    # Insert token already flagged as preparing; a unique partial index on (job_id, stack_name) WHERE is_preparing
+                    # (created by DB migrations) will prevent a second preparing token being created concurrently.
+                    cur3.execute("""
+                        INSERT INTO download_tokens (token, job_id, stack_name, archive_path, is_folder, expires_at, is_preparing)
+                        VALUES (%s, %s, %s, %s, %s, %s, true);
+                    """, (token, job_id, stack_name, archive_path, is_folder, expires_at))
                     conn3.commit()
+                    started_token = token
             except Exception:
-                # If setting the flag fails, continue but attempts to regenerate may duplicate
-                pass
+                # Likely a race with another request inserting a preparing token; fetch it and return it
+                try:
+                    with get_db() as conn4:
+                        cur4 = conn4.cursor()
+                        cur4.execute("""
+                            SELECT token FROM download_tokens
+                            WHERE job_id = %s AND stack_name = %s AND is_preparing = true AND expires_at > NOW()
+                            LIMIT 1;
+                        """, (job_id, stack_name))
+                        r = cur4.fetchone()
+                        if r:
+                            return jsonify({
+                                'success': True,
+                                'message': 'An archive is already being prepared for this stack',
+                                'is_folder': True,
+                                'is_preparing': True,
+                                'token': r['token']
+                            })
+                except Exception:
+                    pass
 
+                # If we could not find an existing preparing token, fall back to creating a token without preparing flag
+                token = secrets.token_urlsafe(32)
+                with get_db() as conn5:
+                    cur5 = conn5.cursor()
+                    cur5.execute("""
+                        INSERT INTO download_tokens (token, job_id, stack_name, archive_path, is_folder, expires_at)
+                        VALUES (%s, %s, %s, %s, %s, %s);
+                    """, (token, job_id, stack_name, archive_path, is_folder, expires_at))
+                    conn5.commit()
+                started_token = token
+
+            # Start background compression using the token that was marked as preparing
             threading.Thread(
                 target=_prepare_folder_download,
-                args=(token, archive_path, stack_name, get_current_user()['email']),
+                args=(started_token, archive_path, stack_name, get_current_user()['email']),
                 daemon=True
             ).start()
 
@@ -87,10 +187,19 @@ def request_download(job_id):
                 'message': 'Archive is being prepared. You will receive a notification when ready.',
                 'is_folder': True,
                 'is_preparing': True,
-                'token': token
+                'token': started_token
             })
         else:
-            # File is ready, return download link
+            # Not a folder: insert a token and return immediate download link
+            token = secrets.token_urlsafe(32)
+            with get_db() as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    INSERT INTO download_tokens (token, job_id, stack_name, archive_path, is_folder, expires_at)
+                    VALUES (%s, %s, %s, %s, %s, %s);
+                """, (token, job_id, stack_name, archive_path, is_folder, expires_at))
+                conn.commit()
+
             base_url = _get_base_url()
             download_url = f"{base_url}/download/{token}"
             return jsonify({

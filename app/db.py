@@ -257,6 +257,9 @@ def init_db():
             END $$;
         """)
 
+        # Ensure there is at most one preparing token per job/stack (partial unique index)
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_preparing_token ON download_tokens(job_id, stack_name) WHERE is_preparing = true;")
+
         # Insert default settings if not exist
         cur.execute("""
             INSERT INTO settings (key, value) VALUES 
