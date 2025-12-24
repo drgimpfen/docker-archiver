@@ -544,7 +544,13 @@ python app/main.py
 Docker-Archiver/
 ├── app/
 │   ├── routes/              # Flask Blueprints
-│   │   ├── api/archives.py   # Archive CRUD routes (API)
+│   │   ├── api/               # API endpoints (JSON/SSE/file responses)
+│   │   │   ├── __init__.py    # Shared `bp` and auth helpers
+│   │   │   ├── archives.py    # Archive CRUD routes (API)
+│   │   │   ├── jobs.py        # Job listing, logs, tail
+│   │   │   ├── downloads.py   # Download token generation & folder prep
+│   │   │   ├── cleanup.py     # Cleanup runner endpoint
+│   │   │   └── sse.py         # SSE endpoints
 │   │   ├── history.py       # Job history routes
 │   │   ├── settings.py      # Settings routes
 │   │   └── profile.py       # User profile routes

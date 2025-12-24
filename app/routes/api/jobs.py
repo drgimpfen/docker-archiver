@@ -1,18 +1,12 @@
-from flask import request, jsonify, send_file, Response, stream_with_context
-from app.auth import get_current_user
+from flask import request, jsonify, send_file
+from app.routes.api import bp, api_auth_required
 from app.db import get_db
 from app import utils
-import threading
-import subprocess
-import secrets
-import os
-import json
-
-from . import bp
 
 
 @bp.route('/jobs/<int:job_id>')
 @bp.route('/jobs/<int:job_id>/')
+@api_auth_required
 def get_job_details(job_id):
     with get_db() as conn:
         cur = conn.cursor()
@@ -52,36 +46,8 @@ def get_job_details(job_id):
     return jsonify({'job': job_out, 'metrics': metrics_out})
 
 
-@bp.route('/jobs/<int:job_id>/download', methods=['POST'])
-def request_download(job_id):
-    try:
-        data = request.get_json()
-        stack_name = data.get('stack_name')
-        archive_path = data.get('archive_path')
-        if not archive_path or not os.path.exists(archive_path):
-            return jsonify({'error': 'Archive not found'}), 404
-        is_folder = os.path.isdir(archive_path)
-        token = secrets.token_urlsafe(32)
-        expires_at = utils.now() + utils.timedelta(hours=24) if hasattr(utils, 'timedelta') else None
-        with get_db() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                INSERT INTO download_tokens (token, job_id, stack_name, archive_path, is_folder, expires_at)
-                VALUES (%s, %s, %s, %s, %s, %s);
-            """, (token, job_id, stack_name, archive_path, is_folder, expires_at))
-            conn.commit()
-        if is_folder:
-            threading.Thread(target=_prepare_folder_download, args=(token, archive_path, stack_name, get_current_user()['email'])).start()
-            return jsonify({'success': True, 'message': 'Archive is being prepared. You will receive a notification when ready.', 'is_folder': True})
-        else:
-            base_url = _get_base_url()
-            download_url = f"{base_url}/download/{token}"
-            return jsonify({'success': True, 'download_url': download_url, 'token': token, 'expires_in': '24 hours', 'is_folder': False})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
 @bp.route('/jobs/<int:job_id>/log')
+@api_auth_required
 def download_log(job_id):
     stack_name = request.args.get('stack')
     with get_db() as conn:
@@ -116,31 +82,8 @@ def download_log(job_id):
     return send_file(log_path, as_attachment=True, download_name=log_filename)
 
 
-@bp.route('/jobs/<int:job_id>/events')
-def job_events(job_id):
-    try:
-        from app.sse import register_event_listener, unregister_event_listener
-    except Exception:
-        return jsonify({'error': 'SSE not available in this deployment'}), 501
-
-    def gen():
-        q = register_event_listener(job_id)
-        try:
-            yield 'data: ' + json.dumps({'type': 'connected', 'data': {}}) + '\n\n'
-            while True:
-                try:
-                    msg = q.get(timeout=15)
-                except Exception:
-                    yield ': keepalive\n\n'
-                    continue
-                yield f"data: {msg}\n\n"
-        finally:
-            unregister_event_listener(job_id, q)
-
-    return Response(stream_with_context(gen()), mimetype='text/event-stream')
-
-
 @bp.route('/jobs', methods=['GET'])
+@api_auth_required
 def list_jobs():
     """List jobs with optional filters (API endpoint)."""
     archive_id = request.args.get('archive_id', type=int)
@@ -188,6 +131,7 @@ def list_jobs():
 
 
 @bp.route('/jobs/<int:job_id>/log/tail')
+@api_auth_required
 def tail_log(job_id):
     last_line = request.args.get('last_line', type=int, default=0)
     stack_name = request.args.get('stack')
