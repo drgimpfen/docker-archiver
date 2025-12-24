@@ -27,10 +27,20 @@ class DiscordAdapter(AdapterBase):
 
     def _build_html_body(self, title: str, body: str, embed_options: dict = None) -> str:
         """Construct an HTML body for Apprise/Discord that approximates an embed.
-        Apprise will translate this to a suitable Discord message."""
-        # Convert HTML to safe text and then build a simple HTML structure
-        desc = strip_html_tags(body)
-        html = f"<h2>{title}</h2>\n<p>{desc}</p>"
+        Apprise will translate this to a suitable Discord message.
+
+        If `body` already contains HTML tags we preserve it and inject a heading;
+        otherwise we convert text to a simple HTML paragraph.
+        """
+        import re
+        has_html = bool(re.search(r'<[^>]+>', body or ''))
+        if has_html:
+            desc_html = body
+        else:
+            desc_html = f"<p>{strip_html_tags(body)}</p>"
+
+        html = f"<h2>{title}</h2>\n" + desc_html
+
         if embed_options:
             # fields
             fields = embed_options.get('fields', [])

@@ -28,6 +28,8 @@ def test_discord_adapter_sends_via_apprise(monkeypatch):
     title = 'Job Complete'
     body = '<h1>Result</h1>All stacks succeeded.'
     res = da.send(title, body, None, attach='path/to/file.log', embed_options={'footer':'Job 1','fields':[{'name':'Test','value':'Value','inline':True}]})
+    # because body contains HTML, we expect the adapter to preserve HTML and include the original structure
+    assert '<h1' in calls['body'] or '<table' in calls['body']
     assert res.success is True
     # URLs are normalized to https webhook form
     assert 'discord.com/api/webhooks' in calls['urls'][0]
