@@ -62,97 +62,10 @@
             <h5 class="mb-0"><i class="bi bi-bell me-2"></i> Notifications</h5>
         </div>
         <div class="card-body">
-            {% if not email_configured %}
-            <div class="alert alert-warning">
-                <i class="bi bi-exclamation-triangle me-2"></i>
-                <strong>Email notifications not configured</strong><br>
-                To enable email notifications, configure SMTP settings below and save the form. These values are stored in the application settings and persisted to the database.
-                See <a href="/README.md">README</a> for examples and deployment tips.
+            <p class="mb-0">Configure email notifications (SMTP) and notification preferences on a separate page.</p>
+            <div class="mt-3">
+                <a href="{{ url_for('settings.manage_notifications') }}" class="btn btn-primary"><i class="bi bi-arrow-right me-1"></i>Manage Notifications</a>
             </div>
-            {% endif %}
-
-            <div class="row g-3 mb-3">
-                <div class="col-12 col-md-6">
-                    <label for="smtpServer" class="form-label">SMTP Server</label>
-                    <input type="text" class="form-control" id="smtpServer" name="smtp_server" value="{{ settings.get('smtp_server', '') }}">
-                </div>
-                <div class="col-6 col-md-2">
-                    <label for="smtpPort" class="form-label">SMTP Port</label>
-                    <input type="text" class="form-control" id="smtpPort" name="smtp_port" value="{{ settings.get('smtp_port', '587') }}">
-                </div>
-                <div class="col-12 col-md-6">
-                    <label for="smtpUser" class="form-label">SMTP User (optional)</label>
-                    <input type="text" class="form-control" id="smtpUser" name="smtp_user" value="{{ settings.get('smtp_user', '') }}">
-                </div>
-                <div class="col-12 col-md-6">
-                    <label for="smtpPassword" class="form-label">SMTP Password (optional)</label>
-                    <input type="password" class="form-control" id="smtpPassword" name="smtp_password" value="{{ settings.get('smtp_password', '') }}">
-                </div>
-                <div class="col-12 col-md-6">
-                    <label for="smtpFrom" class="form-label">From (sender)</label>
-                    <input type="email" class="form-control" id="smtpFrom" name="smtp_from" value="{{ settings.get('smtp_from', '') }}">
-                </div>
-                <div class="col-12">
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="smtpUseTls" name="smtp_use_tls" {% if settings.get('smtp_use_tls', 'true') == 'true' %}checked{% endif %}>
-                        <label class="form-check-label" for="smtpUseTls">Use TLS (STARTTLS)</label>
-                    </div>
-                </div>
-            </div>
-
-            <div class="mb-3">
-                <label for="notificationSubjectTag" class="form-label">Subject Tag (Optional)</label>
-                <input type="text" class="form-control" id="notificationSubjectTag" name="notification_subject_tag" 
-                       value="{{ settings.get('notification_subject_tag', '') }}" 
-                       placeholder="[Production]">
-                <div class="form-text">Optional prefix for notification subjects (e.g., [Production], [Test])</div>
-            </div>
-            
-            <div class="mb-3">
-                <label class="form-label">Notify on:</label>
-                
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" id="notifySuccess" name="notify_success"
-                           {% if settings.get('notify_on_success') == 'true' %}checked{% endif %}>
-                    <label class="form-check-label" for="notifySuccess">
-                        <i class="bi bi-check-circle text-success me-1"></i> Successful job completion
-                    </label>
-                </div>
-                
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" id="notifyError" name="notify_error"
-                           {% if settings.get('notify_on_error') == 'true' %}checked{% endif %}>
-                    <label class="form-check-label" for="notifyError">
-                        <i class="bi bi-x-circle text-danger me-1"></i> Job failures
-                    </label>
-                </div>
-            </div>
-
-
-            <div class="form-check mb-3">
-                <input class="form-check-input" type="checkbox" id="notifyAttachLog" name="notify_attach_log" {% if settings.get('notify_attach_log') == 'true' %}checked{% endif %}>
-                <label class="form-check-label" for="notifyAttachLog">
-                    <strong>Attach full job log</strong><br>
-                    <small class="text-muted">Attach the full job log as a downloadable file instead of inlining it in the email. Useful for large logs.</small>
-                </label>
-            </div>
-
-            <div class="form-check mb-3">
-                <input class="form-check-input" type="checkbox" id="notifyAttachLogOnFailure" name="notify_attach_log_on_failure" {% if settings.get('notify_attach_log_on_failure') == 'true' %}checked{% endif %}>
-                <label class="form-check-label" for="notifyAttachLogOnFailure">
-                    <strong>Attach log on failures only</strong><br>
-                    <small class="text-muted">If checked, the log will only be attached when the job has failed (overrides 'Attach full job log' for failures).</small>
-                </label>
-            </div>
-
-            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="testNotification()">
-                <i class="bi bi-send me-1"></i>Send Test Notification
-            </button>
-        </div>
-    </div>
-    
-    <!-- Cleanup Settings -->
-    <div class="card mb-4">
         <div class="card-header">
             <h5 class="mb-0"><i class="bi bi-recycle me-2"></i> Automated Cleanup</h5>
         </div>

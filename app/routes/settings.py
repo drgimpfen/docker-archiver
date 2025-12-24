@@ -50,19 +50,8 @@ def manage_settings():
 
             with get_db() as conn:
                 cur = conn.cursor()
-                # Read SMTP settings from form
-                smtp_server = request.form.get('smtp_server', '').strip()
-                smtp_port = request.form.get('smtp_port', '').strip()
-                smtp_user = request.form.get('smtp_user', '').strip()
-                smtp_password = request.form.get('smtp_password', '').strip()
-                smtp_from = request.form.get('smtp_from', '').strip()
-                smtp_use_tls = 'true' if request.form.get('smtp_use_tls') == 'on' else 'false'
-
                 settings_to_update = [
                     ('base_url', base_url),
-                    ('notification_subject_tag', notification_subject_tag),
-                    ('notify_on_success', 'true' if notify_success else 'false'),
-                    ('notify_on_error', 'true' if notify_error else 'false'),
                     ('maintenance_mode', 'true' if maintenance_mode else 'false'),
                     ('cleanup_enabled', 'true' if cleanup_enabled else 'false'),
                     ('cleanup_cron', cleanup_cron),
@@ -71,12 +60,6 @@ def manage_settings():
                     ('notify_on_cleanup', 'true' if notify_cleanup else 'false'),
                     ('notify_attach_log', 'true' if notify_attach_log else 'false'),
                     ('notify_attach_log_on_failure', 'true' if notify_attach_log_on_failure else 'false'),
-                    ('smtp_server', smtp_server),
-                    ('smtp_port', smtp_port),
-                    ('smtp_user', smtp_user),
-                    ('smtp_password', smtp_password),
-                    ('smtp_from', smtp_from),
-                    ('smtp_use_tls', smtp_use_tls),
                     ('apply_permissions', 'true' if apply_permissions else 'false'),
                 ]
                 
@@ -122,6 +105,66 @@ def manage_settings():
         current_user=get_current_user(),
         email_configured=email_configured
     )
+
+
+@bp.route('/notifications', methods=['GET', 'POST'])
+@login_required
+def manage_notifications():
+    """Notifications settings page."""
+    if request.method == 'POST':
+        try:
+            notification_subject_tag = request.form.get('notification_subject_tag', '')
+            notify_success = request.form.get('notify_success') == 'on'
+            notify_error = request.form.get('notify_error') == 'on'
+            notify_attach_log = request.form.get('notify_attach_log') == 'on'
+            notify_attach_log_on_failure = request.form.get('notify_attach_log_on_failure') == 'on'
+
+            # SMTP settings
+            smtp_server = request.form.get('smtp_server', '').strip()
+            smtp_port = request.form.get('smtp_port', '').strip()
+            smtp_user = request.form.get('smtp_user', '').strip()
+            smtp_password = request.form.get('smtp_password', '').strip()
+            smtp_from = request.form.get('smtp_from', '').strip()
+            smtp_use_tls = 'true' if request.form.get('smtp_use_tls') == 'on' else 'false'
+
+            settings_to_update = [
+                ('notification_subject_tag', notification_subject_tag),
+                ('notify_on_success', 'true' if notify_success else 'false'),
+                ('notify_on_error', 'true' if notify_error else 'false'),
+                ('notify_attach_log', 'true' if notify_attach_log else 'false'),
+                ('notify_attach_log_on_failure', 'true' if notify_attach_log_on_failure else 'false'),
+                ('smtp_server', smtp_server),
+                ('smtp_port', smtp_port),
+                ('smtp_user', smtp_user),
+                ('smtp_password', smtp_password),
+                ('smtp_from', smtp_from),
+                ('smtp_use_tls', smtp_use_tls),
+            ]
+
+            with get_db() as conn:
+                cur = conn.cursor()
+                for key, value in settings_to_update:
+                    cur.execute("""
+                        INSERT INTO settings (key, value) VALUES (%s, %s)
+                        ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = CURRENT_TIMESTAMP;
+                    """, (key, value, value))
+                conn.commit()
+
+            flash('Notification settings saved successfully!', 'success')
+            return redirect(url_for('settings.manage_notifications'))
+        except Exception as e:
+            flash(f'Error saving notification settings: {e}', 'danger')
+
+    # Load current settings
+    settings_dict = {}
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT key, value FROM settings;")
+        for row in cur.fetchall():
+            settings_dict[row['key']] = row['value']
+
+    email_configured = bool(settings_dict.get('smtp_server') and settings_dict.get('smtp_from'))
+    return render_template('settings_notifications.html', settings=settings_dict, current_user=get_current_user(), email_configured=email_configured)
 
 
 @bp.route('/test-notification', methods=['POST'])
