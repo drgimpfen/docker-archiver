@@ -17,7 +17,6 @@ from app.db import init_db, get_db
 from app.auth import login_required, authenticate_user, create_user, get_user_count, get_current_user
 from app.scheduler import init_scheduler, get_next_run_time
 from app.stacks import discover_stacks, get_stack_mount_paths
-from app.downloads import get_download_by_token, get_download_token_row, prepare_archive_for_download, increment_download_count, DOWNLOADS_PATH
 from app.notifications import get_setting
 import shutil
 from app import utils
@@ -46,8 +45,7 @@ def inject_app_version():
 
 # Security: CSRF Protection
 csrf = CSRFProtect(app)
-# Exempt download endpoint (uses tokens) and health check
-csrf.exempt('download_archive')
+# Exempt health check
 csrf.exempt('health')
 
 # Security: Rate Limiting
@@ -186,25 +184,8 @@ def run_startup_discovery():
                 if verbose:
                     logger.exception("[Startup] Failed to start stale job cleanup thread: %s", e)
 
-            # Run downloads startup rescan to restore any missing download artifacts if possible
-            try:
-                from app.downloads import startup_rescan_downloads
-
-                def _run_download_rescan():
-                    try:
-                        startup_rescan_downloads()
-                        if verbose:
-                            logger.info("[Startup] Download startup rescan complete")
-                    except Exception as re:
-                        logger.exception("[Startup] Download startup rescan failed: %s", re)
-
-                t = threading.Thread(target=_run_download_rescan, daemon=True)
-                t.start()
-                if verbose:
-                    logger.info("[Startup] Download startup rescan started in background thread")
-            except Exception as e:
-                if verbose:
-                    logger.exception("[Startup] Failed to start download startup rescan thread: %s", e)
+            # Downloads startup rescan removed (token-based download system disabled)
+            pass
 
             startup_discovery_done = True
 
@@ -344,122 +325,7 @@ def api_get_stacks():
     return jsonify({'stacks': stacks})
 
 
-@app.route('/download/<token>')
-def download_archive(token):
-    """Download archive by token (no auth required)."""
-    from app.security import is_safe_path
-    
-    # First, fetch raw token row to determine specific failure reasons without
-    # incrementing the download counter.
-    token_row = get_download_token_row(token)
-    if not token_row:
-        return render_template('download_error.html', reason='Ungültiger Download-Link', hint='Der Link ist ungültig oder wurde nie erstellt.'), 404
-
-    # Check expiry
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc)
-    expires_at = token_row.get('expires_at')
-    if expires_at:
-        try:
-            # Normalize to UTC-aware datetime for reliable comparison
-            expires_at = expires_at.astimezone(timezone.utc) if getattr(expires_at, 'tzinfo', None) else expires_at.replace(tzinfo=timezone.utc)
-        except Exception:
-            try:
-                expires_at = expires_at.replace(tzinfo=timezone.utc)
-            except Exception:
-                expires_at = None
-    if expires_at and expires_at <= now:
-        return render_template('download_error.html', reason='Der Download-Link ist abgelaufen', hint='Bitte erstelle einen neuen Download-Link für die gewünschte Datei.'), 410
-
-    # Check max downloads
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT value FROM settings WHERE key = 'max_token_downloads';")
-        setting = cur.fetchone()
-        max_downloads = int(setting['value']) if setting else 3
-
-    if token_row.get('downloads', 0) >= max_downloads:
-        return render_template('download_error.html', reason='Download-Limit erreicht', hint='Der Download wurde zu oft verwendet. Erstelle bitte einen neuen Download.'), 429
-
-    archive_path = token_row['archive_path']
-    # We enforce that served downloads always come from DOWNLOADS_PATH.
-    # If the token references a different path, attempt to regenerate a download
-    # inside DOWNLOADS_PATH (copy file or create archive from folder) and update
-    # the token to point to that generated file.
-    from pathlib import Path as _Path
-    def _is_under_downloads(p):
-        try:
-            return _Path(p).resolve().is_relative_to(DOWNLOADS_PATH.resolve())
-        except Exception:
-            # Fallback for Python <3.9: compare parts
-            try:
-                return str(_Path(p).resolve()).startswith(str(DOWNLOADS_PATH.resolve()))
-            except Exception:
-                return False
-
-    actual_path = None
-    should_cleanup = False
-
-    if archive_path:
-        try:
-            p = _Path(archive_path)
-            if p.exists() and _is_under_downloads(p):
-                actual_path = str(p.resolve())
-            else:
-                # If token is already preparing, show preparing message
-                if token_row.get('is_preparing'):
-                    return render_template('download_error.html', reason='Download wird vorbereitet', hint='Der Download wird gerade neu erstellt. Bitte versuche es in ein paar Minuten erneut.'), 202
-
-                # Try to detect if an original source exists (either the token's archive_path or a job metric)
-                source_exists = False
-                try:
-                    if p.exists():
-                        source_exists = True
-                    else:
-                        job_id = token_row.get('job_id')
-                        stack_name = token_row.get('stack_name')
-                        if job_id and stack_name:
-                            with get_db() as conn:
-                                cur = conn.cursor()
-                                cur.execute("""
-                                    SELECT archive_path FROM job_stack_metrics
-                                    WHERE job_id = %s AND stack_name = %s AND archive_path IS NOT NULL
-                                    ORDER BY start_time DESC LIMIT 1;
-                                """, (job_id, stack_name))
-                                row = cur.fetchone()
-                                if row and row.get('archive_path') and _Path(row['archive_path']).exists():
-                                    source_exists = True
-                except Exception:
-                    source_exists = False
-
-                if source_exists:
-                    # Start background regeneration which will set is_preparing=true
-                    try:
-                        from app.downloads import regenerate_token
-                        threading.Thread(target=regenerate_token, args=(token,), daemon=True).start()
-                        return render_template('download_error.html', reason='Download wird vorbereitet', hint='Der Download wird gerade neu erstellt. Bitte versuche es in ein paar Minuten erneut.'), 202
-                    except Exception as e:
-                        logger.exception("[Downloads] Failed to start background regeneration for token %s: %s", token, e)
-                        # Fall back to reporting not found
-                
-        except Exception as e:
-            logger.exception("[Downloads] Error while resolving archive_path for token %s: %s", token, e)
-
-    if not actual_path or not _Path(actual_path).exists():
-        return render_template('download_error.html', reason='Datei nicht gefunden', hint='Die Datei ist nicht mehr vorhanden. Du kannst den Download erneut generieren, indem du ein neues Archiv erstellst oder die Download‑Aktion nochmal startest.'), 404
-
-    # Before sending, increment download counter
-    increment_download_count(token)
-
-    # Send file
-    try:
-        return send_file(
-            actual_path,
-            as_attachment=True,
-            download_name=os.path.basename(actual_path)
-        )
-    except Exception as e:
-        return render_template('download_error.html', reason='Fehler beim Herunterladen', hint=str(e)), 500
+# Token-based download endpoint removed.
 
 
 if __name__ == '__main__':

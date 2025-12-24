@@ -10,7 +10,6 @@ import os
 import time
 import threading
 from app.utils import setup_logging, get_logger, get_display_timezone, get_log_dir, get_sentinel_path, local_now, filename_safe
-from app.downloads import cleanup_expired_tokens
 from app.cleanup import run_cleanup
 from app.notifications import send_error_notification
 from datetime import datetime, timezone
@@ -113,15 +112,7 @@ def init_scheduler():
     except Exception as e:
         logger.exception("[Scheduler] Could not load schedules during init (database might not be ready yet): %s", e)
 
-    # Add cleanup job for expired download tokens (runs daily)
-    scheduler.add_job(
-        cleanup_expired_tokens,
-        'cron',
-        hour=2,
-        minute=0,
-        id='cleanup_tokens',
-        replace_existing=True
-    )
+
 
     # Schedule main cleanup task
     schedule_cleanup_task()

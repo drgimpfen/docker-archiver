@@ -109,22 +109,7 @@ def init_db():
             );
         """)
         
-        # Download tokens
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS download_tokens (
-                id SERIAL PRIMARY KEY,
-                token VARCHAR(64) UNIQUE NOT NULL,
-                job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
-                stack_name VARCHAR(255),
-                archive_path TEXT NOT NULL,
-                is_folder BOOLEAN DEFAULT false,
-                -- Added in v0.7.x: flag to indicate server is currently preparing a generated download file
-                is_preparing BOOLEAN DEFAULT false,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                expires_at TIMESTAMP NOT NULL,
-                downloads INTEGER DEFAULT 0
-            );
-        """)
+        # Download token system removed (tokens and temporary downloads are deprecated and dropped)
         
         # API tokens for external access
         cur.execute("""
@@ -152,32 +137,11 @@ def init_db():
         cur.execute("CREATE INDEX IF NOT EXISTS idx_jobs_archive_id ON jobs(archive_id);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_jobs_start_time ON jobs(start_time DESC);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_job_stack_metrics_job_id ON job_stack_metrics(job_id);")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_download_tokens_token ON download_tokens(token);")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_download_tokens_expires ON download_tokens(expires_at);")
+
         cur.execute("CREATE INDEX IF NOT EXISTS idx_api_tokens_token ON api_tokens(token);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_api_tokens_user_id ON api_tokens(user_id);")
         
-        # Migrate download_tokens table if needed (rename file_path to archive_path, add is_folder)
-        cur.execute("""
-            DO $$ 
-            BEGIN
-                -- Check if old column exists and rename it
-                IF EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name='download_tokens' AND column_name='file_path'
-                ) THEN
-                    ALTER TABLE download_tokens RENAME COLUMN file_path TO archive_path;
-                END IF;
-                
-                -- Add is_folder column if it doesn't exist
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name='download_tokens' AND column_name='is_folder'
-                ) THEN
-                    ALTER TABLE download_tokens ADD COLUMN is_folder BOOLEAN DEFAULT false;
-                END IF;
-            END $$;
-        """)
+
         
         # Migrate jobs table - add missing columns
         cur.execute("""
@@ -244,21 +208,7 @@ def init_db():
         """)
         
 
-        # Ensure download_tokens has an is_preparing column for in-progress generation
-        cur.execute("""
-            DO $$
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name='download_tokens' AND column_name='is_preparing'
-                ) THEN
-                    ALTER TABLE download_tokens ADD COLUMN is_preparing BOOLEAN DEFAULT false;
-                END IF;
-            END $$;
-        """)
 
-        # Ensure there is at most one preparing token per job/stack (partial unique index)
-        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_preparing_token ON download_tokens(job_id, stack_name) WHERE is_preparing = true;")
 
         # Insert default settings if not exist
         cur.execute("""
@@ -267,7 +217,6 @@ def init_db():
                 ('notify_on_success', 'true'),
                 ('notify_on_error', 'true'),
                 ('maintenance_mode', 'false'),
-                ('max_token_downloads', '3'),
                 ('cleanup_enabled', 'true'),
                 ('cleanup_cron', '30 2 * * *'),
                 ('cleanup_log_retention_days', '90'),

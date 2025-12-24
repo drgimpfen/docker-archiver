@@ -204,51 +204,7 @@ def tail_log(job_id):
             job_meta = dict(row)
     return jsonify({'lines': new_lines, 'last_line': new_last_line, 'complete': complete, 'job': job_meta})
 
-def _prepare_folder_download(token, folder_path, stack_name, user_email):
-    try:
-        from app import downloads as _downloads
-        try:
-            _downloads.DOWNLOADS_PATH.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            pass
-        timestamp = utils.local_now().strftime('%Y%m%d_%H%M%S')
-        safe_name = utils.filename_safe(stack_name)
-        archive_name = f"{timestamp}_download_{safe_name}.tar.zst"
-        archive_path = _downloads.DOWNLOADS_PATH / archive_name
-        subprocess.run(['tar', '-I', 'zstd', '-cf', str(archive_path), '-C', str(Path(folder_path).parent), Path(folder_path).name], check=True, timeout=3600)
-        with get_db() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                UPDATE download_tokens 
-                SET archive_path = %s, is_folder = false 
-                WHERE token = %s;
-            """, (str(archive_path), token))
-            conn.commit()
-        if user_email:
-            try:
-                # Send direct email via SMTP to the provided user_email
-                from app.notifications.adapters import SMTPAdapter
-                from app.utils import get_logger
-                logger = get_logger(__name__)
-                from app.notifications.core import get_setting
-                smtp_adapter = SMTPAdapter() if get_setting('smtp_server') else None
-                if not smtp_adapter:
-                    logger.warning('SMTP not configured; cannot send download notification to %s', user_email)
-                else:
-                    base_url = _get_base_url()
-                    download_url = f"{base_url}/download/{token}"
-                    body = f"""<h2>Your archive is ready for download</h2>
-<p><strong>Stack:</strong> {stack_name}</p>
-<p><a href=\"{download_url}\">Download Archive</a></p>
-<p><small>This link will expire in 24 hours</small></p>"""
-                    res = smtp_adapter.send("📦 Archive Download Ready", body, body_format=None, attach=None, recipients=[user_email], context=f'download_{token}')
-                    if not res.success:
-                        logger.error('Failed to send download email to %s: %s', user_email, res.detail)
-            except Exception as e:
-                from app.utils import get_logger
-                get_logger(__name__).exception("Failed to send download notification: %s", e)
-    except Exception as e:
-        print(f"[ERROR] Failed to prepare download: {e}")
+
 
 def _get_base_url():
     with get_db() as conn:

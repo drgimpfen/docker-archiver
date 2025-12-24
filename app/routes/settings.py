@@ -32,8 +32,7 @@ def manage_settings():
             notify_attach_log_on_failure = request.form.get('notify_attach_log_on_failure') == 'on'
             apply_permissions = request.form.get('apply_permissions') == 'on'
             
-            maintenance_mode = request.form.get('maintenance_mode') == 'on'
-            max_token_downloads = request.form.get('max_token_downloads', '3')
+            maintenance_mode = request.form.get('maintenance_mode') == 'on' 
             
             # Cleanup settings
             cleanup_enabled = request.form.get('cleanup_enabled') == 'on'
@@ -65,7 +64,6 @@ def manage_settings():
                     ('notify_on_success', 'true' if notify_success else 'false'),
                     ('notify_on_error', 'true' if notify_error else 'false'),
                     ('maintenance_mode', 'true' if maintenance_mode else 'false'),
-                    ('max_token_downloads', max_token_downloads),
                     ('cleanup_enabled', 'true' if cleanup_enabled else 'false'),
                     ('cleanup_cron', cleanup_cron),
                     ('cleanup_log_retention_days', cleanup_log_retention_days),

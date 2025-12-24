@@ -324,6 +324,67 @@ def filename_safe(name):
         return 'unnamed'
 
 
+def make_download_filename(original_name: str) -> str:
+    """Normalize an original filename for download storage.
+
+    - Strips repeated leading timestamp+download prefixes like
+      `20251224_181226_download_20251224_181032_download_...`.
+    - Collapses repeated extension segments (e.g. `.zst.zst` -> `.zst`).
+    - Normalizes patterns like `_tar_zst` to `.tar.zst`.
+    - Returns a filename consisting of a filesystem-safe stem and normalized suffixes.
+    """
+    try:
+        import re
+        from pathlib import Path
+
+        name = Path(str(original_name)).name
+        # strip repeated leading timestamp download prefixes
+        name = re.sub(r'^(?:\d{8}_\d{6}_download_)+', '', name)
+        # collapse duplicate underscores
+        name = re.sub(r'_+', '_', name)
+        # convert patterns like _tar_zst or _tar_gz to .tar.zst / .tar.gz
+        name = re.sub(r'(_tar_zst)+$', '.tar.zst', name, flags=re.IGNORECASE)
+        name = re.sub(r'(_tar_gz)+$', '.tar.gz', name, flags=re.IGNORECASE)
+        # collapse repeated dot-extensions like .zst.zst -> .zst
+        name = re.sub(r'(?:\.zst)+$', '.zst', name, flags=re.IGNORECASE)
+        name = re.sub(r'(?:\.gz)+$', '.gz', name, flags=re.IGNORECASE)
+        # ensure .tar.zst duplicates are collapsed
+        name = re.sub(r'\.tar\.zst(?:\.zst)+$', '.tar.zst', name, flags=re.IGNORECASE)
+        name = re.sub(r'\.tar\.gz(?:\.gz)+$', '.tar.gz', name, flags=re.IGNORECASE)
+
+        p = Path(name)
+        suffixes = ''.join(p.suffixes)
+        if suffixes:
+            stem = p.name[:-len(suffixes)]
+        else:
+            stem = p.stem
+
+        safe_stem = filename_safe(stem)
+        return f"{safe_stem}{suffixes}"
+    except Exception:
+        return filename_safe(original_name)
+
+
+def unique_filename(target_dir: str, filename: str) -> str:
+    """Return a filename that does not conflict in target_dir by appending _1, _2, ... if needed."""
+    from pathlib import Path
+    try:
+        td = Path(target_dir)
+        candidate = td / filename
+        if not candidate.exists():
+            return filename
+        stem = candidate.stem
+        suffix = ''.join(candidate.suffixes)
+        i = 1
+        while True:
+            new_name = f"{stem}_{i}{suffix}"
+            if not (td / new_name).exists():
+                return new_name
+            i += 1
+    except Exception:
+        return filename
+
+
 def apply_permissions_recursive(base_path, file_mode=0o644, dir_mode=0o755, collect_list=False, report_path=None):
     """Recursively apply permissions to files and directories under base_path.
 
