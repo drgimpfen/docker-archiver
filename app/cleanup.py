@@ -928,6 +928,8 @@ def send_cleanup_notification(orphaned_stats, log_stats, unreferenced_dirs_stats
         except Exception:
             pass
 
+    except Exception as e:
+        logger.exception("[Cleanup] Failed to send notification: %s", e)
 
 
 if __name__ == '__main__':
