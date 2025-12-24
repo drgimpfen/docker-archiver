@@ -44,14 +44,15 @@ def send_to_discord(discord_adapter, title: str, body_html: str, compact_text: s
             md_parts.append(f"## {first}\n{rest}")
         md_body = '\n\n'.join(md_parts)
 
-        # If the composed markdown fits within a conservative per-embed limit, send as a single message
+        # Prefer a single Markdown embed (borg-ui style). If content exceeds the per-embed limit,
+        # pack sections into as few embeds as possible (no truncation).
         effective_limit = min(max_desc, 1800)
-        if md_body and len(md_body) <= effective_limit:
-            try:
-                # If there's an attachment, perform a two-step send: first embeds (no attach), then a short attach message
+        try:
+            # If it fits in a single embed, send it
+            if md_body and len(md_body) <= effective_limit:
                 if attach_file:
+                    # two-step attach flow for small single body
                     res_embed = discord_adapter.send(title, md_body, body_format=__import__('apprise').NotifyFormat.MARKDOWN, attach=None, context='discord_single', embed_options=embed_options)
-                    # Prepare attach message content (plain text, include view_url if available)
                     try:
                         from app.notifications.formatters import strip_html_tags
                         attach_body = strip_html_tags(md_body)
@@ -59,11 +60,9 @@ def send_to_discord(discord_adapter, title: str, body_html: str, compact_text: s
                         attach_body = compact_text or ''
                     if view_url:
                         attach_body = f"{attach_body}\n\nView details: {view_url}"
-                    # Truncate to Discord 2000 limit
                     if len(attach_body) > 2000:
                         attach_body = attach_body[:1950].rstrip() + '\n\n...(truncated, see attachment)'
                     res_attach = discord_adapter.send(title, attach_body, body_format=None, attach=attach_file, context='discord_attach')
-                    # Evaluate
                     if res_embed.success and res_attach.success:
                         return {'sent_any': True}
                     details = []
@@ -71,17 +70,17 @@ def send_to_discord(discord_adapter, title: str, body_html: str, compact_text: s
                         details.append(f"embed: {res_embed.detail}")
                     if not res_attach.success:
                         details.append(f"attach: {res_attach.detail}")
-                    return {'sent_any': res_embed.success or res_attach.success, 'details': details}
+                    if res_embed.success or res_attach.success:
+                        return {'sent_any': True, 'details': details}
                 else:
                     res = discord_adapter.send(title, md_body, body_format=__import__('apprise').NotifyFormat.MARKDOWN, attach=None, context='discord_single', embed_options=embed_options)
-            except Exception as e:
-                logger.exception("send_to_discord: exception during single send (title=%s): %s -- body_type=%s embed_type=%s", title, e, type(body_html), type(embed_options))
-                return {'sent_any': False, 'details': str(e)}
-            if res.success:
-                return {'sent_any': True}
-            # Log the offending parameter types for debugging
-            logger.error("send_to_discord: single send failed - types: title=%s body_type=%s attach=%s embed_options_type=%s detail=%s", type(title), type(md_body), type(attach_file), type(embed_options), res.detail)
-            return {'sent_any': False, 'details': res.detail}
+                    if res.success:
+                        return {'sent_any': True}
+                    logger.error("send_to_discord: single send failed - detail=%s", res.detail)
+        except Exception as e:
+            logger.exception("send_to_discord: exception during single send (title=%s): %s -- body_type=%s embed_type=%s", title, e, type(body_html), type(embed_options))
+            # Fall back to batching below
+            pass
 
         # Otherwise send sectioned messages
         # Build parts for all sections first (so we can batch them into larger embeds)

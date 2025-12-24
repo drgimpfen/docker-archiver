@@ -10,19 +10,19 @@ class FakeAdapter:
         return type('R', (), {'success': True, 'detail': None})
 
 
-def test_batches_sections_to_reduce_posts():
+def test_packs_sections_into_minimum_embeds():
     fa = FakeAdapter()
     title = 'T'
-    body_html = '<h2>long</h2>'
-    # large compact_text to cause sectioned path
+    body_html = '<h2>big</h2>'
     compact_text = 'X' * 5000
-    # create three small sections which should be batched into fewer embeds
-    sections = ['A\n1', 'B\n2', 'C\n3']
 
-    res = send_to_discord(fa, title, body_html, compact_text, sections, attach_file=None, embed_options={'footer': 'F'}, max_desc=4000, pause=0)
+    # Create three sections each ~400 chars -> with max_desc=1000 we can pack 2 sections in first embed, 1 in second
+    sections = [f"S{i}\n{"x" * 400}" for i in range(1, 4)]
+
+    res = send_to_discord(fa, title, body_html, compact_text, sections, attach_file=None, embed_options={'footer': 'F'}, max_desc=1000, pause=0)
     assert res['sent_any'] is True
-    # Prefer a single summary message (borg-ui style)
-    assert len(fa.calls) == 1
-    # Footer should be present in the embed options
+    # Expect 2 embeds: 2 sections in first, 1 in final
+    assert len(fa.calls) == 2
+    # Footer should be present in last embed
     last_embed = fa.calls[-1]
     assert 'footer' in (last_embed['embed_options'] or {})

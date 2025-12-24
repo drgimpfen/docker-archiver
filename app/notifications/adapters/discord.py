@@ -108,6 +108,13 @@ class DiscordAdapter(AdapterBase):
                 deduped.append(u)
         normalized = deduped
 
+        # Log how many webhooks will be used — useful for diagnosing duplicate posts
+        try:
+            if len(normalized) > 1:
+                logger.warning("DiscordAdapter: sending to %d webhooks (may cause duplicate messages if same channel used)", len(normalized))
+        except Exception:
+            pass
+
         apobj, added, err = _make_apobj(normalized)
         if apobj is None:
             logger.error("DiscordAdapter: apprise not available: %s", err)

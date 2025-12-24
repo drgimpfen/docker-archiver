@@ -354,7 +354,7 @@ def build_sections(archive_name: str, lines: list, created_archives: list, total
             s.append(f"{metric['stack_name']}: {', '.join(volumes)}")
         sections.append('\n'.join(s))
 
-    # Footer
-    sections.append(f"View details: {base_url}/history?job={job_id}")
+    # Footer is intentionally omitted here to avoid duplication in embeds —
+    # `send_to_discord` will add the View details link in the final embed footer.
 
     return sections
