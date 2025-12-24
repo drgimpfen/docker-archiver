@@ -158,6 +158,16 @@ class DiscordAdapter(AdapterBase):
             if embed_detail:
                 # Log captured Apprise debug output to help diagnose internal splitting
                 logger.debug("DiscordAdapter: apprise logs on embed send: %s", embed_detail)
+                # Count how many Discord POSTs Apprise performed in this call
+                try:
+                    num_posts = embed_detail.count('Discord POST URL:') + embed_detail.count('Discord POST URL')
+                    # Fallback: count Discord Payload sections
+                    if num_posts == 0:
+                        num_posts = embed_detail.count('Discord Payload:')
+                    if num_posts > 1:
+                        logger.warning("DiscordAdapter: Apprise performed %d POSTs for a single notify() call (may produce duplicate messages).", num_posts)
+                except Exception:
+                    pass
 
             # 2) prepare truncated plain content for the attachment post
             plain = md_body
@@ -195,9 +205,20 @@ class DiscordAdapter(AdapterBase):
         # No attachment path: send normally (MARKDOWN/Embed preferred)
         ok, detail = _notify_with_retry(apobj, title=title, body=md_body, body_format=NotifyFmtMarkdown, attach=None)
 
+        if detail:
+            logger.debug("DiscordAdapter: apprise logs on normal send: %s", detail)
+            try:
+                num_posts = detail.count('Discord POST URL:') + detail.count('Discord POST URL')
+                if num_posts == 0:
+                    num_posts = detail.count('Discord Payload:')
+                if num_posts > 1:
+                    logger.warning("DiscordAdapter: Apprise performed %d POSTs for a single notify() call (may produce duplicate messages).", num_posts)
+            except Exception:
+                pass
+
         if ok:
             return AdapterResult(channel='discord', success=True)
 
-        # No fallback: if HTML send fails, report the original HTML send error.
-        logger.error("DiscordAdapter: HTML send failed (context=%s): %s", context, detail)
+        # No fallback: if send fails, report the original send error.
+        logger.error("DiscordAdapter: notify failed (context=%s): %s", context, detail)
         return AdapterResult(channel='discord', success=False, detail=f'notify exception: {detail}')

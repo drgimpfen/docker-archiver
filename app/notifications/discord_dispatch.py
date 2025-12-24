@@ -45,6 +45,22 @@ def send_to_discord(discord_adapter, title: str, body_html: str, compact_text: s
             md_parts.append(f"**{first}**\n{rest}")
         md_body = '\n\n'.join(md_parts)
 
+        # Remove duplicated title if present at the start of the body (prevents
+        # the subject appearing twice because Apprise also prepends the title)
+        try:
+            if title:
+                tclean = title.strip()
+                tclean_low = tclean.lower()
+                mb_low = md_body.lower()
+                # Patterns to remove at body start: bold title, plain title, title with bracket
+                for pat in (f"**{tclean}**", tclean, f"[{tclean}]"):
+                    if mb_low.startswith(pat.lower()):
+                        # strip the pattern from start
+                        md_body = md_body[len(pat):].lstrip('\n\r ') if len(md_body) > len(pat) else ''
+                        break
+        except Exception:
+            pass
+
         # Logging for debugging: sizes and section summaries
         try:
             logger.info("send_to_discord: md_body_len=%d sections=%d", len(md_body or ''), len(sections or []))
