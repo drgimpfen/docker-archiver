@@ -1,5 +1,5 @@
 """
-Notification system using Apprise.
+Notification system (SMTP-only): all notifications are sent via SMTP using settings stored in the database.
 """
 import os
 from app.db import get_db

@@ -1107,7 +1107,7 @@ def _update_job_status(self, status, end_time=None, duration=None, total_size=No
             pass
     
 def _send_notification(self, stack_metrics, duration, total_size):
-        """Send notification via Apprise."""
+        """Send notification (SMTP via app settings)."""
         try:
             try:
                 logger.info("Notifications: invoking send_archive_notification for archive=%s job=%s", self.config.get('name'), self.job_id)
