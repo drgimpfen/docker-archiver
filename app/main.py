@@ -189,12 +189,22 @@ def run_startup_discovery():
             # Run downloads startup rescan to restore any missing download artifacts if possible
             try:
                 from app.downloads import startup_rescan_downloads
-                startup_rescan_downloads()
+
+                def _run_download_rescan():
+                    try:
+                        startup_rescan_downloads()
+                        if verbose:
+                            logger.info("[Startup] Download startup rescan complete")
+                    except Exception as re:
+                        logger.exception("[Startup] Download startup rescan failed: %s", re)
+
+                t = threading.Thread(target=_run_download_rescan, daemon=True)
+                t.start()
                 if verbose:
-                    logger.info("[Startup] Download startup rescan complete")
+                    logger.info("[Startup] Download startup rescan started in background thread")
             except Exception as e:
                 if verbose:
-                    logger.exception("[Startup] Download startup rescan failed: %s", e)
+                    logger.exception("[Startup] Failed to start download startup rescan thread: %s", e)
 
             startup_discovery_done = True
 

@@ -183,89 +183,74 @@ def cleanup_expired_tokens():
         logger.info("[Downloads] Cleanup complete: %s token(s) deleted, %s temp file(s) deleted", tokens_deleted, deleted_count)
 
 
+import threading
+
+# Guard to prevent concurrent rescans in the same process
+_rescan_lock = threading.Lock()
+_rescan_running = False
+
+
 def startup_rescan_downloads():
-    """Rescan active download tokens and attempt to regenerate missing files where possible."""
+    """Rescan active download tokens and attempt to regenerate missing files where possible.
+
+    This function is safe to call multiple times; it will not run concurrently in the
+    same process and delegates the actual regeneration to `regenerate_token`, which
+    handles the `is_preparing` concurrency guard per-token.
+    """
+    global _rescan_running
+
+    # Prevent concurrent runs in same process
+    with _rescan_lock:
+        if _rescan_running:
+            logger.info("[Downloads] Startup rescan already running; skipping duplicate invocation")
+            return
+        _rescan_running = True
+
     logger.info("[Downloads] Starting startup rescan of download tokens...")
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT * FROM download_tokens WHERE expires_at > CURRENT_TIMESTAMP;")
-        tokens = cur.fetchall()
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM download_tokens WHERE expires_at > CURRENT_TIMESTAMP;")
+            tokens = cur.fetchall()
 
-        for t in tokens:
-            token = t['token']
-            archive_path = t.get('archive_path')
-            is_folder = t.get('is_folder')
+            for t in tokens:
+                token = t['token']
+                archive_path = t.get('archive_path')
 
-            if not archive_path:
-                # Nothing to do
-                continue
-
-            path = Path(archive_path)
-            if path.exists():
-                # File exists, nothing to do
-                continue
-
-            logger.info("[Downloads] Missing file for token %s: %s", token, archive_path)
-
-            # If token originally referred to a folder, and the folder still exists, create an archive
-            if is_folder and path.is_dir():
-                logger.info("[Downloads] Regenerating archive for folder %s for token %s...", archive_path, token)
-                new_path, should_cleanup = prepare_archive_for_download(archive_path)
-                if new_path:
-                    cur.execute("UPDATE download_tokens SET archive_path = %s, is_folder = false WHERE token = %s;", (new_path, token))
-                    conn.commit()
-                    logger.info("[Downloads] Regenerated and updated token %s -> %s", token, new_path)
+                if not archive_path:
+                    # Nothing to do
                     continue
 
-            # Try to find original archive path from job_stack_metrics using job_id and stack_name
-            job_id = t.get('job_id')
-            stack_name = t.get('stack_name')
-            if job_id and stack_name:
-                cur.execute("""
-                    SELECT archive_path FROM job_stack_metrics
-                    WHERE job_id = %s AND stack_name = %s AND archive_path IS NOT NULL
-                    ORDER BY start_time DESC LIMIT 1;
-                """, (job_id, stack_name))
-                row = cur.fetchone()
-                if row and row.get('archive_path'):
-                    candidate = Path(row['archive_path'])
-                    if candidate.exists():
-                        # If it's a file, copy it into DOWNLOADS_PATH
-                        if candidate.is_file():
-                            try:
-                                new_name = f"{utils.local_now().strftime('%Y%m%d_%H%M%S')}_download_{utils.filename_safe(candidate.name)}{candidate.suffix}"
-                                dest = DOWNLOADS_PATH / new_name
-                                shutil.copy2(str(candidate), str(dest))
-                                cur.execute("UPDATE download_tokens SET archive_path = %s, is_preparing = false WHERE token = %s;", (str(dest), token))
-                                conn.commit()
-                                logger.info("[Downloads] Restored download for token %s from job metric: %s", token, dest)
-                                continue
-                            except Exception as e:
-                                logger.exception("[Downloads] Failed to restore file for token %s from %s: %s", token, candidate, e)
+                path = Path(archive_path)
+                if path.exists():
+                    # File exists, nothing to do
+                    continue
 
-                        # If it's a directory, create an archive for download
-                        if candidate.is_dir():
-                            try:
-                                logger.info("[Downloads] Found directory for token %s, creating archive...", token)
-                                # Prefer compressed zstd archives for downloads when creating from folders
-                                new_path, should_cleanup = prepare_archive_for_download(str(candidate), output_format='tar.zst')
-                                if new_path:
-                                    cur.execute("UPDATE download_tokens SET archive_path = %s, is_folder = false, is_preparing = false WHERE token = %s;", (str(new_path), token))
-                                    conn.commit()
-                                    logger.info("[Downloads] Created archive %s for token %s from directory %s", new_path, token, candidate)
-                                    continue
-                            except Exception as e:
-                                logger.exception("[Downloads] Failed to create archive for token %s from directory %s: %s", token, candidate, e)
+                logger.info("[Downloads] Missing file for token %s: %s", token, archive_path)
 
-            # Could not regenerate; optionally mark token as invalid by expiring it
-            try:
-                cur.execute("UPDATE download_tokens SET expires_at = NOW() WHERE token = %s;", (token,))
-                conn.commit()
-                logger.info("[Downloads] Marked token %s as expired due to missing file", token)
-            except Exception as e:
-                logger.exception("[Downloads] Failed to mark token %s expired: %s", token, e)
+                # Delegate regeneration to regenerate_token which will set `is_preparing` and
+                # perform the correct restore/create logic and mark completion.
+                try:
+                    success = regenerate_token(token)
+                    if success:
+                        logger.info("[Downloads] Regenerated token %s successfully", token)
+                        continue
+                except Exception as e:
+                    logger.exception("[Downloads] Regeneration failed for token %s: %s", token, e)
 
-    logger.info("[Downloads] Startup rescan complete.")
+                # Could not regenerate; optionally mark token as invalid by expiring it
+                try:
+                    with get_db() as conn2:
+                        cur2 = conn2.cursor()
+                        cur2.execute("UPDATE download_tokens SET expires_at = NOW() WHERE token = %s;", (token,))
+                        conn2.commit()
+                    logger.info("[Downloads] Marked token %s as expired due to missing file", token)
+                except Exception as e:
+                    logger.exception("[Downloads] Failed to mark token %s expired: %s", token, e)
+
+    finally:
+        _rescan_running = False
+        logger.info("[Downloads] Startup rescan complete.")
 
 
 def regenerate_token(token):
