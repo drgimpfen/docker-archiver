@@ -7,163 +7,46 @@
     <h2><i class="bi bi-gear me-2"></i> Settings</h2>
 </div>
 
-<form method="POST">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-    <!-- General Settings -->
-    <div class="card mb-4">
-        <div class="card-header">
-            <h5 class="mb-0"><i class="bi bi-globe me-2"></i> General</h5>
-        </div>
-        <div class="card-body">
-            <div class="mb-3">
-                <label for="baseUrl" class="form-label">Base URL</label>
-                <input type="url" class="form-control" id="baseUrl" name="base_url" 
-                       value="{{ settings.get('base_url', 'http://localhost:8080') }}">
-                <div class="form-text">Used for generating links in notifications</div>
-            </div>
-            
-            <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" role="switch" 
-                       id="maintenanceMode" name="maintenance_mode"
-                       {% if settings.get('maintenance_mode') == 'true' %}checked{% endif %}>
-                <label class="form-check-label" for="maintenanceMode">
-                    <strong>Maintenance Mode</strong><br>
-                    <small class="text-muted">Pauses all scheduled archives (shows banner on dashboard)</small>
-                </label>
+<div class="row g-3">
+    <div class="col-12 col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title"><i class="bi bi-globe me-2"></i>General</h5>
+                <p class="card-text">Basic application settings (Base URL, maintenance mode).</p>
+                <a href="{{ url_for('settings.manage_settings') }}" class="btn btn-primary btn-sm">Open</a>
             </div>
         </div>
     </div>
-    
-    <!-- Security Settings -->
-    <div class="card mb-4">
-        <div class="card-header">
-            <h5 class="mb-0"><i class="bi bi-shield-lock me-2"></i> Security</h5>
+    <div class="col-12 col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title"><i class="bi bi-bell me-2"></i>Notifications</h5>
+                <p class="card-text">SMTP & notification preferences.</p>
+                <a href="{{ url_for('settings.manage_notifications') }}" class="btn btn-primary btn-sm">Open</a>
+            </div>
         </div>
-        <div class="card-body">
+    </div>
+    <div class="col-12 col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title"><i class="bi bi-shield-lock me-2"></i>Security</h5>
+                <p class="card-text">Permissions and security related settings.</p>
+                <a href="{{ url_for('settings.manage_security') }}" class="btn btn-primary btn-sm">Open</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title"><i class="bi bi-recycle me-2"></i>Cleanup</h5>
+                <p class="card-text">Scheduled cleanup and retention rules.</p>
+                <a href="{{ url_for('settings.manage_cleanup') }}" class="btn btn-primary btn-sm">Open</a>
+            </div>
+        </div>
+    </div>
+</div>
 
-
-            <div class="form-check mb-3">
-                <input class="form-check-input" type="checkbox" id="applyPermissions" name="apply_permissions" title="Enable to apply safe defaults: files writable only by the app; folders readable and accessible" {% if settings.get('apply_permissions') == 'true' %}checked{% endif %}>
-                <label class="form-check-label" for="applyPermissions">
-                    <strong>Apply permissive permissions to generated archives</strong><br>
-                    <small class="text-muted">When enabled, the app will apply safe defaults to newly created files and folders: files are writable only by the server (others can read them) and folders remain accessible. <strong>Default: disabled</strong>.</small>
-                </label>
-                <div class="mt-2">
-                    <button type="button" id="checkPermButton" class="btn btn-sm btn-outline-secondary">Check permissions on existing archives</button>
-                    <small class="form-text text-muted d-block mt-1">Check current permissions and apply fixes directly from the report modal. The scan may take a while on large archives.</small>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Notification Settings -->
-    <div class="card mb-4">
-        <div class="card-header">
-            <h5 class="mb-0"><i class="bi bi-bell me-2"></i> Notifications</h5>
-        </div>
-        <div class="card-body">
-            <p class="mb-0">Configure email notifications (SMTP) and notification preferences on a separate page.</p>
-            <div class="mt-3">
-                <a href="{{ url_for('settings.manage_notifications') }}" class="btn btn-primary"><i class="bi bi-arrow-right me-1"></i>Manage Notifications</a>
-            </div>
-        <div class="card-header">
-            <h5 class="mb-0"><i class="bi bi-recycle me-2"></i> Automated Cleanup</h5>
-        </div>
-        <div class="card-body">
-            <div class="form-check form-switch mb-3">
-                <input class="form-check-input" type="checkbox" role="switch" 
-                       id="cleanupEnabled" name="cleanup_enabled"
-                       {% if settings.get('cleanup_enabled', 'true') == 'true' %}checked{% endif %}>
-                <label class="form-check-label" for="cleanupEnabled">
-                    <strong>Enable Scheduled Cleanup</strong><br>
-                    <small class="text-muted">Automatically run scheduled cleanup tasks to remove orphaned files, old logs, and temp files</small>
-                </label>
-            </div>
-            
-            <div class="row justify-content-start">
-                <div class="col-12 col-md-6 col-lg-4 mb-3">
-                    <label for="cleanupCron" class="form-label">Cleanup schedule (cron)</label>
-                    <input type="text" class="form-control" id="cleanupCron" name="cleanup_cron" 
-                           value="{{ settings.get('cleanup_cron', '30 2 * * *') }}">
-                    <div class="form-text">Cron expression (minute hour day month day_of_week). Example: <code>30 2 * * *</code></div>
-                    <div class="btn-group btn-group-sm mt-2" role="group" aria-label="Cleanup presets">
-                        <button type="button" class="btn btn-outline-secondary" onclick="setCleanupCron('30 2 * * *')">Daily 2:30AM</button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="setCleanupCron('0 0 * * 0')">Weekly Sunday</button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="setCleanupCron('0 0 1 * *')">Monthly 1st</button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="setCleanupCron('*/15 * * * *')">Every 15min</button>
-                    </div>
-                </div>
-
-                <div class="col-12 col-md-3 col-lg-2 mb-3">
-                    <label for="logRetentionDays" class="form-label">Log Retention (Days)</label>
-                    <input type="number" class="form-control" id="logRetentionDays" name="cleanup_log_retention_days" 
-                           value="{{ settings.get('cleanup_log_retention_days', '90') }}" min="0" max="3650">
-                    <div class="form-text">Keep job logs for this many days (0 = never delete)</div>
-                </div>
-            </div>
-            
-            <div class="form-check form-switch mb-3">
-                <input class="form-check-input" type="checkbox" role="switch" 
-                       id="cleanupDryRun" name="cleanup_dry_run"
-                       {% if settings.get('cleanup_dry_run', 'false') == 'true' %}checked{% endif %}>
-                <label class="form-check-label" for="cleanupDryRun">
-                    <strong>Dry Run Mode</strong><br>
-                    <small class="text-muted">Only log what would be deleted (don't actually delete anything)</small>
-                </label>
-            </div>
-            
-            <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" role="switch" 
-                       id="notifyCleanup" name="notify_cleanup"
-                       {% if settings.get('notify_on_cleanup', 'false') == 'true' %}checked{% endif %}>
-                <label class="form-check-label" for="notifyCleanup">
-                    <strong>Send Notification</strong><br>
-                    <small class="text-muted">Send notification after cleanup task completes</small>
-                </label>
-            </div>
-            
-            <div class="alert alert-info mt-3 mb-0">
-                <i class="bi bi-info-circle me-2"></i>
-                <strong>Cleanup Tasks:</strong>
-                <ul class="mb-0 mt-2">
-                    <li>Orphaned archive directories (archives without database entry)</li>
-                    <li>Old job logs (older than retention period)</li>
-                    <li>Temporary files (*.tmp) from failed jobs</li>
-                    <li>Empty stack directories</li>
-                </ul>
-            </div>
-
-            <div class="mt-3">
-                <button type="button" class="btn btn-danger" onclick="showRunCleanupModal()">
-                    <i class="bi bi-recycle me-1"></i> Run Manual Cleanup
-                </button>
-                <small class="text-muted ms-2">Run cleanup now. Use <strong>Dry Run</strong> option to simulate before actually deleting files.</small>
-                <!-- Inline status placeholder for immediate feedback after starting cleanup -->
-                <div id="cleanupStatus" class="mt-2"></div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- User Management (Placeholder) -->
-    <div class="card mb-4">
-        <div class="card-header">
-            <h5 class="mb-0"><i class="bi bi-people me-2"></i> Users</h5>
-        </div>
-        <div class="card-body">
-            <p class="text-muted mb-0">
-                <i class="bi bi-info-circle me-1"></i> 
-                User management and role-based access control will be available in a future update.
-            </p>
-        </div>
-    </div>
-    
-    <div class="d-flex gap-2">
-        <button type="submit" class="btn btn-primary">
-            <i class="bi bi-check-lg me-1"></i>Save Settings
-        </button>
-        <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline-secondary">Cancel</a>
-    </div>
-</form>
+{% endblock %}
 
 {% endblock %}
 

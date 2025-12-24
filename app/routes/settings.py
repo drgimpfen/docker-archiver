@@ -18,77 +18,37 @@ bp = Blueprint('settings', __name__, url_prefix='/settings')
 @bp.route('/', methods=['GET', 'POST'])
 @login_required
 def manage_settings():
-    """Settings page."""
+    """Settings overview / General settings page."""
     if request.method == 'POST':
         try:
-            # Update settings
             base_url = request.form.get('base_url', 'http://localhost:8080')
-            notification_subject_tag = request.form.get('notification_subject_tag', '')
-            notify_success = request.form.get('notify_success') == 'on'
-            notify_error = request.form.get('notify_error') == 'on'
-            # notify_html_format and notify_report_verbosity removed: HTML for email always, markdown for non-email always
-            notify_report_verbosity = 'full'
-            notify_attach_log = request.form.get('notify_attach_log') == 'on'
-            notify_attach_log_on_failure = request.form.get('notify_attach_log_on_failure') == 'on'
-            apply_permissions = request.form.get('apply_permissions') == 'on'
-            
-            maintenance_mode = request.form.get('maintenance_mode') == 'on' 
-            
-            # Cleanup settings
-            cleanup_enabled = request.form.get('cleanup_enabled') == 'on'
-            cleanup_cron = request.form.get('cleanup_cron', '30 2 * * *')
-            cleanup_log_retention_days = request.form.get('cleanup_log_retention_days', '90')
-            cleanup_dry_run = request.form.get('cleanup_dry_run') == 'on'
-            notify_cleanup = request.form.get('notify_cleanup') == 'on'
-
-            # Validate cron expression loosely (5 parts)
-            if cleanup_enabled:
-                cron_parts = cleanup_cron.split()
-                if len(cron_parts) != 5:
-                    flash('Invalid cleanup cron expression. Use format: minute hour day month day_of_week (e.g., "30 2 * * *").', 'danger')
-                    return redirect(url_for('settings.manage_settings'))
+            maintenance_mode = request.form.get('maintenance_mode') == 'on'
 
             with get_db() as conn:
                 cur = conn.cursor()
                 settings_to_update = [
                     ('base_url', base_url),
                     ('maintenance_mode', 'true' if maintenance_mode else 'false'),
-                    ('cleanup_enabled', 'true' if cleanup_enabled else 'false'),
-                    ('cleanup_cron', cleanup_cron),
-                    ('cleanup_log_retention_days', cleanup_log_retention_days),
-                    ('cleanup_dry_run', 'true' if cleanup_dry_run else 'false'),
-                    ('notify_on_cleanup', 'true' if notify_cleanup else 'false'),
-                    ('notify_attach_log', 'true' if notify_attach_log else 'false'),
-                    ('notify_attach_log_on_failure', 'true' if notify_attach_log_on_failure else 'false'),
-                    ('apply_permissions', 'true' if apply_permissions else 'false'),
                 ]
-                
                 for key, value in settings_to_update:
                     cur.execute("""
                         INSERT INTO settings (key, value) VALUES (%s, %s)
                         ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = CURRENT_TIMESTAMP;
                     """, (key, value, value))
-                
                 conn.commit()
-            
-            # Reload scheduler if maintenance mode changed
+
             reload_schedules()
             try:
                 from app.scheduler import publish_reload_signal
                 publish_reload_signal()
             except Exception:
                 pass
-            
-            # Reschedule cleanup task if settings changed
-            from app.scheduler import schedule_cleanup_task
-            schedule_cleanup_task()
-            
+
             flash('Settings saved successfully!', 'success')
             return redirect(url_for('settings.manage_settings'))
-            
         except Exception as e:
             flash(f'Error saving settings: {e}', 'danger')
-    
+
     # Load current settings
     settings_dict = {}
     with get_db() as conn:
@@ -96,15 +56,8 @@ def manage_settings():
         cur.execute("SELECT key, value FROM settings;")
         for row in cur.fetchall():
             settings_dict[row['key']] = row['value']
-    
-    # Check if email is configured via SMTP settings stored in DB
-    email_configured = bool(settings_dict.get('smtp_server') and settings_dict.get('smtp_from'))
-    return render_template(
-        'settings.html',
-        settings=settings_dict,
-        current_user=get_current_user(),
-        email_configured=email_configured
-    )
+
+    return render_template('settings_general.html', settings=settings_dict, current_user=get_current_user())
 
 
 @bp.route('/notifications', methods=['GET', 'POST'])
@@ -165,6 +118,90 @@ def manage_notifications():
 
     email_configured = bool(settings_dict.get('smtp_server') and settings_dict.get('smtp_from'))
     return render_template('settings_notifications.html', settings=settings_dict, current_user=get_current_user(), email_configured=email_configured)
+
+
+@bp.route('/security', methods=['GET', 'POST'])
+@login_required
+def manage_security():
+    """Security-related settings page."""
+    if request.method == 'POST':
+        try:
+            apply_permissions = request.form.get('apply_permissions') == 'on'
+            with get_db() as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    INSERT INTO settings (key, value) VALUES (%s, %s)
+                    ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = CURRENT_TIMESTAMP;
+                """, ('apply_permissions', 'true' if apply_permissions else 'false', 'true' if apply_permissions else 'false'))
+                conn.commit()
+            flash('Security settings saved successfully!', 'success')
+            return redirect(url_for('settings.manage_security'))
+        except Exception as e:
+            flash(f'Error saving security settings: {e}', 'danger')
+
+    # Load current settings
+    settings_dict = {}
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT key, value FROM settings;")
+        for row in cur.fetchall():
+            settings_dict[row['key']] = row['value']
+
+    return render_template('settings_security.html', settings=settings_dict, current_user=get_current_user())
+
+
+@bp.route('/cleanup', methods=['GET', 'POST'])
+@login_required
+def manage_cleanup():
+    """Cleanup/scheduler settings page."""
+    if request.method == 'POST':
+        try:
+            cleanup_enabled = request.form.get('cleanup_enabled') == 'on'
+            cleanup_cron = request.form.get('cleanup_cron', '30 2 * * *')
+            cleanup_log_retention_days = request.form.get('cleanup_log_retention_days', '90')
+            cleanup_dry_run = request.form.get('cleanup_dry_run') == 'on'
+            notify_cleanup = request.form.get('notify_cleanup') == 'on'
+
+            # Validate cron expression loosely (5 parts)
+            if cleanup_enabled:
+                cron_parts = cleanup_cron.split()
+                if len(cron_parts) != 5:
+                    flash('Invalid cleanup cron expression. Use format: minute hour day month day_of_week (e.g., "30 2 * * *").', 'danger')
+                    return redirect(url_for('settings.manage_cleanup'))
+
+            with get_db() as conn:
+                cur = conn.cursor()
+                settings_to_update = [
+                    ('cleanup_enabled', 'true' if cleanup_enabled else 'false'),
+                    ('cleanup_cron', cleanup_cron),
+                    ('cleanup_log_retention_days', cleanup_log_retention_days),
+                    ('cleanup_dry_run', 'true' if cleanup_dry_run else 'false'),
+                    ('notify_on_cleanup', 'true' if notify_cleanup else 'false'),
+                ]
+                for key, value in settings_to_update:
+                    cur.execute("""
+                        INSERT INTO settings (key, value) VALUES (%s, %s)
+                        ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = CURRENT_TIMESTAMP;
+                    """, (key, value, value))
+                conn.commit()
+
+            from app.scheduler import schedule_cleanup_task
+            schedule_cleanup_task()
+
+            flash('Cleanup settings saved successfully!', 'success')
+            return redirect(url_for('settings.manage_cleanup'))
+        except Exception as e:
+            flash(f'Error saving cleanup settings: {e}', 'danger')
+
+    # Load current settings
+    settings_dict = {}
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT key, value FROM settings;")
+        for row in cur.fetchall():
+            settings_dict[row['key']] = row['value']
+
+    return render_template('settings_cleanup.html', settings=settings_dict, current_user=get_current_user())
 
 
 @bp.route('/test-notification', methods=['POST'])
