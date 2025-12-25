@@ -61,17 +61,41 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Compute image tags
+        id: set_tags
+        shell: bash
+        run: |
+          # GITHUB_REF_NAME, IMAGE_NAME and GITHUB_REPOSITORY are available as env vars
+          REF="${GITHUB_REF_NAME#v}"
+          TAGS="docker.io/${IMAGE_NAME}:${GITHUB_REF_NAME}\n"
+          TAGS+="docker.io/${IMAGE_NAME}:latest\n"
+          TAGS+="ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_REF_NAME}\n"
+          TAGS+="ghcr.io/${GITHUB_REPOSITORY}:latest"
+
+          # If tag matches SemVer MAJOR.MINOR.PATCH, also publish vMAJOR and vMAJOR.MINOR
+          if [[ "$REF" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            MAJOR="v${BASH_REMATCH[1]}"
+            MINOR="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+            TAGS+="\n/docker.io/${IMAGE_NAME}:${MINOR}"
+            TAGS+="\n/docker.io/${IMAGE_NAME}:${MAJOR}"
+            TAGS+="\n/ghcr.io/${GITHUB_REPOSITORY}:${MINOR}"
+            TAGS+="\n/ghcr.io/${GITHUB_REPOSITORY}:${MAJOR}"
+            # Note: leading slash prevents accidental path expansion in some shells; removed before output
+            TAGS=$(echo -e "$TAGS" | sed 's/^\///')
+          fi
+
+          # Emit multiline output for subsequent step
+          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo -e "$TAGS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v4
         with:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: |
-            docker.io/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
-            docker.io/${{ env.IMAGE_NAME }}:latest
-            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
-            ghcr.io/${{ github.repository }}:latest
+          tags: ${{ steps.set_tags.outputs.tags }}
 
       - name: Create source tar for release
         run: |
