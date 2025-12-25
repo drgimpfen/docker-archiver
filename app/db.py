@@ -153,6 +153,31 @@ def init_db():
             END $$;
         """)
 
+        # Add legacy notify_email column and new notify_emails array column to allow per-token notification targets
+        cur.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name='download_tokens' AND column_name='notify_email'
+                ) THEN
+                    ALTER TABLE download_tokens ADD COLUMN notify_email VARCHAR(255);
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name='download_tokens' AND column_name='notify_emails'
+                ) THEN
+                    ALTER TABLE download_tokens ADD COLUMN notify_emails TEXT[];
+                END IF;
+
+                -- Backfill notify_emails from notify_email where present
+                IF EXISTS (SELECT 1 FROM download_tokens WHERE notify_email IS NOT NULL) THEN
+                    UPDATE download_tokens SET notify_emails = ARRAY[notify_email] WHERE notify_email IS NOT NULL;
+                END IF;
+            END $$;
+        """)
+
         # Ensure archive_path column exists and is nullable; backfill from file_path when possible
         cur.execute("""
             DO $$

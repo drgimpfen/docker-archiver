@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-md-8">
+      <div class="card">
+        <div class="card-body">
+          <h3 class="card-title">Archive Not Available</h3>
+
+          <div class="mt-3">
+            <p class="lead">The archive for <strong>{{ stack_name }}</strong> is currently not available but can be regenerated while this link is still valid.</p>
+            <p class="text-muted">Enter your email address and we will notify you as soon as the archive is ready.</p>
+
+            <form id="regenerateForm" method="POST" action="{{ url_for('download_regenerate', token=token) }}">
+              <div class="mb-3">
+                <label for="regenEmail" class="form-label">Email address</label>
+                <input type="email" id="regenEmail" name="email" class="form-control" placeholder="you@example.com" value="{{ notify_email or '' }}" required>
+              </div>
+              <div class="mb-3 text-muted small">This download link expires at {{ expires_at | datetime }}</div>
+              <button type="submit" class="btn btn-primary">Start regeneration and notify me</button>
+            </form>
+          </div>
+
+          <div class="mt-4">
+            <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline-secondary">Back</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

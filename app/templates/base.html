@@ -274,6 +274,32 @@
             </div>
         </div>
     </div>
+
+    <!-- Send Download Link Modal (used to enter recipient email) -->
+    <div class="modal fade" id="sendDownloadModal" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Send Download Link</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label for="sendDownloadEmail" class="form-label">Recipient Email</label>
+              <input type="email" id="sendDownloadEmail" class="form-control" placeholder="recipient@example.com">
+              <input type="hidden" id="sendDownloadToken">
+              <input type="hidden" id="sendDownloadArchivePath">
+              <input type="hidden" id="sendDownloadStackName">
+            </div>
+            <div id="sendDownloadFeedback" class="text-muted small"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-primary" id="sendDownloadConfirm">Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
     
     <script>
     // Global Jobs SSE disabled — dashboard relies on polling now.
@@ -448,6 +474,7 @@
                             <td><small>${m.archive_path || 'N/A'}</small></td>
                             <td class="text-nowrap">
                                 ${hasArchive ? `<button class="btn btn-sm btn-outline-primary me-1" onclick="requestDownload(${job.id}, '${m.stack_name}', '${m.archive_path}')" title="Download Archive"><i class="bi bi-download"></i></button>` : ''}
+                                ${hasArchive ? `<button class="btn btn-sm btn-outline-secondary me-1" onclick="showSendDownloadModal('${m.stack_name}', '${m.archive_path}', null)" title="Send Download Link"><i class="bi bi-envelope"></i></button>` : ''}
                                 <button class="btn btn-sm btn-outline-secondary" onclick="downloadStackLog(${job.id}, '${m.stack_name}')" title="Download Stack Log"><i class="bi bi-file-text"></i></button>
                             </td>
                         </tr>
@@ -1416,7 +1443,14 @@
                     try { if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) new bootstrap.Modal(modalEl).show(); else alert(data.message); } catch(e){ alert(data.message); }
 
                     // Persist token in localStorage so the modal persists across reloads and start polling
-                    try { if (data.token) { localStorage.setItem('download_prep_token', data.token); startDownloadStatusPolling(data.token); } } catch(e) {}
+                    try {
+                        if (data.token) {
+                            localStorage.setItem('download_prep_token', data.token);
+                            // Clear any previously-muted state for this token
+                            try { sessionStorage.removeItem('download_prep_muted'); } catch(e) {}
+                            startDownloadStatusPolling(data.token);
+                        }
+                    } catch(e) {}
                 } else {
                     try { localStorage.removeItem('download_prep_token'); } catch(e) {}
                     window.open(data.download_url, '_blank');
@@ -1438,10 +1472,29 @@
     async function checkDownloadStatus(token) {
         try {
             const resp = await fetch(`/api/downloads/status?token=${encodeURIComponent(token)}`);
+
+            // If the token was removed or expired, clear persisted state and stop polling
+            if (!resp.ok) {
+                if (resp.status === 404 || resp.status === 410) {
+                    try { localStorage.removeItem('download_prep_token'); sessionStorage.removeItem('download_prep_muted'); } catch(e){}
+                    // Hide modal if visible
+                    const modalEl = document.getElementById('downloadPrepModal');
+                    try { if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                        const inst = bootstrap.Modal.getInstance(modalEl);
+                        if (inst) inst.hide();
+                    }} catch(e){}
+                    try { if (typeof showAlert === 'function') showAlert('Download link expired or was removed; request a new one.', 'warning'); } catch(e){}
+                    return false;
+                }
+                // For other non-OK responses just log and keep polling
+                console.error('Download status returned non-OK status', resp.status);
+                return false;
+            }
+
             const d = await resp.json();
             if (d.ready && d.download_url) {
-                // Clear persisted state
-                try { localStorage.removeItem('download_prep_token'); } catch(e){}
+                // Clear persisted state and any muted flag
+                try { localStorage.removeItem('download_prep_token'); sessionStorage.removeItem('download_prep_muted'); } catch(e){}
                 // Hide modal if visible
                 const modalEl = document.getElementById('downloadPrepModal');
                 try { if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
@@ -1452,6 +1505,14 @@
                 window.open(d.download_url, '_blank');
                 return true;
             } else {
+                // If user has muted this token (closed the modal), don't force it open again
+                try {
+                    const muted = sessionStorage.getItem('download_prep_muted');
+                    if (muted && muted === token) {
+                        return false;
+                    }
+                } catch (e) {}
+
                 // Show modal status
                 const modalEl = document.getElementById('downloadPrepModal');
                 const msgEl = document.getElementById('downloadPrepMessage');
@@ -1482,8 +1543,85 @@
         try {
             const t = localStorage.getItem('download_prep_token');
             if (t) startDownloadStatusPolling(t);
+
+            // When the user dismisses the modal manually, mute repeated popups for this token
+            try {
+                const modalEl = document.getElementById('downloadPrepModal');
+                if (modalEl) {
+                    modalEl.addEventListener('hidden.bs.modal', function () {
+                        try {
+                            const tok = localStorage.getItem('download_prep_token');
+                            if (tok) sessionStorage.setItem('download_prep_muted', tok);
+                        } catch (e) {}
+                    });
+                    modalEl.addEventListener('show.bs.modal', function () {
+                        try { sessionStorage.removeItem('download_prep_muted'); } catch (e) {}
+                    });
+                }
+            } catch (e) {}
+
+            // Hook send-download modal confirm handler
+            try {
+                const btn = document.getElementById('sendDownloadConfirm');
+                if (btn) {
+                    btn.addEventListener('click', async function () {
+                        const email = (document.getElementById('sendDownloadEmail').value || '').trim();
+                        const token = (document.getElementById('sendDownloadToken').value || '').trim();
+                        const archive = (document.getElementById('sendDownloadArchivePath').value || '').trim();
+                        const stack = (document.getElementById('sendDownloadStackName').value || '').trim();
+
+                        if (!email) {
+                            const fb = document.getElementById('sendDownloadFeedback');
+                            if (fb) fb.textContent = 'Please enter a recipient email';
+                            return;
+                        }
+
+                        try {
+                            const body = {};
+                            body.email = email;
+                            if (token) body.token = token;
+                            else if (archive) { body.archive_path = archive; if (stack) body.stack_name = stack; }
+
+                            const resp = await fetch('/api/downloads/send_link', {
+                                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+                            });
+                            const data = await resp.json();
+                            if (resp.ok) {
+                                // Hide modal and clear fields
+                                try { const mdl = bootstrap.Modal.getInstance(document.getElementById('sendDownloadModal')); if (mdl) mdl.hide(); } catch(e){}
+                                try { if (typeof showAlert === 'function') showAlert(data.message || 'Email sent', 'success'); else alert(data.message || 'Email sent'); } catch(e){}
+                                // If we are on the downloads page, reload tokens
+                                try { if (document.getElementById('tokensTable')) loadTokens(); } catch(e){}
+                            } else {
+                                const fb = document.getElementById('sendDownloadFeedback');
+                                if (fb) fb.textContent = data.error || (data.message || 'Failed to send');
+                            }
+                        } catch (e) {
+                            const fb = document.getElementById('sendDownloadFeedback');
+                            if (fb) fb.textContent = 'Request failed: ' + e.message;
+                        }
+                    });
+                }
+            } catch (e) {}
         } catch (e) {}
     });
+
+    function showSendDownloadModal(stackName, archivePath, token) {
+        try {
+            const emailInput = document.getElementById('sendDownloadEmail');
+            const tokenInput = document.getElementById('sendDownloadToken');
+            const archiveInput = document.getElementById('sendDownloadArchivePath');
+            const stackInput = document.getElementById('sendDownloadStackName');
+            const feedback = document.getElementById('sendDownloadFeedback');
+            if (emailInput) emailInput.value = '';
+            if (tokenInput) tokenInput.value = token || '';
+            if (archiveInput) archiveInput.value = archivePath || '';
+            if (stackInput) stackInput.value = stackName || '';
+            if (feedback) feedback.textContent = '';
+            const modalEl = document.getElementById('sendDownloadModal');
+            if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) new bootstrap.Modal(modalEl).show();
+        } catch (e) { console.error(e); }
+    }
 
     function downloadStackLog(jobId, stackName) {
         window.open(`/api/jobs/${jobId}/log?stack=${encodeURIComponent(stackName)}`, '_blank');

@@ -59,6 +59,8 @@ services:
       # Job logs (detached subprocess stdout/stderr) - optional host bind mount
       # Map a host folder into the container so job logs persist outside the container
       - ./logs:/var/log/archiver
+      # Persistent downloads so prepared archives survive container restarts
+      - ./downloads:/tmp/downloads
       # Stack directories - automatically detected from volume mounts
       # Add bind mounts for your stack directories here
       # The container will automatically scan these for Docker Compose files

@@ -50,7 +50,9 @@ async function loadTokens() {
                                 <th>Created</th>
                                 <th>Expires</th>
                                 <th>Status</th>
+                                <th>Notify Email</th>
                                 <th>Token</th>
+                                <th style="width:140px">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -60,14 +62,20 @@ async function loadTokens() {
                 const statusBadge = token.is_packing 
                     ? '<span class="badge bg-warning">Packing</span>' 
                     : '<span class="badge bg-success">Ready</span>';
+                const notify = token.notify_email ? `<small>${token.notify_email}</small>` : '<span class="text-muted">-</span>';
                 
                 html += `
                     <tr>
                         <td>${token.stack_name}</td>
-                        <td>${new Date(token.created_at).toLocaleString()}</td>
-                        <td>${new Date(token.expires_at).toLocaleString()}</td>
+                        <td>${token.created_at ? new Date(token.created_at).toLocaleString() : 'N/A'}</td>
+                        <td>${token.expires_at ? new Date(token.expires_at).toLocaleString() : 'N/A'}</td>
                         <td>${statusBadge}</td>
+                        <td>${notify}</td>
                         <td><code>${token.token}</code></td>
+                        <td class="text-nowrap">
+                            <button class="btn btn-sm btn-outline-secondary me-1" onclick="showSendDownloadModal(null, null, '${token.token}')" title="Send to email"><i class="bi bi-envelope"></i></button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteToken('${token.token}')" title="Delete Token"><i class="bi bi-trash"></i></button>
+                        </td>
                     </tr>
                 `;
             });
@@ -123,5 +131,21 @@ async function cleanupTokens() {
 
 // Load tokens on page load
 document.addEventListener('DOMContentLoaded', loadTokens);
+
+async function deleteToken(token) {
+    if (!confirm('Delete token ' + token + '?')) return;
+    try {
+        const resp = await fetch('/api/downloads/tokens/' + encodeURIComponent(token), { method: 'DELETE' });
+        if (!resp.ok) {
+            const d = await resp.json();
+            alert('Delete failed: ' + (d.error || resp.status));
+            return;
+        }
+        alert('Token deleted');
+        loadTokens();
+    } catch (e) {
+        alert('Delete failed: ' + e.message);
+    }
+}
 </script>
 {% endblock %}
