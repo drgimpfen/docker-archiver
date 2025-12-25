@@ -94,3 +94,36 @@ jobs:
           files: release-${{ github.ref_name }}.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Docker Hub repository description from README
+        if: ${{ github.event_name == 'release' }}
+        env:
+          DOCKERHUB_REPOSITORY: ${{ secrets.DOCKERHUB_REPOSITORY }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -e
+          if [ -z "${DOCKERHUB_REPOSITORY}" ]; then echo "DOCKERHUB_REPOSITORY not set, skipping Docker Hub description update"; exit 0; fi
+
+          # Obtain JWT token from Docker Hub
+          TOKEN=$(curl -s -H "Content-Type: application/json" -X POST -d "{\"username\":\"${DOCKERHUB_USERNAME}\",\"password\":\"${DOCKERHUB_TOKEN}\"}" https://hub.docker.com/v2/users/login/ | python -c "import sys,json; print(json.load(sys.stdin).get('token',''))")
+
+          if [ -z "$TOKEN" ]; then
+            echo "Failed to obtain Docker Hub token, skipping Docker Hub description update"; exit 0
+          fi
+
+          # Read README.md and JSON-encode its content
+          FULL_DESC=$(python -c "import json,sys; print(json.dumps(sys.stdin.read()))" < README.md)
+
+          # PATCH full_description on Docker Hub (non-fatal)
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH \
+            -H "Content-Type: application/json" \
+            -H "Authorization: JWT ${TOKEN}" \
+            -d "{\"full_description\": ${FULL_DESC}}" \
+            "https://hub.docker.com/v2/repositories/${DOCKERHUB_REPOSITORY}/" ) || true
+
+          if [ "$HTTP_STATUS" != "200" ] && [ "$HTTP_STATUS" != "204" ]; then
+            echo "Docker Hub update returned HTTP status $HTTP_STATUS (non-fatal), check repo permissions or token";
+          else
+            echo "Docker Hub repository description updated (HTTP $HTTP_STATUS)";
+          fi

@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="app/static/images/Logo.png" alt="Docker Archiver Logo" width="400">
+  <img src="https://github.com/drgimpfen/docker-archiver/blob/main/app/static/images/Logo.png" alt="Docker Archiver Logo" width="400">
   
   # Docker Archiver
   
@@ -23,7 +23,7 @@
 - 🌓 **Dark/Light Mode** - Modern Bootstrap UI with theme toggle
 - 🔐 **User Authentication** - Secure login system (role-based access coming soon)
 - 💾 **Multiple Formats** - Support for tar, tar.gz, tar.zst, or folder output
-- 🛡️ **Output Permissions (configurable)** — Optionally have the application set sensible, secure defaults on files and directories it creates. When enabled, files will be writable only by the server process (other users can still read them) and directories will be readable and searchable so their contents are accessible. Toggle this in **Settings → Apply permissive permissions to generated archives** (default: disabled).
+- 🛡️ **Output Permissions (configurable)** — The application can apply secure permissions to generated archives. See `SECURITY.md` for recommendations on file and mount permissions in production.
 - 🌍 **Timezone Support** - Configurable timezone via environment variable
 
 ## Architecture
@@ -56,9 +56,7 @@ cp .env.example .env
 cp docker-compose.override.yml.example docker-compose.override.yml
 ```
 
-Edit `.env` and set:
-- `DB_PASSWORD` - PostgreSQL password (required)
-- `SECRET_KEY` - Flask session secret (required)
+Edit `.env` and set required secrets like `DB_PASSWORD` and `SECRET_KEY`. See `SECURITY.md` for guidance on generating, storing, and rotating secrets securely.
 
 ### 2. Start Services
 
@@ -197,18 +195,7 @@ Discovery follows these rules:
 See **⚠️ Important: Bind Mounts Required** below for the mandatory bind-mount rules — mismatched mounts will be ignored and may cause job failures.
 
 <a name="troubleshooting-bind-mount-warnings"></a>
-### Troubleshooting bind-mount warnings
-
-> Note: The real-time EventSource (SSE) stream is in-memory by default and is only guaranteed to work when the job runs in the same process that serves the SSE request. For multi-worker deployments use a central pub/sub (e.g., Redis) and set `REDIS_URL` in your environment to enable cross-worker event streaming.
-
-If you see a dashboard warning about bind-mount mismatches or a job aborting with a **"No valid stacks found"** message, check the following:
-
-- Inspect container mounts on the host: `docker inspect <container>` or `docker inspect <container> --format '{{json .Mounts}}'`. Verify entries show `"Type": "bind"` and that the **host/source path and container/destination path are identical**.
-- Ensure you defined the bind mounts in `docker-compose.yml` or `docker-compose.override.yml` and that you copied `docker-compose.override.yml.example` to `docker-compose.override.yml` for local development when needed.
-- After changing compose files, restart the app service: `docker compose up -d --build app` and check the Dashboard for the warning to disappear.
-- Check application logs and the job log: the job log will include an explicit message when no valid stacks are found explaining that bind mounts are mandatory.
-
-If the issue persists, open an issue and include your mount output and relevant logs so we can help troubleshoot.
+> **Troubleshooting (bind-mounts, Redis, logs, notifications):** See `TROUBLESHOOTING.md` for step-by-step guidance, diagnostic commands, and examples.
 
 ### ⚠️ Important: Bind Mounts Required
 
@@ -264,7 +251,7 @@ For more details and troubleshooting tips, see the dashboard warning messages or
 |----------|---------|----------|-------------|
 | `TZ` | Europe/Berlin | No | Timezone for the application (e.g., America/New_York, Asia/Tokyo) |
 | `DB_PASSWORD` | changeme123 | Yes | PostgreSQL password |
-| `SECRET_KEY` | (dev key) | Yes | Flask session secret (change in production!) |
+| `SECRET_KEY` | (dev key) | Yes | Flask session secret (change in production — see `SECURITY.md`) |
 | `REDIS_URL` | - | No | Optional Redis URL (e.g., `redis://localhost:6379/0`) to enable cross-worker SSE event streaming |
 | `DOWNLOADS_AUTO_GENERATE_ON_ACCESS` | false | No | When `true`, visiting a missing download link can trigger automatic archive generation on demand. Default: `false` (recommended). |
 | `DOWNLOADS_AUTO_GENERATE_ON_STARTUP` | false | No | When `true`, the app attempts to generate missing downloads for valid tokens during startup (use with caution). Default: `false` (recommended). |
@@ -329,52 +316,7 @@ This ensures job logs and cleanup summaries are available on the host for inspec
 > **Note:** On startup the app will mark any jobs still in `running` state that **do not have an `end_time`** as `failed` to avoid stuck jobs and UI confusion; this behavior is automatic and not configurable via environment variables.
 
 
-### Troubleshooting — Logs & Notifications 🔧
-
-If you cannot find notification output (e.g., Discord, Email) in the normal container logs, check the job log files under `/var/log/archiver` — scheduled and detached jobs write their stdout/stderr to job log files there.
-
-Why? Scheduled archive jobs are executed as detached subprocesses (see `app.run_job`) and their stdout/stderr are redirected into separate log files so the job can run independently of the web worker process. For this reason you will often find notification traces in those logs rather than in the central `docker compose logs` output.
-
-Quick commands (run on host):
-
-- List recent job logs:
-
-```bash
-docker compose exec -T app ls -ltr /var/log/archiver | tail -n 10
-```
-
-- Tail a specific job log and filter for notification entries:
-
-```bash
-docker compose exec -T app tail -n 300 /var/log/archiver/<JOB_LOG_FILE>.log | grep -E "Notifications:|Sent Email"
-```
-
-- Follow central app logs (shows what the web worker emits):
-
-```bash
-docker compose logs -f --tail=200 app
-# or
-docker compose exec -T app journalctl -u docker -n 200  # if you use systemd/journald integration
-```
-
-- Run a manual in-container test (writes to container logs and/or job log files depending on context):
-
-```bash
-docker compose exec -T app python -c "from app.main import app; ctx=app.app_context(); ctx.push(); from app.notifications.handlers import send_archive_notification; send_archive_notification({'name':'Test-Archive'}, 9999, [], 1, 0); ctx.pop()"
-```
-
-What to look for in logs:
-
-- `Notifications: send_archive_notification called ...` — entry point from the archiver into the notifications code
-- `Notifications: added target ...` — notification targets that were configured and accepted
-- `Notifications: Sent Email ...` — email delivery success messages
-- `Notifications: notification failed` / exception traces — indicates a problem sending an email (check SMTP credentials, network access, recipient validity)
-
-Tips:
-
-- Set `LOG_LEVEL=DEBUG` in `.env` if you need more detailed debugging output. Restart the `app` service after changing env vars.
-- `docker compose run --rm` spawns a short-lived container and its logs may not appear in `docker compose logs`; prefer `docker compose exec` or inspect the logs under `/var/log/archiver` for scheduled runs.
-- If you want important job summaries to also appear in the container's central logs, consider running a short command at the end of a job to emit a compact summary to stderr (this is a safe, small change we can help implement).
+> **Logs & Notifications troubleshooting:** Details and commands moved to `TROUBLESHOOTING.md` — consult that file for examples and tips.
 
 ---
 
@@ -419,13 +361,7 @@ Examples:
 
 ## Notifications
 
-Docker Archiver sends notifications via **email (SMTP)** only. **SMTP settings are configured in the web UI under _Settings → Notifications_ and are stored in the application database (not via environment variables).** This avoids leaking credentials in environment files and makes runtime changes available via the web UI.
-
-### SMTP Settings (in the UI)
-
-- **SMTP Server** — Hostname or IP of your SMTP server (`smtp_server`)
-- **SMTP Port** — TCP port for SMTP (`smtp_port`, commonly `587`)
-- **SMTP Username** — Username for SMTP authentication (optional)
+Docker Archiver sends notifications via **email (SMTP)** only; SMTP settings are configured in the web UI (Settings → Notifications). See `SECURITY.md` for guidance on TLS, least-privilege SMTP accounts, and credential handling.
 
 ### Download Tokens & Notifications
 
@@ -438,13 +374,9 @@ The download feature uses short-lived tokens (24 hours) that map to either an ex
   - `DOWNLOADS_AUTO_GENERATE_ON_ACCESS=false` (default) — when `true`, accessing a missing download link will attempt to start generation immediately.
   - `DOWNLOADS_AUTO_GENERATE_ON_STARTUP=false` (default) — when `true`, the app will look for tokens missing prepared archives on startup and start generation for them. Both defaults are `false` and we recommend leaving them **disabled** unless you understand and want automatic generation behavior.
 
-Security / operational notes:
-- The app uses **atomic DB updates** to avoid duplicate concurrent packing jobs for the same token and **database-backed notify_emails** for reliable notification targets.
-- For multi-instance/HA deployments, consider using a task queue/worker instead of the built-in thread-based packer; this makes pack jobs deterministic and scalable.
+**Security notes & token handling:** See `SECURITY.md` for guidance on secure token handling, download generation, and operational recommendations (rotate secrets, keep automatic generation disabled unless intentional).
 
-- **SMTP Password** — Password for SMTP authentication (optional)
-- **From address** — The sender `From:` address used for outgoing messages (`smtp_from`)
-- **Use TLS** — Toggle to use STARTTLS for the SMTP connection (`smtp_use_tls`)
+See `SECURITY.md` for TLS and SMTP configuration recommendations.
 
 Recipients are taken from user profile email addresses or from configured default recipient settings in the Notifications page.
 
@@ -458,86 +390,7 @@ Recipients are taken from user profile email addresses or from configured defaul
 
 **Note:** Non-email transports (Apprise, Discord, etc.) are no longer supported — the app sends notifications via SMTP only. If you previously used Apprise URLs, migrate those recipient addresses into user profiles or the Notifications page accordingly.
 
-## API Documentation
-
-### External API (for automation/integrations)
-
-All external API endpoints are located under `/api/*` and support **Bearer token authentication**.
-
-#### Authentication
-
-Generate an API token in your user profile (coming soon) or use session-based authentication from the web UI.
-
-**Header Format:**
-```
-Authorization: Bearer <your-api-token>
-```
-
-#### Endpoints
-
-| Endpoint | Method | Auth | Description |
-|----------|--------|------|-------------|
-| **Archives** |
-| `/api/archives` | GET | Token/Session | List all archive configurations |
-| `/api/archives/<id>/run` | POST | Token/Session | Trigger archive execution |
-| `/api/archives/<id>/dry-run` | POST | Token/Session | Run simulation (dry run) |
-| **Jobs** |
-| `/api/jobs` | GET | Token/Session | List jobs (supports filters: `?archive_id=1&type=archive&limit=20`) |
-| `/api/jobs/<id>` | GET | Token/Session | Get job details with stack metrics |
-| `/api/jobs/<id>/download` | POST | Token/Session | Request archive download (generates token) |
-| `/api/jobs/<id>/log` | GET | Token/Session | Download job log file |
-| `/api/jobs/<id>/log/tail` | GET | Token/Session | Return incremental log lines for a job (query params: `last_line`, optional `stack`), supports live in-memory buffer and DB fallback for multi-worker setups |
-| **Stacks** |
-| `/api/stacks` | GET | Token/Session | List discovered Docker Compose stacks |
-| **Downloads** |
-| `/download/<token>` | GET | **None** | Download archive file (24h expiry) |
-
-#### Example Usage
-
-```bash
-# List all archives
-curl -H "Authorization: Bearer YOUR_TOKEN" \
-  http://your-server:8080/api/archives
-
-# Trigger archive execution
-curl -X POST -H "Authorization: Bearer YOUR_TOKEN" \
-  http://your-server:8080/api/archives/1/run
-
-# Get job details
-curl -H "Authorization: Bearer YOUR_TOKEN" \
-  http://your-server:8080/api/jobs/123
-
-# List recent jobs
-curl -H "Authorization: Bearer YOUR_TOKEN" \
-  "http://your-server:8080/api/jobs?type=archive&limit=10"
-
-# Request download
-curl -X POST -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"stack_name":"mystack","archive_path":"/archives/path"}' \
-  http://your-server:8080/api/jobs/123/download
-
-# Download archive (no auth needed)
-curl -O http://your-server:8080/download/abc123token
-```
-
-### Web UI Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | GET | Dashboard |
-| `/login` | GET/POST | Login page |
-| `/logout` | GET | Logout |
-| `/setup` | GET/POST | Initial user setup |
-| `/api/archives/create` | POST | Create archive config (via Dashboard/API) |
-| `/api/archives/<id>/edit` | POST | Edit archive config (via Dashboard/API) |
-| `/api/archives/<id>/delete` | POST | Delete archive config (via Dashboard/API) |
-| `/api/archives/<id>/run` | POST | Run archive job (API) |
-| `/api/archives/<id>/dry-run` | POST | Run dry run (API) |
-| `/history/` | GET | Job history UI |
-| `/profile/` | GET/POST | User profile (password, email) |
-| `/settings/` | GET/POST | Settings page |
-| `/health` | GET | Health check |
+**API & Endpoints:** The full runtime API reference and usage examples have been moved to `API.md` (see `API.md` in the repository).
 
 ### Reverse Proxy Configuration (Pangolin, Authelia, etc.)
 
@@ -565,67 +418,8 @@ For readable, centralized reverse proxy guidance and ready-to-copy examples for 
 
 ## Development
 
-### Local Development
+**Development instructions moved to** `DEVELOPMENT.md` — see `DEVELOPMENT.md` for local setup, Docker development workflow, running tests, project structure, and tips for contributors.
 
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Set environment
-export DATABASE_URL="postgresql://user:pass@localhost:5432/docker_archiver"
-export SECRET_KEY="dev-secret"
-
-# Initialize database
-python -c "from app.db import init_db; init_db()"
-
-# Run development server
-python app/main.py
-```
-
-### Project Structure
-
-```
-Docker-Archiver/
-├── app/
-│   ├── routes/              # Flask Blueprints
-│   │   ├── api/               # API endpoints (JSON/SSE/file responses)
-│   │   │   ├── __init__.py    # Shared `bp` and auth helpers
-│   │   │   ├── archives.py    # Archive CRUD routes (API)
-│   │   │   ├── jobs.py        # Job listing, logs, tail
-│   │   │   ├── downloads.py   # Download token generation & folder prep
-│   │   │   ├── cleanup.py     # Cleanup runner endpoint
-│   │   │   └── sse.py         # SSE endpoints
-│   │   ├── history.py       # Job history routes
-│   │   ├── settings.py      # Settings routes
-│   │   └── profile.py       # User profile routes
-│   ├── main.py              # Flask app & core routes
-│   ├── db.py                # Database schema & connection
-│   ├── auth.py              # User authentication
-│   ├── executor.py          # Archive execution engine
-│   ├── retention.py         # GFS retention logic
-│   ├── stacks.py            # Stack discovery
-│   ├── scheduler.py         # APScheduler integration
-│   ├── downloads.py         # Download token system
-│   ├── notifications.py     # Notifications (SMTP-only)
-│   ├── utils.py             # Utility functions
-│   ├── templates/           # Jinja2 templates
-│   │   ├── base.html        # Base layout with navigation
-│   │   ├── index.html       # Dashboard
-│   │   ├── history.html     # Job history
-│   │   ├── settings.html    # Settings page
-│   │   ├── profile.html     # User profile
-│   │   ├── login.html       # Login page
-│   │   └── setup.html       # Initial setup
-│   └── static/              # Static assets
-│       ├── icons/           # GitHub, Discord, Favicon
-│       └── images/          # Logo
-├── docker-compose.yml       # Docker setup
-├── Dockerfile               # App container
-├── requirements.txt         # Python dependencies
-├── entrypoint.sh            # Startup script
-├── wait_for_db.py           # Database wait script
-└── .env.example             # Environment template
-```
 
 ## Database Schema
 
@@ -641,13 +435,15 @@ Docker-Archiver/
 
 MIT License - see [LICENSE](LICENSE) file for details
 
+## Security
+
+For deployment hardening, secrets handling, CI token guidance, and vulnerability reporting, see `SECURITY.md`.
+
+---
+
 ## Contributing
 
-Contributions welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
+For contribution guidelines, the PR checklist, and local test instructions, see `CONTRIBUTING.md`.
 
 ## Support
 

@@ -39,7 +39,7 @@ DOWNLOADS_AUTO_GENERATE_ON_STARTUP=false
 **Notes:**
 - `DOWNLOADS_AUTO_GENERATE_ON_ACCESS`: when `true`, visiting a missing download link can start background generation immediately. Default is `false`.
 - `DOWNLOADS_AUTO_GENERATE_ON_STARTUP`: when `true`, the app will attempt to generate missing downloads for valid tokens on startup. Default is `false` and should be used with caution.
-- SMTP credentials are managed via the app UI (Settings → Notifications) and are not configured via env vars. See `README.md` for additional details.
+- SMTP credentials are managed via the app UI (Settings → Notifications) and are not configured via env vars. See `SECURITY.md` for guidance on TLS and credential handling.
 
 ### 3. Configure Volume Mounts
 
