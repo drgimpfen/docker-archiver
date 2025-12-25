@@ -2,7 +2,6 @@
 # Triggers when a release is published (not on pre-release or draft by default)
 # - Runs tests
 # - Builds multi-arch Docker image and pushes to Docker Hub
-# - Attaches a source tarball to the GitHub Release
 # Required repository secrets:
 # - DOCKERHUB_USERNAME: Docker Hub username
 # - DOCKERHUB_TOKEN:  Docker Hub access token (personal access token)
@@ -84,17 +83,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.set_tags.outputs.tags }}
 
-      - name: Create source tar for release
-        run: |
-          git archive --format=tar.gz --output=release-${{ github.ref_name }}.tar.gz ${{ github.ref_name }} || true
-
-      - name: Upload release asset
-        uses: softprops/action-gh-release@v1
-        with:
-          files: release-${{ github.ref_name }}.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+      # 'Create source tar for release' and 'Upload release asset' steps removed per request
       - name: Update Docker Hub repository description from README
         if: ${{ github.event_name == 'release' }}
         env:
