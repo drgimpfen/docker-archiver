@@ -152,6 +152,32 @@ def init_db():
                 END IF;
             END $$;
         """)
+
+        # Ensure archive_path column exists and is nullable; backfill from file_path when possible
+        cur.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name='download_tokens' AND column_name='archive_path'
+                ) THEN
+                    ALTER TABLE download_tokens ADD COLUMN archive_path TEXT;
+                END IF;
+
+                -- If archive_path exists but is NOT NULL, drop the NOT NULL constraint so INSERTs without it succeed
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name='download_tokens' AND column_name='archive_path' AND is_nullable = 'NO'
+                ) THEN
+                    ALTER TABLE download_tokens ALTER COLUMN archive_path DROP NOT NULL;
+                END IF;
+
+                -- Backfill archive_path from file_path for existing rows
+                IF EXISTS (SELECT 1 FROM download_tokens WHERE archive_path IS NULL AND file_path IS NOT NULL) THEN
+                    UPDATE download_tokens SET archive_path = file_path WHERE archive_path IS NULL AND file_path IS NOT NULL;
+                END IF;
+            END $$;
+        """)
         
         # API tokens for external access
         cur.execute("""
