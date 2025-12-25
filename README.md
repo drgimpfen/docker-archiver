@@ -274,7 +274,7 @@ For more details and troubleshooting tips, see the dashboard warning messages or
 
 > **Note:** The application uses fixed internal paths for archive output and logs. To ensure log files are persisted on the host, mount a directory to `/var/log/archiver` (e.g. `./logs:/var/log/archiver` in `docker-compose.yml`). The relevant internal paths are:
 > - Archives directory: `/archives` (used for storing generated archives)
-> - Logs directory: `/var/log/archiver/` (contains the central app log at `/var/log/archiver/app.log` and job logs under `/var/log/archiver/jobs/`, e.g. `/var/log/archiver/jobs/123_myarchive.log`)
+> - Logs directory: `/var/log/archiver/` (contains the central app log at `/var/log/archiver/app.log` and job logs under `/var/log/archiver/jobs/`, e.g. `/var/log/archiver/jobs/job_123_My_Archive_20251225_182530.log`)
 
 ### Logging & Debugging 🔧
 
@@ -282,7 +282,14 @@ Control application-wide logging using the `LOG_LEVEL` environment variable (rec
 
 File logging is always enabled and organized as follows:
 - Central app log: `/var/log/archiver/app.log` (rotated daily at midnight).
-- Job logs: `/var/log/archiver/jobs/<archive_id>_<archive_name>.log` for archive runs and `/var/log/archiver/jobs/cleanup_<job_id>.log` for cleanup runs (these contain full run output and are suitable for download/attachment).
+- Job logs:
+  - Archive runs: `/var/log/archiver/jobs/archive_{archive_id}_{job_type}_{archive_name}_{TIMESTAMP}.log` (e.g. `archive_123_archive_My_Archive_20251225_182530.log`)
+  - Cleanup runs: `/var/log/archiver/jobs/cleanup_{job_id}_{TIMESTAMP}.log` (e.g. `cleanup_42_20251225_020500.log`)
+  - Notification attachments: job logs attached to notifications use `job_{job_id}_{archive_name}_{TIMESTAMP}.log`.
+
+  Note: timestamps use local display timezone and format `YYYYMMDD_HHMMSS` (e.g., `20251225_182530`).
+
+  Migration note: older versions wrote `cleanup_{job_id}.log` or `{archive_id}_{archive_name}.log` — these files are left in place; new runs will create timestamped filenames. Notification code prefers the most recent matching file for `cleanup_{job_id}_*.log` when present.
 
 Rotation (daily) applies to the app and job logs; long-term retention/deletion of rotated files is handled by the application's cleanup job (configured via **Settings → Cleanup log retention days**).
 

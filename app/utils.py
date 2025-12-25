@@ -103,7 +103,7 @@ class StreamToLogger:
 def get_job_logger(archive_id, archive_name, log_path: str | None = None, level=logging.INFO):
     """Create or return a per-archive job logger.
 
-    - Default log path: <LOG_DIR>/jobs/<archive_id>_<archive_name>.log
+    - Default log path: <LOG_DIR>/jobs/archive_{archive_id}_{archive_name}_{UTC_TIMESTAMP}.log
     - Returns (logger, handler) where handler may be None if an existing handler
       for the same path was already attached.
     """
@@ -118,7 +118,8 @@ def get_job_logger(archive_id, archive_name, log_path: str | None = None, level=
         pass
 
     if not log_path:
-        log_path = os.path.join(jobs_dir, f"{archive_id}_{safe_name}.log")
+        ts = filename_timestamp()
+        log_path = os.path.join(jobs_dir, f"archive_{archive_id}_{safe_name}_{ts}.log")
 
     logger = logging.getLogger(f"job.{archive_id}_{safe_name}")
     logger.setLevel(level)
@@ -307,6 +308,24 @@ def to_iso_z(dt):
     except Exception:
         pass
     return str(dt)
+
+
+def filename_timestamp(dt=None):
+    """Return a timestamp string suitable for filenames using configured local timezone.
+
+    Format: YYYYMMDD_HHMMSS (e.g. 20251225_182530) using `local_now()` so the timestamp
+    reflects the configured display timezone (TZ).
+    If `dt` is None, uses current local time via `local_now()` helper.
+    """
+    try:
+        if dt is None:
+            dt = local_now()
+        # Ensure dt is a datetime and format using local timezone
+        return dt.strftime('%Y%m%d_%H%M%S')
+    except Exception:
+        # Fallback to epoch seconds if anything goes wrong
+        import time
+        return time.strftime('%Y%m%d_%H%M%S', time.localtime())
 
 
 def ensure_utc(dt):

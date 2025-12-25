@@ -90,10 +90,11 @@ def run_cleanup(dry_run_override=None, job_id=None, tasks=None):
     try:
         jobs_dir = os.path.join(utils.get_log_dir(), 'jobs')
         os.makedirs(jobs_dir, exist_ok=True)
+        # Use UTC timestamped filenames for cleanup logs (include job_id when available)
+        ts = utils.filename_timestamp()
         if job_id:
-            job_log_path = os.path.join(jobs_dir, f"cleanup_{job_id}.log")
+            job_log_path = os.path.join(jobs_dir, f"cleanup_{job_id}_{ts}.log")
         else:
-            ts = utils.local_now().strftime('%Y%m%d_%H%M%S')
             job_log_path = os.path.join(jobs_dir, f"cleanup_{ts}.log")
         job_log_fh = open(job_log_path, 'a', encoding='utf-8')
     except Exception as e:
@@ -1045,7 +1046,18 @@ def send_cleanup_notification(orphaned_stats, log_stats, unreferenced_dirs_stats
         # recipients know where to download the raw log if needed.
         try:
             jobs_dir = os.path.join(utils.get_log_dir(), 'jobs')
-            file_path = os.path.join(jobs_dir, f"cleanup_{job_id}.log") if job_id else None
+            file_path = None
+            if job_id:
+                # Find the most recent matching cleanup_{job_id}_*.log (fallback to cleanup_{job_id}.log for older installs)
+                import glob
+                pattern = os.path.join(jobs_dir, f"cleanup_{job_id}_*.log")
+                matches = glob.glob(pattern)
+                if matches:
+                    file_path = max(matches, key=os.path.getmtime)
+                else:
+                    legacy = os.path.join(jobs_dir, f"cleanup_{job_id}.log")
+                    if os.path.exists(legacy):
+                        file_path = legacy
             if file_path and os.path.exists(file_path):
                 body += f"\n<p>Full cleanup job log file: <code>{file_path}</code></p>"
         except Exception:

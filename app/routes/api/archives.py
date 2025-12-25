@@ -568,7 +568,8 @@ def run(archive_id):
         jobs_dir = os.path.join(get_log_dir(), 'jobs')
         os.makedirs(jobs_dir, exist_ok=True)
         safe_name = utils.filename_safe(archive['name'])
-        log_name = f"{archive_id}_{safe_name}.log"
+        ts = utils.filename_timestamp()
+        log_name = f"archive_{archive_id}_archive_{safe_name}_{ts}.log"
         log_path = os.path.join(jobs_dir, log_name)
         cmd = [sys.executable, '-m', 'app.run_job', '--archive-id', str(archive_id), '--job-id', str(job_id)]
         try:
@@ -617,9 +618,9 @@ def dry_run(archive_id):
 
         jobs_dir = os.path.join(get_log_dir(), 'jobs')
         os.makedirs(jobs_dir, exist_ok=True)
-        timestamp = utils.local_now().strftime('%Y%m%d_%H%M%S')
+        ts = utils.filename_timestamp()
         safe_name = utils.filename_safe(archive['name'])
-        log_name = f"{timestamp}_dryrun_{safe_name}.log"
+        log_name = f"archive_{archive_id}_dryrun_{safe_name}_{ts}.log"
         log_path = os.path.join(jobs_dir, log_name)
         try:
             subprocess.Popen(cmd + ['--log-path', log_path], start_new_session=True)

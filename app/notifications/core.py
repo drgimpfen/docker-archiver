@@ -208,15 +208,25 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                     job_log = row.get('log') if row else ''
 
                 if job_log:
-                    import tempfile
-                    tf = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.log', prefix=f'job_{job_id}_')
+                    import tempfile, os, time
+                    from app.utils import filename_safe, filename_timestamp
+                    temp_dir = tempfile.gettempdir()
+                    # Include safe archive name and UTC timestamp in filename
+                    if archive_name:
+                        safe_archive = filename_safe(archive_name)[:40]
+                        filename_core = f'job_{job_id}_{safe_archive}_{filename_timestamp()}'
+                    else:
+                        filename_core = f'job_{job_id}_{filename_timestamp()}'
+                    attach_path = os.path.join(temp_dir, f"{filename_core}.log")
+                    # Avoid overwriting an existing file with the same name (fallback to epoch suffix)
+                    if os.path.exists(attach_path):
+                        attach_path = os.path.join(temp_dir, f'{filename_core}_{int(time.time())}.log')
                     try:
-                        tf.write(job_log)
-                        tf.flush()
-                        attach_path = tf.name
-                        temp_files.append(tf.name)
-                    finally:
-                        tf.close()
+                        with open(attach_path, 'w', encoding='utf-8') as f:
+                            f.write(job_log)
+                        temp_files.append(attach_path)
+                    except Exception:
+                        attach_path = None
         except Exception as e:
             logger.exception("Failed to prepare log attachment: %s", e)
 
@@ -232,14 +242,23 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                 job_log_text = None
 
             if job_log_text:
-                tf = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.log', prefix=f'job_{job_id}_')
+                import tempfile, os, time
+                from app.utils import filename_safe, filename_timestamp
+                temp_dir = tempfile.gettempdir()
+                if archive_name:
+                    safe_archive = filename_safe(archive_name)[:40]
+                    filename_core = f'job_{job_id}_{safe_archive}_{filename_timestamp()}'
+                else:
+                    filename_core = f'job_{job_id}_{filename_timestamp()}'
+                attach_path_for_email = os.path.join(temp_dir, f"{filename_core}.log")
+                if os.path.exists(attach_path_for_email):
+                    attach_path_for_email = os.path.join(temp_dir, f'{filename_core}_{int(time.time())}.log')
                 try:
-                    tf.write(job_log_text)
-                    tf.flush()
-                    attach_path_for_email = tf.name
-                    temp_files.append(tf.name)
-                finally:
-                    tf.close()
+                    with open(attach_path_for_email, 'w', encoding='utf-8') as f:
+                        f.write(job_log_text)
+                    temp_files.append(attach_path_for_email)
+                except Exception:
+                    attach_path_for_email = None
             else:
                 if attach_path:
                     attach_path_for_email = attach_path

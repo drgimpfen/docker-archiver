@@ -67,12 +67,13 @@ def main(argv=None):
         pass
 
     # Determine log path: allow parent to pass a path via --log-path, otherwise
-    # create a per-run timestamped filename (keeps logs rotating by name)
-    timestamp = utils.local_now().strftime('%Y%m%d_%H%M%S')
+    # create a per-run timestamped filename using UTC timestamp (keeps logs rotating by name)
+    ts = utils.filename_timestamp()
     archive_name = archive['name']
     safe_name = utils.filename_safe(archive_name)
     job_type = 'dryrun' if args.dry_run else 'archive'
-    default_log_name = f"{timestamp}_{job_type}_{safe_name}.log"
+    # Use archive_{archive_id}_{job_type}_{archive_name}_{timestamp}.log for clarity
+    default_log_name = f"archive_{args.archive_id}_{job_type}_{safe_name}_{ts}.log"
     default_log_path = jobs_dir / default_log_name
 
     # If the parent passed a log path (via CLI arg), use that. We'll parse args
@@ -106,9 +107,9 @@ def main(argv=None):
                 jobs_dir.mkdir(parents=True, exist_ok=True)
             except Exception:
                 pass
-            # Use <archive_id>_<archive_name>.log as requested
+            # Use archive_{archive_id}_{job_type}_{archive_name}_{timestamp}.log by default
             archive_id = args.archive_id
-            log_path = jobs_dir / f"{archive_id}_{safe_name}.log"
+            log_path = jobs_dir / f"archive_{archive_id}_{job_type}_{safe_name}_{ts}.log"
     except Exception:
         log_path = Path(default_log_path)
 
