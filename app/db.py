@@ -109,7 +109,18 @@ def init_db():
             );
         """)
         
-        # Download token system removed (tokens and temporary downloads are deprecated and dropped)
+        # Download tokens for secure file access
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS download_tokens (
+                id SERIAL PRIMARY KEY,
+                token VARCHAR(64) UNIQUE NOT NULL,
+                stack_name VARCHAR(255) NOT NULL,
+                file_path TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL,
+                is_packing BOOLEAN DEFAULT FALSE
+            );
+        """)
         
         # API tokens for external access
         cur.execute("""
@@ -137,6 +148,9 @@ def init_db():
         cur.execute("CREATE INDEX IF NOT EXISTS idx_jobs_archive_id ON jobs(archive_id);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_jobs_start_time ON jobs(start_time DESC);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_job_stack_metrics_job_id ON job_stack_metrics(job_id);")
+
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_download_tokens_token ON download_tokens(token);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_download_tokens_expires_at ON download_tokens(expires_at);")
 
         cur.execute("CREATE INDEX IF NOT EXISTS idx_api_tokens_token ON api_tokens(token);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_api_tokens_user_id ON api_tokens(user_id);")

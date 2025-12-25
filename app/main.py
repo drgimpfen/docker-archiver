@@ -3,6 +3,7 @@ Main Flask application with Blueprints.
 """
 import os
 import threading
+from datetime import datetime
 from app.utils import setup_logging, get_logger, get_sentinel_path, format_bytes, format_duration, get_disk_usage, to_iso_z, format_datetime
 # Centralized logging setup (use only LOG_LEVEL env var)
 setup_logging()
@@ -322,6 +323,52 @@ def api_get_stacks():
     """API endpoint to get available stacks."""
     stacks = discover_stacks()
     return jsonify({'stacks': stacks})
+
+
+@app.route('/download/<token>')
+@login_required
+def download_file(token):
+    """Serve file download using secure token."""
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT file_path, stack_name, expires_at, is_packing
+                FROM download_tokens
+                WHERE token = %s;
+            """, (token,))
+            token_data = cur.fetchone()
+            
+        if not token_data:
+            flash('Invalid or expired download token', 'danger')
+            return redirect(url_for('dashboard.index'))
+            
+        if token_data['expires_at'] < datetime.now():
+            flash('Download token has expired', 'danger')
+            return redirect(url_for('dashboard.index'))
+            
+        if token_data['is_packing']:
+            flash('Archive is still being prepared. Please wait for the email notification.', 'info')
+            return redirect(url_for('dashboard.index'))
+        
+        file_path = Path(token_data['file_path'])
+        if not file_path.exists():
+            flash('Download file no longer exists', 'danger')
+            return redirect(url_for('dashboard.index'))
+        
+        # Serve the file
+        filename = f"{token_data['stack_name']}.tar.gz" if file_path.suffix == '.gz' else file_path.name
+        return send_file(
+            file_path,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/octet-stream'
+        )
+        
+    except Exception as e:
+        logger.exception(f"Error serving download for token {token}: {e}")
+        flash('Error processing download', 'danger')
+        return redirect(url_for('dashboard.index'))
 
 
 # Token-based download endpoint removed.

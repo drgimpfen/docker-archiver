@@ -116,6 +116,9 @@ def init_scheduler():
 
     # Schedule main cleanup task
     schedule_cleanup_task()
+    
+    # Schedule download token cleanup task
+    schedule_download_cleanup_task()
 
     # Start Redis subscriber for hot-reloads if configured
     try:
@@ -170,6 +173,29 @@ def schedule_cleanup_task():
         logger.info("[Scheduler] Scheduled cleanup task with cron: %s", cleanup_cron)
     except Exception as e:
         logger.exception("[Scheduler] Failed to schedule cleanup task: %s", e)
+
+
+def schedule_download_cleanup_task():
+    """Schedule download token cleanup task to run daily."""
+    global scheduler
+
+    if scheduler is None:
+        return
+
+    try:
+        from app.routes.api.downloads import cleanup_expired_tokens
+        display_tz = get_display_timezone()
+        # Run daily at 3:00 AM
+        trigger = CronTrigger(hour=3, minute=0, timezone=display_tz)
+        scheduler.add_job(
+            cleanup_expired_tokens,
+            trigger,
+            id='download_cleanup_task',
+            replace_existing=True
+        )
+        logger.info("[Scheduler] Scheduled download token cleanup task (daily at 3:00 AM)")
+    except Exception as e:
+        logger.exception("[Scheduler] Failed to schedule download cleanup task: %s", e)
 
 
 # --------------------- Redis-based hot reload helpers ---------------------

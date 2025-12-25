@@ -432,3 +432,10 @@ def check_permissions():
         })
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@bp.route('/downloads')
+@login_required
+def manage_downloads():
+    """Download tokens management page."""
+    return render_template('settings_downloads.html')

@@ -46,7 +46,7 @@ def api_auth_required(f):
 # Import submodules to ensure blueprint route registration on package import
 # Submodules should import `bp` and `api_auth_required` from this package
 try:
-    from app.routes.api import jobs, cleanup, sse  # noqa: F401
+    from app.routes.api import jobs, cleanup, downloads, sse  # noqa: F401
 except Exception:
     # Import errors will surface during tests/import time if something is wrong
     pass
