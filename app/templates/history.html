@@ -29,6 +29,7 @@
                     <option value="">All Types</option>
                     <option value="archive" {% if request.args.get('type') == 'archive' %}selected{% endif %}>Archive</option>
                     <option value="retention" {% if request.args.get('type') == 'retention' %}selected{% endif %}>Retention</option>
+                    <option value="cleanup" {% if request.args.get('type') == 'cleanup' %}selected{% endif %}>Cleanup</option>
                 </select>
             </div>
             
