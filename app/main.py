@@ -188,10 +188,11 @@ def run_startup_discovery():
             # Resume any pending download packing tasks on startup
             try:
                 from app.routes.api.downloads import resume_pending_downloads
-                t = threading.Thread(target=resume_pending_downloads, daemon=True)
+                generate_on_start = os.environ.get('DOWNLOADS_AUTO_GENERATE_ON_STARTUP', 'false').lower() in ('1','true','yes')
+                t = threading.Thread(target=resume_pending_downloads, args=(generate_on_start,), daemon=True)
                 t.start()
                 if verbose:
-                    logger.info('[Startup] Resuming pending download packing tasks')
+                    logger.info('[Startup] Resuming pending download packing tasks (generate_missing=%s)', generate_on_start)
             except Exception as e:
                 logger.exception('[Startup] Failed to resume pending downloads: %s', e)
 

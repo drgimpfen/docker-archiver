@@ -47,10 +47,11 @@ async function loadTokens() {
                         <thead>
                             <tr>
                                 <th>Stack Name</th>
+                                <th>File</th>
                                 <th>Created</th>
                                 <th>Expires</th>
                                 <th>Status</th>
-                                <th>Notify Email</th>
+                                <th>Notify</th>
                                 <th>Token</th>
                                 <th style="width:140px">Actions</th>
                             </tr>
@@ -62,11 +63,13 @@ async function loadTokens() {
                 const statusBadge = token.is_packing 
                     ? '<span class="badge bg-warning">Packing</span>' 
                     : '<span class="badge bg-success">Ready</span>';
-                const notify = token.notify_email ? `<small>${token.notify_email}</small>` : '<span class="text-muted">-</span>';
-                
+                const notify = (token.notify_emails && token.notify_emails.length > 0) ? `<small>${token.notify_emails.join(', ')}</small>` : '<span class="text-muted">-</span>';
+                const fileName = token.file_name ? token.file_name : '<span class="text-muted">-</span>';
+
                 html += `
                     <tr>
                         <td>${token.stack_name}</td>
+                        <td>${fileName}</td>
                         <td>${token.created_at ? new Date(token.created_at).toLocaleString() : 'N/A'}</td>
                         <td>${token.expires_at ? new Date(token.expires_at).toLocaleString() : 'N/A'}</td>
                         <td>${statusBadge}</td>

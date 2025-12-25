@@ -35,8 +35,8 @@ services:
       DATABASE_URL: postgresql://archiver:${DB_PASSWORD:-changeme123}@db:5432/docker_archiver
       SECRET_KEY: ${SECRET_KEY:-change-this-secret-key-in-production}
       FLASK_ENV: production
-      # Redis for cross-worker SSE
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      # Redis for cross-worker SSE 
+      REDIS_URL: "redis://redis:6379/0"
       # Gunicorn (optional) - commented example overrides
       # If you want to control Gunicorn sizing explicitly, uncomment and set below:
       # GUNICORN_WORKERS: "" # set explicit number of workers (overrides auto sizing)
@@ -44,13 +44,17 @@ services:
       # GUNICORN_THREADS: "2" # threads per worker (default 2)
       # GUNICORN_TIMEOUT: "300" # worker timeout in seconds (default 300)
       # Example environment variables (recommended: place in a .env file or set in your environment)
-      # LOG_LEVEL=INFO                         # Global log level: DEBUG, INFO, WARNING, ERROR
-      # DB_PASSWORD=changeme123                # Optional: used by DATABASE_URL when referenced
+      # LOG_LEVEL: ${LOG_LEVEL:-INFO}                      # Global log level: DEBUG, INFO, WARNING, ERROR
+      # SHOW_ONDISK_ARCHIVE_SIZE: ${SHOW_ONDISK_ARCHIVE_SIZE:-0}  # Enable showing on-disk archive sizes in Dashboard
+      # DB_PASSWORD: ${DB_PASSWORD:-changeme123}            # Optional: used by DATABASE_URL when referenced
+      # SCHEDULE_MISFIRE_GRACE: ${SCHEDULE_MISFIRE_GRACE:-300} # seconds to consider a misfire grace window
+      # DB_WAIT_RETRIES: ${DB_WAIT_RETRIES:-30}             # Used by tools/wait_for_db.py
+      # DB_WAIT_DELAY: ${DB_WAIT_DELAY:-1.0}                # Delay between retries (seconds)
 
-      # SHOW_ONDISK_ARCHIVE_SIZE=1         # Enable showing on-disk archive sizes in Dashboard
-      # SCHEDULE_MISFIRE_GRACE=300         # seconds to consider a misfire grace window
-      # DB_WAIT_RETRIES=30                 # Used by tools/wait_for_db.py
-      # DB_WAIT_DELAY=1.0                  # Delay between retries (seconds)
+      # Downloads: allow optional auto-generation when a public link is accessed
+      DOWNLOADS_AUTO_GENERATE_ON_ACCESS: ${DOWNLOADS_AUTO_GENERATE_ON_ACCESS:-false}
+      # Downloads: optionally generate missing downloads on container start (true/false)
+      DOWNLOADS_AUTO_GENERATE_ON_STARTUP: ${DOWNLOADS_AUTO_GENERATE_ON_STARTUP:-false}
     volumes:
       # Docker socket for container management
       - /var/run/docker.sock:/var/run/docker.sock

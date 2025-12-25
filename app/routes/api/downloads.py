@@ -33,12 +33,12 @@ def generate_token():
 # Note: expired-download cleanup moved to `app.cleanup.cleanup_download_tokens` for single-responsibility. Wrapper removed.
 
 
-def resume_pending_downloads():
+def resume_pending_downloads(generate_missing: bool = False):
     """Resume any pending background packing tasks left in the database.
 
-    This scans for tokens that are marked `is_packing = TRUE` and attempts to
-    restart the packing process if the source directory still exists and there
-    is no already-prepared archive for that source.
+    If `generate_missing` is True, also look for tokens that are not marked
+    `is_packing` but reference an existing archive directory and have no valid
+    `file_path` on disk, and start packing for them.
     """
     try:
         with get_db() as conn:
@@ -92,6 +92,64 @@ def resume_pending_downloads():
                 logger.info("Removed pending token %s because source path no longer exists", token)
         except Exception as e:
             logger.exception("Failed while resuming token %s: %s", r.get('token'), e)
+
+    # Optionally start packing for non-packing tokens that reference existing directories
+    if generate_missing:
+        try:
+            with get_db() as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT token, stack_name, file_path, archive_path, is_packing FROM download_tokens
+                    WHERE expires_at > NOW() AND (is_packing = FALSE OR is_packing IS NULL)
+                    ORDER BY created_at DESC;
+                """)
+                candidates = cur.fetchall()
+        except Exception as e:
+            logger.exception("Failed to query candidate download tokens for generation: %s", e)
+            return
+
+        for c in (candidates or []):
+            try:
+                token = c['token']
+                stack_name = c.get('stack_name')
+                file_path = c.get('file_path')
+                archive_path = c.get('archive_path')
+
+                # Skip if file already exists
+                if file_path and Path(file_path).exists():
+                    continue
+
+                if not archive_path:
+                    continue
+
+                p = Path(archive_path)
+                # Only start if source dir exists and is a directory
+                if not (p.exists() and p.is_dir()):
+                    continue
+
+                # Atomically set is_packing to TRUE only if it was FALSE/NULL
+                try:
+                    with get_db() as conn:
+                        cur = conn.cursor()
+                        cur.execute("UPDATE download_tokens SET is_packing = TRUE WHERE token = %s AND (is_packing = FALSE OR is_packing IS NULL) RETURNING token;", (token,))
+                        r = cur.fetchone()
+                        if r:
+                            conn.commit()
+                            logger.info("Starting generation for missing download token %s (stack=%s, path=%s)", token, stack_name, archive_path)
+                            thread = threading.Thread(target=process_directory_pack, args=(stack_name, archive_path, token))
+                            thread.daemon = True
+                            thread.start()
+                        else:
+                            # somebody else started packing, ignore
+                            continue
+                except Exception as e:
+                    logger.exception("Failed to atomically set packing flag for candidate token %s: %s", token, e)
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.exception("Error while attempting to generate missing download for token %s: %s", c.get('token'), e)
 
 
 def send_download_email(stack_name, download_url=None, recipients=None):
@@ -431,6 +489,7 @@ def list_active_tokens():
                 'expires_at': t['expires_at'].isoformat() if t['expires_at'] else None,
                 'is_packing': t['is_packing'],
                 'file_path': t.get('file_path'),
+                'file_name': (Path(t.get('file_path')).name if t.get('file_path') else None),
                 'notify_emails': t.get('notify_emails') or []
             } for t in tokens]
         })

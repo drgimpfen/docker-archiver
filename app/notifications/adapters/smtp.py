@@ -15,6 +15,8 @@ class SMTPAdapter(AdapterBase):
     def __init__(self):
         # Read configuration from DB settings via get_setting() (preferred).
         # Fall back to environment variables if get_setting is unavailable for safety.
+        # Read configuration from DB settings via get_setting (preferred).
+        # Do NOT fall back to environment variables anymore - SMTP is configured via application settings.
         try:
             from app.notifications.core import get_setting
             self.server = get_setting('smtp_server', None) or None
@@ -28,13 +30,13 @@ class SMTPAdapter(AdapterBase):
             self.from_addr = get_setting('smtp_from', None) or None
             self.use_tls = str(get_setting('smtp_use_tls', 'true')).lower() in ('1', 'true', 'yes')
         except Exception:
-            # Fallback to environment variables for backwards compatibility
-            self.server = os.environ.get('SMTP_SERVER')
-            self.port = int(os.environ.get('SMTP_PORT', '587'))
-            self.user = os.environ.get('SMTP_USER')
-            self.password = os.environ.get('SMTP_PASSWORD')
-            self.from_addr = os.environ.get('SMTP_FROM')
-            self.use_tls = os.environ.get('SMTP_USE_TLS', 'true').lower() in ('1', 'true', 'yes')
+            # If settings cannot be read, leave SMTP configuration unset
+            self.server = None
+            self.port = 587
+            self.user = None
+            self.password = None
+            self.from_addr = None
+            self.use_tls = True
 
     def _get_recipients(self, recipients: Optional[List[str]] = None) -> List[str]:
         if recipients and len(recipients) > 0:
