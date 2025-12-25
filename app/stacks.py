@@ -319,9 +319,6 @@ def get_stack_mount_paths():
     return ["/opt/stacks"]
 
 
-LOCAL_MOUNT_BASE = '/local'  # Fallback for backward compatibility
-
-
 def discover_stacks():
     """
     Discover stacks from configured mount directories.
@@ -398,47 +395,7 @@ def discover_stacks():
             except (OSError, PermissionError):
                 # Skip directories we can't read
                 continue
-    
-    # Fallback to old /local method for backward compatibility
-    if not stacks and os.path.exists(LOCAL_MOUNT_BASE):
-        for mount_dir in Path(LOCAL_MOUNT_BASE).iterdir():
-            if not mount_dir.is_dir():
-                continue
-            
-            mount_name = mount_dir.name
-            
-            # Check if mount_dir itself contains a compose file (direct stack mount)
-            compose_file = find_compose_file(mount_dir)
-            if compose_file:
-                stacks.append({
-                    'name': mount_name,
-                    'path': str(mount_dir),
-                    'compose_file': compose_file,
-                    'mount_source': mount_name
-                })
-            else:
-                # Search one level deeper for stacks
-                for stack_dir in mount_dir.iterdir():
-                    if not stack_dir.is_dir():
-                        continue
-                    
-                    compose_file = find_compose_file(stack_dir)
-                    if compose_file:
-                        # Skip our own application stack (guards against self-backup)
-                        try:
-                            if _is_local_app_stack(stack_dir):
-                                logger.debug("Skipping local app stack at %s", stack_dir)
-                                continue
-                        except Exception:
-                            pass
 
-                        stacks.append({
-                            'name': stack_dir.name,
-                            'path': str(stack_dir),
-                            'compose_file': compose_file,
-                            'mount_source': mount_name
-                        })
-    
     return sorted(stacks, key=lambda x: x['name'])
 
 

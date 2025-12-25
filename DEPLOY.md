@@ -229,7 +229,7 @@ sudo chmod 666 /var/run/docker.sock
 1. Check mount paths in `docker-compose.yml`
 2. Verify compose files exist:
    ```bash
-   docker compose exec app ls -la /local/
+   docker compose exec app ls -la /opt/stacks/
    ```
 3. Check logs:
    ```bash

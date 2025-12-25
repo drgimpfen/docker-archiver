@@ -190,7 +190,7 @@ class ArchiveExecutor:
                             
                             # Try to find common subpath pattern
                             # If destination is /usr/src/app/upload and source is /opt/stacks/immich/library,
-                            # and stack_dir is /local/stacks/immich, we can infer host stack is /opt/stacks/immich
+                            # and stack_dir is a container-side path for the same stack, we can infer host stack is /opt/stacks/immich
                             for i in range(len(source_parts) - 1, 0, -1):
                                 potential_host_stack = Path(*source_parts[:i])
                                 potential_host_stack_name = potential_host_stack.name

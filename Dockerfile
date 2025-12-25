@@ -24,7 +24,7 @@ COPY entrypoint.sh .
 RUN chmod +x entrypoint.sh
 
 # Create necessary directories
-RUN mkdir -p /archives /local
+RUN mkdir -p /archives
 
 EXPOSE 8080
 

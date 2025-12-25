@@ -18,7 +18,7 @@
 - 🔄 **GFS Retention** - Grandfather-Father-Son retention policy (keep X days/weeks/months/years)
 - 🧹 **Automatic Cleanup** - Scheduled cleanup of orphaned archives, old logs, and temp files
 - 🎯 **Dry Run Mode** - Test archive operations without making changes
-- 📊 **Job History & Live Logs** - Detailed logs and metrics for all archive/retention runs; **Job Details** includes live log tailing (polls `/api/jobs/<id>/log/tail`) and supports EventSource streaming for near real-time updates. The modal offers terminal-like controls (search, **Pause/Resume**, **Copy**, **Download**, **Line numbers**) for easier log inspection and troubleshooting.
+- 📊 **Job History & Live Logs** - Detailed logs and metrics for all archive/retention runs. The **Job Details** modal includes live log tailing (polls `/api/jobs/<id>/log/tail`) and supports per‑job EventSource streaming for near‑real‑time log updates. **Note:** global Jobs SSE support for the dashboard has been removed; the dashboard uses polling for job status updates. The modal offers terminal-like controls (search, **Pause/Resume**, **Copy**, **Download**, **Line numbers**) for easier log inspection.
 - 🔔 **Smart Notifications** - Email via SMTP (configured in **Settings → Notifications**; settings are stored in the database)
 - 🌓 **Dark/Light Mode** - Modern Bootstrap UI with theme toggle
 - 🔐 **User Authentication** - Secure login system (role-based access coming soon)
@@ -107,7 +107,7 @@ Key behavior:
 - Hidden directories (starting with `.`) and special names like `archives` or `tmp` are excluded.
 - Results are **deduplicated** by resolved path.
 - Each discovered stack is annotated as **direct** (compose found at mount root) or **nested** (compose found in a subdirectory).
-- If no mounts are detected the legacy `/local` path is scanned as a final fallback.
+- See **⚠️ Important: Bind Mounts Required** below for mandatory bind-mount requirements.
 
 ### Volume Mounts (how to configure)
 
@@ -146,7 +146,7 @@ For local or development-specific mounts, put your bind mounts in `docker-compos
 
 If you run Docker Archiver with multiple workers and want real-time SSE events to work across workers, run a Redis service and configure `REDIS_URL` (example using `docker-compose.override.yml` below).
 
-**Required:** Host and container paths for your stack directory bind mounts **must be identical** (e.g., `- /opt/stacks:/opt/stacks`). Example `docker-compose.override.yml`:
+Ensure host and container paths in your `docker-compose.override.yml` are identical — see **⚠️ Important: Bind Mounts Required** below for details.
 
 ```yaml
 services:
@@ -194,7 +194,7 @@ Discovery follows these rules:
 
 **Behavior for non-mounted stacks:** If a stack directory is not available via a bind mount, the archiver will use the path as it appears inside the container (the container-side path) when running compose commands; it will not attempt to use host-only paths that are not mounted into the container.
 
-**Important:** Host and container paths must match for bind mounts (e.g. `- /opt/stacks:/opt/stacks`). The archiver uses the container-side path it detects as the working directory for `docker compose` commands.
+See **⚠️ Important: Bind Mounts Required** below for the mandatory bind-mount rules — mismatched mounts will be ignored and may cause job failures.
 
 <a name="troubleshooting-bind-mount-warnings"></a>
 ### Troubleshooting bind-mount warnings
@@ -229,7 +229,7 @@ services:
 
 **How it works:** Docker Archiver uses the configured `STACKS_DIR` paths directly. When it finds a stack at `/opt/stacks/immich`, it uses `/opt/stacks/immich` as the working directory for `docker compose` commands (since host and container paths are identical).
 
-**How it works:** Docker Archiver automatically detects the host path by reading `/proc/self/mountinfo`. When it sees `/local/stacks/immich` inside the container, it looks up the corresponding host path (e.g., `/opt/stacks/immich`) and uses that for `docker compose --project-directory`.
+**Important (MANDATORY):** Bind mounts are **required** and **host and container paths must be identical** (for example: `- /opt/stacks:/opt/stacks`). Docker Archiver scans each mount root and one level of subdirectories for compose files. Any mounts where the host and container paths differ will be ignored for discovery, and jobs relying on those mounts may fail; configure proper bind mounts to ensure reliable discovery and correct `docker compose` execution.
 
 **Note:** Named volumes *within* your stack's compose.yml (like `postgres_data:`) work perfectly fine - this requirement only applies to mounting the stack directories into the archiver container.
 
