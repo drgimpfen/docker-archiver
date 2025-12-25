@@ -315,7 +315,7 @@ def init_db():
                 ('cleanup_dry_run', 'false'),
                 ('notify_on_cleanup', 'false'),
                 ('notify_attach_log', 'false'),
-                ('notify_attach_log_on_failure', 'false'),
+                ('notify_attach_log_on_failure', 'true'),
                 ('smtp_server', ''),
                 ('smtp_port', '587'),
                 ('smtp_user', ''),
