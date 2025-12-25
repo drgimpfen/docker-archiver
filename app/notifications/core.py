@@ -145,26 +145,7 @@ def send_archive_failure_notification(archive_config, job_id, stack_metrics, dur
 
         # Always build full HTML body for emails and a structured sections list for chat services
         should_attach_log = attach_log_setting or (attach_on_failure_setting and failed_count > 0)
-        if should_attach_log:
-            html_body_to_send = build_full_body(
-                archive_name=archive_name,
-                status_emoji=status_emoji,
-                success_count=success_count,
-                stack_count=stack_count,
-                size_str=size_str,
-                duration_str=duration_str,
-                stack_metrics=stack_metrics,
-                created_archives=created_archives,
-                total_size=total_size,
-                reclaimed=reclaimed,
-                job_log=job_log,
-                base_url=base_url,
-                stacks_with_volumes=stacks_with_volumes,
-                job_id=job_id,
-                include_log_inline=False,
-            )
-        else:
-            html_body_to_send = body
+        html_body_to_send = body
 
         # Ensure skipped note is present in the body used for email (attachment mode may recreate body)
         try:
@@ -342,27 +323,8 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
         attach_log_setting = get_setting('notify_attach_log', 'false').lower() == 'true'
         attach_on_failure_setting = get_setting('notify_attach_log_on_failure', 'false').lower() == 'true'
 
-        # Decide whether to send full HTML body or prepare an attachment
-        if attach_log_setting:
-            html_body_to_send = build_full_body(
-                archive_name=archive_name,
-                status_emoji=status_emoji,
-                success_count=success_count,
-                stack_count=stack_count,
-                size_str=size_str,
-                duration_str=duration_str,
-                stack_metrics=stack_metrics,
-                created_archives=created_archives,
-                total_size=total_size,
-                reclaimed=reclaimed,
-                job_log=job_log,
-                base_url=base_url,
-                stacks_with_volumes=stacks_with_volumes,
-                job_id=job_id,
-                include_log_inline=False,
-            )
-        else:
-            html_body_to_send = body
+        # Always include log inline in the email body
+        html_body_to_send = body
 
         # If any stacks had images pulled/updated, add the full filtered pull output inline
         try:
@@ -441,11 +403,8 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
         temp_files = []  # track temp files we create so we can cleanup reliably
         try:
             # Decide whether to attach the log based on settings and job outcome
-            should_attach = False
-            if attach_log_setting:
-                should_attach = True
-            elif attach_on_failure_setting and failed_count > 0:
-                should_attach = True
+            should_attach_log = attach_log_setting or (attach_on_failure_setting and failed_count > 0)
+            should_attach = should_attach_log
 
             if should_attach:
                 # Fetch job log from DB (best-effort)
@@ -489,7 +448,7 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
             except Exception:
                 job_log_text = None
 
-            if job_log_text:
+            if job_log_text and should_attach_log:
                 import tempfile, os, time
                 from app.utils import filename_safe, filename_timestamp
                 temp_dir = tempfile.gettempdir()
