@@ -64,18 +64,7 @@ from .formatters import (
 # Only SMTP is supported now. All non-SMTP transports were removed.
 # Legacy Apprise-related helpers have been removed to simplify the code path.
 
-def get_notification_format():
-    """Return preferred notification format for legacy callers.
-
-    We use HTML for all emails (SMTP) and don't support chat formats anymore.
-    """
-    return 'html'
-
-def should_notify(event_type):
-    """Check if notifications are enabled for this event type."""
-    key = f"notify_on_{event_type}"
-    value = get_setting(key, 'false')
-    return value.lower() == 'true'
+from .helpers import get_setting, get_user_emails, get_subject_with_tag, get_notification_format, should_notify
 
 
 # Helper used to send notifications via Apprise with a retry and good logging
