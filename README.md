@@ -447,9 +447,9 @@ For contribution guidelines, the PR checklist, and local test instructions, see 
 
 ## Support
 
-- � **Documentation (local):** [DEVELOPMENT.md](./DEVELOPMENT.md) · [API.md](./API.md) · [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) · [SECURITY.md](./SECURITY.md) · [CONTRIBUTING.md](./CONTRIBUTING.md)
+- **Documentation (local):** [DEVELOPMENT.md](./DEVELOPMENT.md) · [API.md](./API.md) · [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) · [SECURITY.md](./SECURITY.md) · [CONTRIBUTING.md](./CONTRIBUTING.md)
 
-- �🐛 **Issues**: https://github.com/drgimpfen/Docker-Archiver/issues
+- 🐛 **Issues**: https://github.com/drgimpfen/Docker-Archiver/issues
 - 📚 **Documentation**: https://github.com/drgimpfen/Docker-Archiver/wiki
 - 💬 **Discussions**: https://github.com/drgimpfen/Docker-Archiver/discussions
 - 💬 **Discord**: https://discord.gg/Tq84tczrR2
