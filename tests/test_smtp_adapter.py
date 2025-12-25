@@ -42,7 +42,7 @@ def test_smtp_adapter_sends_email(monkeypatch, tmp_path):
         }
         return mapping.get(k, d)
 
-    monkeypatch.setattr('app.notifications.core.get_setting', fake_get_setting)
+    monkeypatch.setattr('app.notifications.get_setting', fake_get_setting)
 
     fake = FakeSMTP('smtp.example.com', 587)
 
@@ -50,7 +50,7 @@ def test_smtp_adapter_sends_email(monkeypatch, tmp_path):
         return fake
 
     monkeypatch.setattr(smtplib, 'SMTP', fake_smtp_factory)
-    monkeypatch.setattr('app.notifications.core.get_user_emails', lambda: ['recipient@example.com'])
+    monkeypatch.setattr('app.notifications.get_user_emails', lambda: ['recipient@example.com'])
 
     adapter = SMTPAdapter()
     res = adapter.send('Subject', '<h1>Hi</h1><p>Body</p>', attach=None)
@@ -75,11 +75,11 @@ def test_smtp_adapter_with_attachment(monkeypatch, tmp_path):
         }
         return mapping.get(k, d)
 
-    monkeypatch.setattr('app.notifications.core.get_setting', fake_get_setting)
+    monkeypatch.setattr('app.notifications.get_setting', fake_get_setting)
 
     fake = FakeSMTP('smtp.example.com', 587)
     monkeypatch.setattr(smtplib, 'SMTP', lambda s, p, timeout=None: fake)
-    monkeypatch.setattr('app.notifications.core.get_user_emails', lambda: ['recipient@example.com'])
+    monkeypatch.setattr('app.notifications.get_user_emails', lambda: ['recipient@example.com'])
 
     tf = tmp_path / 'log.txt'
     tf.write_text('log contents')

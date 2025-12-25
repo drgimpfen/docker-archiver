@@ -1,5 +1,5 @@
 import re
-from app.notifications.core import send_archive_notification
+from app.notifications import send_archive_notification
 from app.notifications.adapters.base import AdapterResult
 
 
@@ -16,7 +16,7 @@ def test_send_notification_includes_pull_excerpt(monkeypatch):
             return '3'
         return default
 
-    monkeypatch.setattr('app.notifications.core.get_setting', fake_get_setting)
+    monkeypatch.setattr('app.notifications.get_setting', fake_get_setting)
 
     # Prepare stack metrics with pull_output containing multiple lines and a line that needs escaping
     pull_output = """Downloaded newer image foo:latest
@@ -75,7 +75,7 @@ def test_send_notification_filters_progress_lines(monkeypatch):
             return '0'  # 0 -> show full filtered output
         return default
 
-    monkeypatch.setattr('app.notifications.core.get_setting', fake_get_setting)
+    monkeypatch.setattr('app.notifications.get_setting', fake_get_setting)
 
     # Simulate pull output with progress updates and final lines
     pull_output = """Pulled: fetching layer\rDownloading [===>     ] 10MB/50MB\rDownloading [======>  ] 30MB/50MB\r
@@ -123,7 +123,7 @@ def test_send_notification_preserves_final_lines_in_realistic_output(monkeypatch
             return '0'  # full filtered output
         return default
 
-    monkeypatch.setattr('app.notifications.core.get_setting', fake_get_setting)
+    monkeypatch.setattr('app.notifications.get_setting', fake_get_setting)
 
     sample = '''[+] Pulling 15/15
  ✔ db Pulled                                                         12.4s 

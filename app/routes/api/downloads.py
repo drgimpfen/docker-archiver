@@ -13,7 +13,7 @@ from app.routes.api import bp, api_auth_required
 from app.db import get_db
 from app.utils import get_downloads_path, get_logger, setup_logging
 from app.notifications.adapters.smtp import SMTPAdapter
-from app.notifications.core import get_setting
+from app.notifications import get_setting
 
 # Module-level locks to avoid concurrent packing for the same archive_path
 _packing_locks: dict[str, threading.Lock] = {}

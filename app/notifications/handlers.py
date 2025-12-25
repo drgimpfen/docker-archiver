@@ -1,85 +1,15 @@
 """
-Notification system (SMTP-only): all notifications are sent via SMTP using settings stored in the database.
+Notification handlers for different job types.
 """
 import os
 from app.db import get_db
-from app.utils import format_bytes, format_duration, get_disk_usage, get_archives_path, get_logger, setup_logging
+from app.utils import format_bytes, format_duration, get_archives_path, get_logger
+from app.notifications.helpers import get_setting, get_user_emails, get_subject_with_tag, should_notify, get_notification_format
+from app.notifications.formatters import build_full_body, build_compact_text, build_sections, strip_html_tags
+from app.notifications.sender import send_email
 
-# Configuration constants for notifications (SMTP-focused)
-NOTIFY_EMAIL_MAX_BODY = 10000  # conservative limit for email bodies
-
-# Configure logging
-setup_logging()
 logger = get_logger(__name__)
 
-
-def get_setting(key, default=''):
-    """Get a setting value from database."""
-    try:
-        with get_db() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT value FROM settings WHERE key = %s;", (key,))
-            result = cur.fetchone()
-            return result['value'] if result else default
-    except Exception:
-        return default
-
-
-def get_user_emails():
-    """Get all user email addresses that are configured."""
-    try:
-        with get_db() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT email FROM users WHERE email IS NOT NULL AND email != '';")
-            results = cur.fetchall()
-            return [row['email'] for row in results]
-    except Exception:
-        return []
-
-
-def get_subject_with_tag(subject):
-    """Add optional subject tag prefix to notification subject."""
-    tag = get_setting('notification_subject_tag', '').strip()
-    if tag:
-        return f"{tag} {subject}"
-    return subject
-
-
-
-
-from .formatters import (
-    strip_html_tags,
-    build_compact_text,
-    split_section_by_length,
-    build_short_body,
-    build_full_body,
-    build_sections,
-    build_section_html,
-)
-
-
-# Discord/webhook URL normalization removed — project is SMTP-only now.
-
-
-# Only SMTP is supported now. All non-SMTP transports were removed.
-# Legacy Apprise-related helpers have been removed to simplify the code path.
-
-def get_notification_format():
-    """Return preferred notification format for legacy callers.
-
-    We use HTML for all emails (SMTP) and don't support chat formats anymore.
-    """
-    return 'html'
-
-def should_notify(event_type):
-    """Check if notifications are enabled for this event type."""
-    key = f"notify_on_{event_type}"
-    value = get_setting(key, 'false')
-    return value.lower() == 'true'
-
-
-# Helper used to send notifications via Apprise with a retry and good logging
-# Apprise notify helper removed with Apprise removal.
 
 def send_archive_failure_notification(archive_config, job_id, stack_metrics, duration, total_size):
     """Send notification for an archive job failure."""
@@ -156,26 +86,7 @@ def send_archive_failure_notification(archive_config, job_id, stack_metrics, dur
 
         # Always build full HTML body for emails and a structured sections list for chat services
         should_attach_log = attach_log_setting or (attach_on_failure_setting and failed_count > 0)
-        if should_attach_log:
-            html_body_to_send = build_full_body(
-                archive_name=archive_name,
-                status_emoji=status_emoji,
-                success_count=success_count,
-                stack_count=stack_count,
-                size_str=size_str,
-                duration_str=duration_str,
-                stack_metrics=stack_metrics,
-                created_archives=created_archives,
-                total_size=total_size,
-                reclaimed=reclaimed,
-                job_log=job_log,
-                base_url=base_url,
-                stacks_with_volumes=stacks_with_volumes,
-                job_id=job_id,
-                include_log_inline=False,
-            )
-        else:
-            html_body_to_send = body
+        html_body_to_send = body
 
         # Ensure skipped note is present in the body used for email (attachment mode may recreate body)
         try:
@@ -277,6 +188,42 @@ def send_archive_failure_notification(archive_config, job_id, stack_metrics, dur
                 body = (body or '') + note_html
         except Exception:
             pass
+    except Exception:
+        pass
+
+    # Prepare attachment if needed
+    attach_path = None
+    temp_files = []
+    try:
+        job_log_text = None
+        try:
+            job_log_text = job_row.get('log') if job_row else None
+        except Exception:
+            job_log_text = None
+
+        if job_log_text and should_attach_log:
+            import tempfile, time
+            from app.utils import filename_safe, filename_timestamp
+            temp_dir = tempfile.gettempdir()
+            if archive_name:
+                safe_archive = filename_safe(archive_name)[:40]
+                filename_core = f'job_{job_id}_{safe_archive}_{filename_timestamp()}'
+            else:
+                filename_core = f'job_{job_id}_{filename_timestamp()}'
+            attach_path = os.path.join(temp_dir, f"{filename_core}.log")
+            if os.path.exists(attach_path):
+                attach_path = os.path.join(temp_dir, f'{filename_core}_{int(time.time())}.log')
+            try:
+                with open(attach_path, 'w', encoding='utf-8') as f:
+                    f.write(job_log_text)
+                temp_files.append(attach_path)
+            except Exception:
+                attach_path = None
+    except Exception as e:
+        logger.exception("Failed to prepare job log attachment for email: %s", e)
+
+    # Send email
+    send_email(title, html_body_to_send, attach=attach_path, context=f'email_smtp_{archive_name}_{job_id}')
 
 
 def send_archive_notification(archive_config, job_id, stack_metrics, duration, total_size):
@@ -349,28 +296,10 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
 
         # user settings for attachments
         attach_log_setting = get_setting('notify_attach_log', 'false').lower() == 'true'
+        attach_on_failure_setting = get_setting('notify_attach_log_on_failure', 'false').lower() == 'true'
 
-        # Decide whether to send full HTML body or prepare an attachment
-        if attach_log_setting:
-            html_body_to_send = build_full_body(
-                archive_name=archive_name,
-                status_emoji=status_emoji,
-                success_count=success_count,
-                stack_count=stack_count,
-                size_str=size_str,
-                duration_str=duration_str,
-                stack_metrics=stack_metrics,
-                created_archives=created_archives,
-                total_size=total_size,
-                reclaimed=reclaimed,
-                job_log=job_log,
-                base_url=base_url,
-                stacks_with_volumes=stacks_with_volumes,
-                job_id=job_id,
-                include_log_inline=False,
-            )
-        else:
-            html_body_to_send = body
+        # Always include log inline in the email body
+        html_body_to_send = body
 
         # If any stacks had images pulled/updated, add the full filtered pull output inline
         try:
@@ -449,11 +378,8 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
         temp_files = []  # track temp files we create so we can cleanup reliably
         try:
             # Decide whether to attach the log based on settings and job outcome
-            should_attach = False
-            if attach_log_setting:
-                should_attach = True
-            elif attach_on_failure_setting and failed_count > 0:
-                should_attach = True
+            should_attach_log = attach_log_setting or (attach_on_failure_setting and failed_count > 0)
+            should_attach = should_attach_log
 
             if should_attach:
                 # Fetch job log from DB (best-effort)
@@ -486,89 +412,13 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
         except Exception as e:
             logger.exception("Failed to prepare log attachment: %s", e)
 
-        # We no longer support non-email (Apprise) transports. Only email via SMTP is used.
-        # Prepare an attachment (job log) for the email if available.
-        import tempfile
-        attach_path_for_email = None
-        try:
-            job_log_text = None
-            try:
-                job_log_text = job_row.get('log') if job_row else None
-            except Exception:
-                job_log_text = None
-
-            if job_log_text:
-                import tempfile, os, time
-                from app.utils import filename_safe, filename_timestamp
-                temp_dir = tempfile.gettempdir()
-                if archive_name:
-                    safe_archive = filename_safe(archive_name)[:40]
-                    filename_core = f'job_{job_id}_{safe_archive}_{filename_timestamp()}'
-                else:
-                    filename_core = f'job_{job_id}_{filename_timestamp()}'
-                attach_path_for_email = os.path.join(temp_dir, f"{filename_core}.log")
-                if os.path.exists(attach_path_for_email):
-                    attach_path_for_email = os.path.join(temp_dir, f'{filename_core}_{int(time.time())}.log')
-                try:
-                    with open(attach_path_for_email, 'w', encoding='utf-8') as f:
-                        f.write(job_log_text)
-                    temp_files.append(attach_path_for_email)
-                except Exception:
-                    attach_path_for_email = None
-            else:
-                if attach_path:
-                    attach_path_for_email = attach_path
-        except Exception as e:
-            logger.exception("Failed to prepare job log attachment for email: %s", e)
-
-        # set attach_path to the prepared email attachment
-        attach_path = attach_path_for_email
-
-        # Legacy Apprise URLs and mailto/mailtos are ignored (SMTP-only project).
-        # If you previously relied on Apprise mailto URLs, migrate recipients to user profiles or the Notifications settings page.
-
-        # We only support SMTP delivery now. Send full notification via SMTP to configured recipients.
-        from app.notifications.adapters import SMTPAdapter
-        smtp_adapter = SMTPAdapter() if get_setting('smtp_server') else None
-        if not smtp_adapter:
-            logger.warning("SMTP not configured; skipping notification for archive=%s job=%s", archive_name, job_id)
-            return
-
-        send_body = html_body_to_send
-        # Recipients resolved from user profiles
-        recipients = get_user_emails() or []
-        if not recipients:
-            logger.warning("No recipients configured for notification (no user emails). archive=%s job=%s", archive_name, job_id)
-            return
-
-        try:
-            # send via SMTPAdapter to recipients
-            res = smtp_adapter.send(title, send_body, body_format=None, attach=attach_path, recipients=recipients, context=f'email_smtp_{archive_name}_{job_id}')
-            if res.success:
-                logger.info("SMTP adapter: sent full notification via SMTP for archive=%s job=%s", archive_name, job_id)
-            else:
-                logger.error("SMTP adapter: send failed for archive=%s job=%s: %s", archive_name, job_id, res.detail)
-        except Exception as e:
-            logger.exception("Error while sending email notifications for %s job %s: %s", archive_name, job_id, e)
-        finally:
-            try:
-                # Remove any temp files we created
-                try:
-                    for p in list(temp_files):
-                        if p and os.path.exists(p):
-                            os.unlink(p)
-                except Exception:
-                    pass
-                # Also cleanup attach_path if we created it
-                if attach_path and os.path.exists(attach_path):
-                    try:
-                        os.unlink(attach_path)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+        # Send email
+        send_email(title, html_body_to_send, attach=attach_path, context=f'email_smtp_{archive_name}_{job_id}')
     except Exception as e:
         logger.exception("Failed to send notification: %s", e)
+
+
+# Other handlers can be added here as needed
 
 
 def send_retention_notification(archive_name, deleted_count, deleted_dirs, deleted_files, reclaimed_bytes):
@@ -577,8 +427,6 @@ def send_retention_notification(archive_name, deleted_count, deleted_dirs, delet
         return
 
     try:
-        # SMTP-only: Build message and send via SMTP
-        
         # Build message
         reclaimed_gb = reclaimed_bytes / (1024 * 1024 * 1024)
         reclaimed_mb = reclaimed_bytes / (1024 * 1024)
@@ -600,23 +448,56 @@ def send_retention_notification(archive_name, deleted_count, deleted_dirs, delet
         
         # Convert to plain text if needed
         if body_format == 'text':
+            from app.notifications.formatters import strip_html_tags
             body = strip_html_tags(body)
         
-        # Send via SMTP
-        try:
-            from app.notifications.adapters import SMTPAdapter
-            smtp_adapter = SMTPAdapter() if get_setting('smtp_server') else None
-            if not smtp_adapter:
-                logger.warning("SMTP not configured; skipping retention notification for %s", archive_name)
-            else:
-                res = smtp_adapter.send(title, body, body_format=None, attach=None, recipients=get_user_emails(), context=f'retention_{archive_name}')
-                if not res.success:
-                    logger.error("SMTP send failed for retention notification: %s", res.detail)
-        except Exception as e:
-            logger.exception("Failed to send retention notification: %s", e)
+        # Send email
+        send_email(title, body, context=f'retention_{archive_name}')
         
     except Exception as e:
-        logger.exception("Failed to send notification: %s", e)
+        logger.exception("Failed to send retention notification: %s", e)
+
+
+def send_error_notification(archive_name, error_message):
+    """Send notification for job failure."""
+    if not should_notify('error'):
+        return
+    
+    try:
+        base_url = get_setting('base_url', 'http://localhost:8080')
+        
+        title = get_subject_with_tag(f"❌ Archive Failed: {archive_name}")
+        body = f"""<h2>Archive job failed for: {archive_name}</h2>
+<p>
+<strong>Error:</strong><br>
+<code>{error_message}</code>
+</p>
+<hr>
+<p><small>Docker Archiver: <a href=\"{base_url}\">{base_url}</a></small></p>"""
+
+        # Send email
+        send_email(title, body, context='error_notification')
+    except Exception as e:
+        logger.exception("Failed to send error notification: %s", e)
+
+
+def send_test_notification():
+    """Send a test notification to verify SMTP configuration and recipients."""
+    base_url = get_setting('base_url', 'http://localhost:8080')
+    title = get_subject_with_tag("🔔 Docker Archiver - Test Notification")
+
+    # Compose HTML body for email
+    body = f"""<h2>Test Notification from Docker Archiver</h2>
+<p>If you received this message, your notification configuration is working correctly!</p>
+<div style='border-top:1px solid #eee;margin:8px 0'></div>
+<p><small>Docker Archiver: <a href=\"{base_url}\">{base_url}</a></small></p>"""
+
+    # Send email
+    try:
+        send_email(title, body, context='test_notification')
+    except Exception as e:
+        raise Exception(f"Failed to send test notification: {e}")
+
 
 def send_permissions_fix_notification(result, report_path=None):
     """Send notification after a permissions fix run.
@@ -761,89 +642,9 @@ def send_permissions_fix_notification(result, report_path=None):
             attach_path = None
 
         try:
-            from app.notifications.adapters import SMTPAdapter
-            smtp_adapter = SMTPAdapter() if get_setting('smtp_server') else None
-            if not smtp_adapter:
-                logger.warning('SMTP not configured; permissions notification skipped')
-            else:
-                try:
-                    if attach_path:
-                        res = smtp_adapter.send(title, send_body + "\n\n(Full report attached)", body_format=None, attach=attach_path, recipients=get_user_emails(), context='permissions_fix')
-                        if res.success:
-                            try:
-                                os.unlink(attach_path)
-                            except Exception:
-                                pass
-                        else:
-                            logger.error('SMTP permissions notification send failed: %s', res.detail)
-                    else:
-                        res = smtp_adapter.send(title, send_body, body_format=None, attach=None, recipients=get_user_emails(), context='permissions_fix')
-                        if not res.success:
-                            logger.error('SMTP permissions notification send failed: %s', res.detail)
-                except Exception as e:
-                    logger.exception("Failed to send permissions notification: %s", e)
+            # Use send_email instead of direct SMTPAdapter
+            send_email(title, send_body, body_format=body_format, attach=attach_path, context='permissions_fix')
         except Exception as e:
             logger.exception("Failed to send permissions notification: %s", e)
     except Exception as e:
-        logger = get_logger(__name__)
         logger.exception("Failed to send permissions notification: %s", e)
-
-
-
-def send_error_notification(archive_name, error_message):
-    """Send notification for job failure."""
-    if not should_notify('error'):
-        return
-    
-    try:
-        base_url = get_setting('base_url', 'http://localhost:8080')
-        
-        title = get_subject_with_tag(f"❌ Archive Failed: {archive_name}")
-        body = f"""<h2>Archive job failed for: {archive_name}</h2>
-<p>
-<strong>Error:</strong><br>
-<code>{error_message}</code>
-</p>
-<hr>
-<p><small>Docker Archiver: <a href=\"{base_url}\">{base_url}</a></small></p>"""
-
-        # Send via SMTP
-        try:
-            from app.notifications.adapters import SMTPAdapter
-            smtp_adapter = SMTPAdapter() if get_setting('smtp_server') else None
-            if not smtp_adapter:
-                logger.warning("SMTP not configured; skipping error notification for %s", archive_name)
-                return
-            res = smtp_adapter.send(title, body, body_format=None, attach=None, recipients=get_user_emails(), context='error_notification')
-            if not res.success:
-                logger.error("SMTP send failed for error notification: %s", res.detail)
-        except Exception as e:
-            logger.exception("Failed to send error notification: %s", e)
-    except Exception as e:
-        logger.exception("Failed to send notification: %s", e)
-
-
-def send_test_notification():
-    """Send a test notification to verify SMTP configuration and recipients."""
-    base_url = get_setting('base_url', 'http://localhost:8080')
-    title = get_subject_with_tag("🔔 Docker Archiver - Test Notification")
-
-    # Compose HTML body for email
-    body_html = f"""<h2>Test Notification from Docker Archiver</h2>
-<p>If you received this message, your notification configuration is working correctly!</p>
-<div style='border-top:1px solid #eee;margin:8px 0'></div>
-<p><small>Docker Archiver: <a href=\"{base_url}\">{base_url}</a></small></p>"""
-
-    # Use SMTPAdapter to send when configured
-    try:
-        from app.notifications.adapters import SMTPAdapter
-        smtp_adapter = SMTPAdapter() if get_setting('smtp_server') else None
-        if not smtp_adapter:
-            raise Exception('SMTP not configured')
-
-        res = smtp_adapter.send(title, body_html, body_format=None, attach=None, context='test_notification')
-        if not res.success:
-            raise Exception(f"SMTP send failed: {res.detail}")
-
-    except Exception as e:
-        raise Exception(f"Failed to send test notification: {e}")

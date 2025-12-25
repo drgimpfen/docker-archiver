@@ -46,7 +46,7 @@ def test_send_link_creates_token_for_existing_archive(monkeypatch):
         monkeypatch.setattr('app.notifications.adapters.smtp.SMTPAdapter.send', fake_send)
 
         # Ensure base_url is predictable
-        monkeypatch.setattr('app.notifications.core.get_setting', lambda k, d=None: 'http://testserver' if k == 'base_url' else d)
+        monkeypatch.setattr('app.notifications.get_setting', lambda k, d=None: 'http://testserver' if k == 'base_url' else d)
 
         with app.test_client() as client:
             with client.session_transaction() as sess:
