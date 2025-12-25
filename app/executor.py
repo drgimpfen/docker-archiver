@@ -14,7 +14,7 @@ from app import utils
 from app.stacks import validate_stack, find_compose_file, discover_stacks
 from app.utils import setup_logging, get_logger, get_archives_path, get_display_timezone
 from app.sse import send_global_event
-from app.notifications import get_setting, send_archive_notification
+from app.notifications import get_setting, send_archive_notification, send_archive_failure_notification
 
 # Configure logging using centralized setup so LOG_LEVEL is respected
 setup_logging()
@@ -592,8 +592,15 @@ def _process_single_stack(self, stack_name, stop_containers):
                 # Return a 'skipped' metric explicitly
                 return self._create_stack_metric(stack_name, 'skipped', stack_start, was_running, error=skip_reason)
             if not start_result:
-                self.log('ERROR', f"Failed to restart stack: {stack_name}")
-                # Don't fail the whole job, archive was created successfully
+                # Pull or start failed — mark this stack as failed and mark job as failed
+                error_msg = f"Failed to restart stack: {stack_name}"
+                self.log('ERROR', error_msg)
+                try:
+                    self.job_failed = True
+                except Exception:
+                    pass
+                # Return a 'failed' metric for this stack (archive was created earlier)
+                return self._create_stack_metric(stack_name, 'failed', stack_start, was_running, archive_path=archive_path, archive_size=archive_size, error=error_msg)
         
         stack_end = utils.now()
         duration = int((stack_end - stack_start).total_seconds())
@@ -1197,19 +1204,41 @@ def _phase_3_finalize(self, start_time, stack_metrics):
         end_time = utils.now()
         duration = int((end_time - start_time).total_seconds())
         
+        # Determine overall job status (if any stack failed or job_failed flag set)
+        job_failed = getattr(self, 'job_failed', False) or any(m.get('status') == 'failed' for m in (stack_metrics or []))
+
         # Update job record
-        self._update_job_status('success', end_time=end_time, duration=duration, total_size=total_size)
+        if job_failed:
+            # Build brief error message summarizing failures
+            failed = [m for m in (stack_metrics or []) if m.get('status') == 'failed']
+            try:
+                error_msg = 'Stack failures: ' + ', '.join(f"{m.get('stack_name')}: {m.get('error') or 'failed'}" for m in failed)
+            except Exception:
+                error_msg = 'One or more stacks failed during restart'
+            self._update_job_status('failed', end_time=end_time, duration=duration, total_size=total_size, error=error_msg)
+        else:
+            self._update_job_status('success', end_time=end_time, duration=duration, total_size=total_size)
         
         # Save stack metrics
         self._save_stack_metrics(stack_metrics)
         
-        # Send notification
+        # Send notification (failure notification if job failed)
         if not self.is_dry_run:
-            self._send_notification(stack_metrics, duration, total_size)
+            try:
+                if job_failed:
+                    logger.info("Notifications: invoking send_archive_failure_notification for archive=%s job=%s", self.config.get('name'), self.job_id)
+                    send_archive_failure_notification(self.config, self.job_id, stack_metrics, duration, total_size)
+                else:
+                    self._send_notification(stack_metrics, duration, total_size)
+            except Exception as e:
+                self.log('WARNING', f"Failed to send notification: {e}")
         else:
             self.log('INFO', 'Would send notification (dry run)')
         
-        self.log('INFO', f"Archive job completed successfully in {duration}s")
+        if job_failed:
+            self.log('ERROR', f"Archive job completed with failures in {duration}s")
+        else:
+            self.log('INFO', f"Archive job completed successfully in {duration}s")
     
 def _log_disk_usage(self):
         """Log disk usage for archives directory."""

@@ -387,7 +387,7 @@ Tips:
 
 Pull inactivity timeout: To avoid a hung image pull blocking a whole job, the executor now uses an *inactivity timeout* (seconds) which aborts a pull if no output is produced for the configured period. You can set **Pull inactivity timeout (seconds)** in **Settings → Security** (default: **300**). Set it to **0** to disable the inactivity timeout (use with caution).
 
-Notification note: When images are pulled, notifications include a short inline excerpt of the pull output (a few lines) so operators get a quick summary; the full pull output is still available in the job log.
+Notification note: When images are pulled, notifications include the full filtered pull output inline (HTML‑escaped), so operators can see the final result directly in the message. The excerpt filters out transient progress/spinner lines and keeps final, meaningful lines (for example: “[+] Pulling …”, “✔ … Pulled”, “Already exists”, “Download complete”, digest/sha256 lines). The full raw pull output is also stored in the job log and included as an attachment when log attachments are enabled; partial output is preserved if a pull times out or fails.
 
 Notes:
 

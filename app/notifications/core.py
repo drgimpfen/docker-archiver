@@ -81,37 +81,32 @@ def should_notify(event_type):
 # Helper used to send notifications via Apprise with a retry and good logging
 # Apprise notify helper removed with Apprise removal.
 
-def send_archive_notification(archive_config, job_id, stack_metrics, duration, total_size):
-    """Send notification for archive job completion."""
+def send_archive_failure_notification(archive_config, job_id, stack_metrics, duration, total_size):
+    """Send notification for an archive job failure."""
     try:
-        logger.info("Notifications: send_archive_notification called for archive=%s job=%s", archive_config.get('name') if archive_config else None, job_id)
+        logger.info("Notifications: send_archive_failure_notification called for archive=%s job=%s", archive_config.get('name') if archive_config else None, job_id)
     except Exception:
         pass
 
-    if not should_notify('success'):
+    if not should_notify('error'):
         return
     
     try:
         base_url = get_setting('base_url', 'http://localhost:8080')
         
-        # SMTP-only: legacy Apprise URLs are ignored; proceed to build message and send via SMTP
-        
-        # Build notification message
+        # Build notification message (failure)
         archive_name = archive_config['name']
         stack_count = len(stack_metrics)
         success_count = sum(1 for m in stack_metrics if m['status'] == 'success')
         failed_count = stack_count - success_count
         
-        # Use shared formatting for human-readable sizes so all sizes are consistent
         size_str = format_bytes(total_size)
-        
         duration_min = duration // 60
         duration_sec = duration % 60
         duration_str = f"{duration_min}m {duration_sec}s" if duration_min > 0 else f"{duration_sec}s"
         
-        status_emoji = "✅" if failed_count == 0 else "⚠️"
-        
-        title = get_subject_with_tag(f"{status_emoji} Archive Complete: {archive_name}")
+        status_emoji = "✖️"
+        title = get_subject_with_tag(f"{status_emoji} Archive Failed: {archive_name}")
         
         # Check if any stacks have named volumes
         stacks_with_volumes = [m for m in stack_metrics if m.get('named_volumes')]
@@ -199,12 +194,8 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
         try:
             updated = [s for s in (stack_metrics or []) if s.get('images_pulled')]
             if updated:
-                # Determine excerpt lines setting (bounded)
-                try:
-                    excerpt_lines_setting = int(get_setting('image_pull_excerpt_lines', '8'))
-                except Exception:
-                    excerpt_lines_setting = 8
-                excerpt_lines = max(1, min(50, excerpt_lines_setting))
+                # Always show the full filtered pull output inline in notifications
+                excerpt_lines = 0
 
                 note_html = "\n<hr>\n<p><strong>Note:</strong> Some stacks had container images pulled during this job; please verify containers were updated as expected. See <a href=\"https://github.com/drgimpfen/Docker-Archiver#image-pull-policy\">README</a> for details.</p>\n<ul>\n"
                 for s in updated:
@@ -283,6 +274,153 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
                 note_html += "</ul>\n"
                 html_body_to_send = (html_body_to_send or '') + note_html
                 # Also append to inline body so recipients see it regardless
+                body = (body or '') + note_html
+        except Exception:
+            pass
+
+
+def send_archive_notification(archive_config, job_id, stack_metrics, duration, total_size):
+    """Send notification for a successful archive job."""
+    try:
+        logger.info("Notifications: send_archive_notification called for archive=%s job=%s", archive_config.get('name') if archive_config else None, job_id)
+    except Exception:
+        pass
+
+    if not should_notify('success'):
+        return
+
+    try:
+        base_url = get_setting('base_url', 'http://localhost:8080')
+
+        archive_name = archive_config.get('name') if archive_config else 'Archive'
+        stack_count = len(stack_metrics)
+        success_count = sum(1 for m in stack_metrics if m.get('status') == 'success')
+        failed_count = stack_count - success_count
+
+        size_str = format_bytes(total_size)
+        duration_min = duration // 60
+        duration_sec = duration % 60
+        duration_str = f"{duration_min}m {duration_sec}s" if duration_min > 0 else f"{duration_sec}s"
+
+        status_emoji = "✅"
+        title = get_subject_with_tag(f"{status_emoji} Archive Completed: {archive_name}")
+
+        # Check if any stacks have named volumes
+        stacks_with_volumes = [m for m in stack_metrics if m.get('named_volumes')]
+
+        # Created archives table (alphabetical by filename)
+        created_archives = []
+        for m in stack_metrics:
+            path = m.get('archive_path')
+            size = m.get('archive_size_bytes') or 0
+            if path:
+                created_archives.append({'path': str(path), 'size': size})
+
+        # Fetch job retention/log info
+        try:
+            with get_db() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT reclaimed_bytes, log FROM jobs WHERE id = %s;", (job_id,))
+                job_row = cur.fetchone()
+                reclaimed = job_row.get('reclaimed_bytes') if job_row else None
+                job_log = job_row.get('log') if job_row else ''
+        except Exception:
+            reclaimed = None
+            job_log = ''
+
+        # Build HTML body using helpers
+        body = build_full_body(
+            archive_name=archive_name,
+            status_emoji=status_emoji,
+            success_count=success_count,
+            stack_count=stack_count,
+            size_str=size_str,
+            duration_str=duration_str,
+            stack_metrics=stack_metrics,
+            created_archives=created_archives,
+            total_size=total_size,
+            reclaimed=reclaimed,
+            job_log=job_log,
+            base_url=base_url,
+            stacks_with_volumes=stacks_with_volumes,
+            job_id=job_id,
+            include_log_inline=True,
+        )
+
+        # user settings for attachments
+        attach_log_setting = get_setting('notify_attach_log', 'false').lower() == 'true'
+
+        # Decide whether to send full HTML body or prepare an attachment
+        if attach_log_setting:
+            html_body_to_send = build_full_body(
+                archive_name=archive_name,
+                status_emoji=status_emoji,
+                success_count=success_count,
+                stack_count=stack_count,
+                size_str=size_str,
+                duration_str=duration_str,
+                stack_metrics=stack_metrics,
+                created_archives=created_archives,
+                total_size=total_size,
+                reclaimed=reclaimed,
+                job_log=job_log,
+                base_url=base_url,
+                stacks_with_volumes=stacks_with_volumes,
+                job_id=job_id,
+                include_log_inline=False,
+            )
+        else:
+            html_body_to_send = body
+
+        # If any stacks had images pulled/updated, add the full filtered pull output inline
+        try:
+            updated = [s for s in (stack_metrics or []) if s.get('images_pulled')]
+            if updated:
+                note_html = "\n<hr>\n<p><strong>Note:</strong> The following stacks had images pulled during this job; please verify containers were updated as expected. See <a href=\"https://github.com/drgimpfen/Docker-Archiver#image-pull-policy\">README</a> for details.</p>\n<ul>\n"
+                import re as _re, html as _html
+                ansi_re = _re.compile(r'\x1B[@-_][0-?]*[ -/]*[@-~]')
+                for s in updated:
+                    stack_name = s.get('stack_name')
+                    pull_output = (s.get('pull_output') or '')
+                    if pull_output:
+                        raw = str(pull_output)
+                        # Filter/normalize lines (same heuristics as failure notifier)
+                        filtered = []
+                        for line in raw.splitlines():
+                            clean = ansi_re.sub('', line).rstrip()
+                            if not clean:
+                                continue
+                            if '\r' in line:
+                                continue
+                            part = clean.strip()
+                            if not part:
+                                continue
+                            if _re.match(r'^\s*\[\+\]\s*Pulling', part, _re.IGNORECASE):
+                                filtered.append(part)
+                                continue
+                            if part.startswith('✔') or part.startswith('\u2713'):
+                                filtered.append(part)
+                                continue
+                            if _re.search(r'\b(Pulled|Downloaded|Downloaded newer image|Download complete|Already exists|Digest:|sha256:)\b', part, _re.IGNORECASE):
+                                filtered.append(part)
+                                continue
+                            if _re.search(r"\d+(?:\.\d+)?M[Bb]?/\d+(?:\.\d+)?M[Bb]?", part):
+                                continue
+                            if _re.search(r'^\s*\d+%\b', part):
+                                continue
+                            if any(ch in part for ch in ['⠹','⠏','⠸','⠼','⠴','⠦','⠧']):
+                                continue
+                            if _re.search(r'\b(Downloading|Pulling|Extracting|Compressing|Verifying|Waiting|Pushing)\b', part, _re.IGNORECASE):
+                                continue
+                            filtered.append(part)
+
+                        excerpt = '\n'.join(filtered)
+                        escaped = _html.escape(excerpt)
+                        note_html += f"  <li><strong>{stack_name}</strong>: Pull output:<br>\n    <pre style='background:#f7f7f7;padding:8px;border-radius:5px;white-space:pre-wrap;overflow:auto;max-height:240px;'>{escaped}</pre></li>\n"
+                    else:
+                        note_html += f"  <li><strong>{stack_name}</strong>: Pull output available in job log</li>\n"
+                note_html += "</ul>\n"
+                html_body_to_send = (html_body_to_send or '') + note_html
                 body = (body or '') + note_html
         except Exception:
             pass

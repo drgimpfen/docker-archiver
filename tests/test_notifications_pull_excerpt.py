@@ -50,16 +50,17 @@ Fifth line
     body = captured.get('body', '')
     assert body, "Expected notification body to be sent"
 
-    # The excerpt should contain only the first 3 lines and should be HTML-escaped
+    # The excerpt should contain the full (filtered) pull output and should be HTML-escaped
     assert 'Downloaded newer image foo:latest' in body
     assert 'Some more detail about pull' in body
     # The third line included should be escaped
     assert '&lt;dangerous &amp; data&gt;' in body
-    # The fourth line must NOT be included in the excerpt
-    assert 'Fourth line' not in body
+    # The fourth and fifth lines should also be included now (full filtered output)
+    assert 'Fourth line' in body
+    assert 'Fifth line' in body
 
-    # Also ensure the note references job log / excerpt label
-    assert 'Pull output (excerpt' in body
+    # Also ensure the note references pull output
+    assert 'Pull output' in body
 
 
 def test_send_notification_filters_progress_lines(monkeypatch):
