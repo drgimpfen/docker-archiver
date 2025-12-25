@@ -121,6 +121,13 @@ def run_cleanup(dry_run_override=None, job_id=None):
         except Exception as e:
             log_message('ERROR', f'Failed to process unreferenced files: {e}')
 
+        # Download tokens cleanup (remove expired tokens and files)
+        try:
+            from app.routes.api.downloads import cleanup_expired_tokens
+            log_message('INFO', 'Running download token cleanup')
+            cleanup_expired_tokens()
+        except Exception as e:
+            log_message('WARNING', f'Failed to cleanup download tokens: {e}')
 
         log_message('INFO', f"Cleanup task completed ({mode})")
         log_message('INFO', f"Total reclaimed: {format_bytes(total_reclaimed)}")
