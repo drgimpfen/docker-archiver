@@ -23,6 +23,16 @@
                         <small class="text-muted">When enabled, the app will apply safe defaults to newly created files and folders.</small>
                     </label>
                 </div>
+
+                <div class="mb-3">
+                    <button type="button" id="checkPermButton" class="btn btn-outline-secondary btn-sm me-2">
+                        <i class="bi bi-check2-circle me-1"></i>Check Permissions
+                    </button>
+                    <button type="button" id="fixPermButton" class="btn btn-danger btn-sm" onclick="fixPermissions()">
+                        <i class="bi bi-wrench me-1"></i>Apply Configured Permissions
+                    </button>
+                    <div class="form-text mt-2 text-muted">Scan archive directories for permission mismatches and optionally apply the configured defaults (runs in background).</div>
+                </div>
             </div>
         </div>
 
@@ -32,4 +42,166 @@
         </div>
     </form>
 </div>
+
+<!-- Permissions Modal -->
+<div class="modal fade" id="permissionsModal" tabindex="-1" aria-labelledby="permissionsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="permissionsModalLabel">Permissions Report</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p><strong>Total files:</strong> <span id="permTotalFiles">0</span> &nbsp; <strong>Total directories:</strong> <span id="permTotalDirs">0</span></p>
+        <p><strong>Mismatched files:</strong> <span id="permMismatchedFilesCount">0</span> &nbsp; <strong>Mismatched dirs:</strong> <span id="permMismatchedDirsCount">0</span></p>
+        <div class="mb-3">
+          <h6>Stacks with mismatches</h6>
+          <div style="max-height:220px; overflow:auto;">
+            <table class="table table-sm table-striped" id="permStacksTable">
+              <thead><tr><th>Stack</th><th>Files</th><th>Dirs</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="permissionsFixButton" class="btn btn-danger">Fix mismatches (apply permissions)</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Fix Modal -->
+<div class="modal fade" id="confirmFixModal" tabindex="-1" aria-labelledby="confirmFixModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="confirmFixModalLabel">Confirm Apply Permissions</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>Apply configured permissions to all mismatched files and directories? This will start a background job and may take some time on large archives.</p>
+        <p class="text-muted mb-0">The operation is safe and best-effort. You will be notified in the UI when it starts.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="confirmFixNo" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="confirmFixYes" class="btn btn-danger">Apply</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function fixPermissions(){
+    // Prefer the modal button if present, fallback to older id
+    const btn = document.getElementById('fixPermButton') || document.getElementById('permissionsFixButton');
+    if(btn){ btn.disabled = true; var original = btn.innerHTML; btn.innerHTML = 'Starting...'; }
+    const token = document.querySelector('input[name="csrf_token"]').value;
+    try{
+        const r = await fetch('{{ url_for("settings.fix_permissions") }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': token }
+        });
+        const j = await r.json();
+        if (j && (j.status === 'started' || j.status === 'ok')){
+            if(typeof showAlert === 'function') showAlert(j.message || 'Started: Fixing permissions in background', 'success');
+            return j;
+        } else {
+            if(typeof showAlert === 'function') showAlert(j.message || 'Failed to start permission fix', 'danger');
+            throw new Error(j.message || 'Failed to start');
+        }
+    }catch(e){
+        if(typeof showAlert === 'function') showAlert('Failed to start permission fix: ' + e, 'danger');
+        throw e;
+    }finally{
+        if(btn){ btn.disabled = false; btn.innerHTML = original; }
+    }
+}
+
+async function checkPermissions(){
+    // No initial confirmation to keep flow non-intrusive
+    const btn = document.getElementById('checkPermButton');
+    btn.disabled = true;
+    const original = btn.innerHTML;
+    btn.innerHTML = 'Checking...';
+    const token = document.querySelector('input[name="csrf_token"]').value;
+    try{
+        const r = await fetch('{{ url_for("settings.check_permissions") }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': token }
+        });
+        const j = await r.json();
+        if(j.status === 'ok'){
+            document.getElementById('permTotalFiles').textContent = j.total_files;
+            document.getElementById('permTotalDirs').textContent = j.total_dirs;
+            document.getElementById('permMismatchedFilesCount').textContent = j.mismatched_file_count;
+            document.getElementById('permMismatchedDirsCount').textContent = j.mismatched_dir_count;
+
+            const table = document.querySelector('#permStacksTable tbody'); table.innerHTML = '';
+            j.stacks.forEach(s => {
+                const tr = document.createElement('tr');
+                const fullPath = (s.stack_name && s.stack_name !== '<root>') ? `${s.archive_path}/${s.stack_name}` : s.archive_path;
+                const stackCell = `<td><code>${fullPath}</code></td>`;
+                const countsCell = `<td>${s.mismatched_file_count}</td><td>${s.mismatched_dir_count}</td>`;
+                tr.innerHTML = stackCell + countsCell;
+                table.appendChild(tr);
+            });
+
+            var modalEl = document.getElementById('permissionsModal');
+            var bsModal = new bootstrap.Modal(modalEl);
+            bsModal.show();
+
+            // Wire up fix button inside modal to show a confirmation dialog
+            const modalFix = document.getElementById('permissionsFixButton');
+            modalFix.onclick = function(){
+                const confirmModalEl = document.getElementById('confirmFixModal');
+                const confirmModal = new bootstrap.Modal(confirmModalEl);
+                confirmModal.show();
+
+                const confirmBtn = document.getElementById('confirmFixYes');
+                const cancelBtn = document.getElementById('confirmFixNo');
+
+                function onConfirm(){
+                    confirmBtn.disabled = true;
+                    confirmBtn.innerHTML = 'Starting...';
+                    fixPermissions().then(()=>{
+                        confirmModal.hide();
+                        bsModal.hide();
+                    }).catch(()=>{
+                        // fixPermissions already displays an alert via showAlert
+                    }).finally(()=>{
+                        confirmBtn.disabled = false;
+                        confirmBtn.innerHTML = 'Apply';
+                    });
+                }
+
+                confirmBtn.addEventListener('click', onConfirm, { once: true });
+
+                // Cleanup on modal hidden
+                confirmModalEl.addEventListener('hidden.bs.modal', function(){
+                    try { confirmBtn.removeEventListener('click', onConfirm); } catch(e){}
+                }, { once: true });
+            }
+        } else {
+            // Use showAlert if available, avoid noisy browser alerts
+            if(typeof showAlert === 'function') showAlert('Error: ' + (j.message || 'Failed to scan'), 'danger');
+            else console.error('Error: ' + (j.message || 'Failed to scan'));
+        }
+    }catch(e){
+        if(typeof showAlert === 'function') showAlert('Error: ' + e, 'danger');
+        else console.error('Error: ' + e);
+    }finally{
+        btn.disabled = false;
+        btn.innerHTML = original;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+    const checkBtn = document.getElementById('checkPermButton');
+    if(checkBtn) checkBtn.addEventListener('click', checkPermissions);
+});
+</script>
+
 {% endblock %}
