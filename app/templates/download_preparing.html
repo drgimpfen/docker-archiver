@@ -14,7 +14,7 @@
             <form id="notifyForm" method="POST" action="{{ url_for('download_regenerate', token=token) }}">
               <div class="mb-3">
                 <label for="notifyEmail" class="form-label">Email address (optional)</label>
-                <input type="email" id="notifyEmail" name="email" class="form-control" placeholder="you@example.com" value="{{ notify_email or '' }}">
+                <input type="email" id="notifyEmail" name="email" class="form-control" placeholder="you@example.com" value="">
               </div>
               <button type="submit" class="btn btn-primary">Save email</button>
             </form>

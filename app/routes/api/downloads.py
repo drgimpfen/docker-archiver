@@ -375,10 +375,10 @@ def request_download():
             
             if path.is_file():
                 # File exists, create token immediately and send email
-                notify_email = data.get('notify_email') if isinstance(data, dict) else None
+                notify_input = data.get('notify_email') if isinstance(data, dict) else None
                 emails = None
-                if notify_email and isinstance(notify_email, str):
-                    emails = [e.strip() for e in notify_email.split(',') if e.strip()]
+                if notify_input and isinstance(notify_input, str):
+                    emails = [e.strip() for e in notify_input.split(',') if e.strip()]
                 cur.execute("""
                     INSERT INTO download_tokens (token, stack_name, file_path, archive_path, expires_at, is_packing, notify_emails)
                     VALUES (%s, %s, %s, %s, %s, FALSE, %s);
@@ -431,12 +431,12 @@ def request_download():
                         return jsonify({'success': True, 'message': 'Archive preparation already started', 'is_folder': True, 'token': existing['token']})
 
                 # No existing ready archive — insert token and mark as packing
-                # Insert notify_email if provided
-                notify_email = data.get('notify_email') if isinstance(data, dict) else None
+                # Insert notify_input if provided
+                notify_input = data.get('notify_email') if isinstance(data, dict) else None
                 # Insert token and save notify_emails if provided (comma-separated)
                 emails = None
-                if notify_email and isinstance(notify_email, str):
-                    emails = [e.strip() for e in notify_email.split(',') if e.strip()]
+                if notify_input and isinstance(notify_input, str):
+                    emails = [e.strip() for e in notify_input.split(',') if e.strip()]
                 cur.execute("""
                     INSERT INTO download_tokens (token, stack_name, file_path, archive_path, expires_at, is_packing, notify_emails)
                     VALUES (%s, %s, %s, %s, %s, TRUE, %s);
@@ -548,10 +548,10 @@ def send_link():
 
     Body accepts either { token, email } or { archive_path, email }.
     If the token exists and the archive is ready the email is sent immediately.
-    If the archive is still packing, the token's `notify_email` will be updated so
-    the background pack job will notify the provided address when ready.
+    If the archive is still packing, the token's `notify_emails` will be updated so
+    the background pack job will notify the provided addresses when ready.
     If no token exists for an archive_path, a token is created (and packing
-    started) with `notify_email` set so the recipient is notified when ready.
+    started) with `notify_emails` set so the recipients are notified when ready.
     """
     data = request.get_json() or {}
     email = (data.get('email') or '').strip() if isinstance(data, dict) else ''

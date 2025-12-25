@@ -15,7 +15,7 @@
             <form id="regenerateForm" method="POST" action="{{ url_for('download_regenerate', token=token) }}">
               <div class="mb-3">
                 <label for="regenEmail" class="form-label">Email address</label>
-                <input type="email" id="regenEmail" name="email" class="form-control" placeholder="you@example.com" value="{{ notify_email or '' }}" required>
+                <input type="email" id="regenEmail" name="email" class="form-control" placeholder="you@example.com" value="" required>
               </div>
               <div class="mb-3 text-muted small">This download link expires at {{ expires_at | datetime }}</div>
               <button type="submit" class="btn btn-primary">Start regeneration and notify me</button>

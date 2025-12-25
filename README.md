@@ -266,6 +266,8 @@ For more details and troubleshooting tips, see the dashboard warning messages or
 | `DB_PASSWORD` | changeme123 | Yes | PostgreSQL password |
 | `SECRET_KEY` | (dev key) | Yes | Flask session secret (change in production!) |
 | `REDIS_URL` | - | No | Optional Redis URL (e.g., `redis://localhost:6379/0`) to enable cross-worker SSE event streaming |
+| `DOWNLOADS_AUTO_GENERATE_ON_ACCESS` | false | No | When `true`, visiting a missing download link can trigger automatic archive generation on demand. Default: `false` (recommended). |
+| `DOWNLOADS_AUTO_GENERATE_ON_STARTUP` | false | No | When `true`, the app attempts to generate missing downloads for valid tokens during startup (use with caution). Default: `false` (recommended). |
 | `LOG_LEVEL` | INFO | No | Global log level for application logging (DEBUG, INFO, WARNING, ERROR). Set `LOG_LEVEL=DEBUG` to enable debug-level output for troubleshooting. |
 
 > **Note:** Port (8080) and mount paths are configured in `docker-compose.yml`, not via environment variables.
@@ -391,13 +393,29 @@ Examples:
 
 ## Notifications
 
-Docker Archiver sends notifications via **email (SMTP)** only. SMTP settings are configured in the web UI under **Settings → Notifications** and are stored in the application database (not via environment variables).
+Docker Archiver sends notifications via **email (SMTP)** only. **SMTP settings are configured in the web UI under _Settings → Notifications_ and are stored in the application database (not via environment variables).** This avoids leaking credentials in environment files and makes runtime changes available via the web UI.
 
 ### SMTP Settings (in the UI)
 
 - **SMTP Server** — Hostname or IP of your SMTP server (`smtp_server`)
 - **SMTP Port** — TCP port for SMTP (`smtp_port`, commonly `587`)
 - **SMTP Username** — Username for SMTP authentication (optional)
+
+### Download Tokens & Notifications
+
+The download feature uses short-lived tokens (24 hours) that map to either an existing archive file or an archive directory (for which the server may prepare a `.tar.zst`). Important behavior:
+
+- **Token lifecycle**: Tokens are created via the API or UI and expire after 24 hours. A token may reference an existing file (`file_path`) or an archive directory (`archive_path`) that needs packing.
+- **notify_emails**: Each token stores a `notify_emails` array (one or more recipients). When an archive becomes ready, the server sends a link notification to the addresses in `notify_emails`.
+- **Public regenerate**: If an archive file is missing, the public `/download/<token>` page shows a small form where a user can submit a **single** email address to be added to `notify_emails` and request regeneration. The UI intentionally does **not** prefill any addresses.
+- **Automatic generation flags**: Two environment flags control optional automatic generation:
+  - `DOWNLOADS_AUTO_GENERATE_ON_ACCESS=false` (default) — when `true`, accessing a missing download link will attempt to start generation immediately.
+  - `DOWNLOADS_AUTO_GENERATE_ON_STARTUP=false` (default) — when `true`, the app will look for tokens missing prepared archives on startup and start generation for them. Both defaults are `false` and we recommend leaving them **disabled** unless you understand and want automatic generation behavior.
+
+Security / operational notes:
+- The app uses **atomic DB updates** to avoid duplicate concurrent packing jobs for the same token and **database-backed notify_emails** for reliable notification targets.
+- For multi-instance/HA deployments, consider using a task queue/worker instead of the built-in thread-based packer; this makes pack jobs deterministic and scalable.
+
 - **SMTP Password** — Password for SMTP authentication (optional)
 - **From address** — The sender `From:` address used for outgoing messages (`smtp_from`)
 - **Use TLS** — Toggle to use STARTTLS for the SMTP connection (`smtp_use_tls`)

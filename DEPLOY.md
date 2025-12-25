@@ -30,7 +30,16 @@ DB_PASSWORD=your-secure-db-password
 SECRET_KEY=your-random-secret-key-here
 APP_PORT=8080
 ARCHIVE_DIR=/mnt/archives
+# Optional download-generation flags (defaults: false)
+# Leave these disabled unless you explicitly want auto generation behavior.
+DOWNLOADS_AUTO_GENERATE_ON_ACCESS=false
+DOWNLOADS_AUTO_GENERATE_ON_STARTUP=false
 ```
+
+**Notes:**
+- `DOWNLOADS_AUTO_GENERATE_ON_ACCESS`: when `true`, visiting a missing download link can start background generation immediately. Default is `false`.
+- `DOWNLOADS_AUTO_GENERATE_ON_STARTUP`: when `true`, the app will attempt to generate missing downloads for valid tokens on startup. Default is `false` and should be used with caution.
+- SMTP credentials are managed via the app UI (Settings → Notifications) and are not configured via env vars. See `README.md` for additional details.
 
 ### 3. Configure Volume Mounts
 

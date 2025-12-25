@@ -341,7 +341,7 @@ def download_file(token):
         with get_db() as conn:
             cur = conn.cursor()
             cur.execute("""
-                SELECT file_path, archive_path, notify_email, stack_name, expires_at, is_packing
+                SELECT file_path, archive_path, notify_emails, stack_name, expires_at, is_packing
                 FROM download_tokens
                 WHERE token = %s;
             """, (token,))
@@ -357,7 +357,7 @@ def download_file(token):
 
         if token_data['is_packing']:
             # Show preparing page and allow user to register for notification. Prevent simultaneous regenerate triggers.
-            return render_template('download_preparing.html', token=token, stack_name=token_data.get('stack_name'), notify_email=token_data.get('notify_email'), expires_at=token_data.get('expires_at')), 202
+            return render_template('download_preparing.html', token=token, stack_name=token_data.get('stack_name'), notify_emails=token_data.get('notify_emails'), expires_at=token_data.get('expires_at')), 202
 
         file_path = token_data.get('file_path')
         if not file_path or not Path(file_path).exists():
@@ -375,7 +375,7 @@ def download_file(token):
 
             # If archive_path exists and is a directory, present regeneration form (public)
             if archive_path and Path(archive_path).exists() and Path(archive_path).is_dir():
-                return render_template('download_missing.html', token=token, stack_name=token_data.get('stack_name'), notify_email=token_data.get('notify_email'), expires_at=token_data.get('expires_at'))
+                return render_template('download_missing.html', token=token, stack_name=token_data.get('stack_name'), notify_emails=token_data.get('notify_emails'), expires_at=token_data.get('expires_at'))
 
             # Optionally start regeneration on access if enabled
             if os.environ.get('DOWNLOADS_AUTO_GENERATE_ON_ACCESS', 'false').lower() in ('1','true','yes') and archive_path and Path(archive_path).exists() and Path(archive_path).is_dir():
@@ -387,7 +387,8 @@ def download_file(token):
                     from app.routes.api.downloads import process_directory_pack
                     t = threading.Thread(target=process_directory_pack, args=(token_data.get('stack_name'), archive_path, token), daemon=True)
                     t.start()
-                    return render_template('download_preparing.html', token=token, stack_name=token_data.get('stack_name'), notify_email=token_data.get('notify_email'), expires_at=token_data.get('expires_at')), 202
+                    # Do not prefill any email in the preparing page
+                    return render_template('download_preparing.html', token=token, stack_name=token_data.get('stack_name'), expires_at=token_data.get('expires_at')), 202
                 except Exception as e:
                     logger.exception('Failed to start on-access generation for token %s: %s', token, e)
                     return render_template('download_error.html', reason='Download file could not be found and generation failed.', hint='Contact the administrator.'), 404
@@ -414,18 +415,27 @@ def download_regenerate(token):
     """Public endpoint: accept an email to notify and start regeneration if possible."""
     try:
         email = request.form.get('email', '').strip()
-        if not email:
-            return render_template('download_missing.html', token=token, stack_name='unknown', notify_email='', expires_at=None, error='Please provide a valid email address'), 400
+        # Validate single email entry
+        if not email or ',' in email or ';' in email or ' ' in email or '@' not in email:
+            return render_template('download_missing.html', token=token, stack_name='unknown', notify_emails=[], expires_at=None, error='Please provide a single valid email address'), 400
 
         with get_db() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT token, archive_path, stack_name, file_path, expires_at, is_packing FROM download_tokens WHERE token = %s;", (token,))
+            cur.execute("SELECT token, archive_path, stack_name, file_path, expires_at, is_packing, notify_emails FROM download_tokens WHERE token = %s;", (token,))
             row = cur.fetchone()
             if not row:
                 return render_template('download_error.html', reason='Download token ungültig oder nicht gefunden.'), 404
 
-            # update notify_email
-            cur.execute("UPDATE download_tokens SET notify_email = %s WHERE token = %s;", (email, token))
+            # Merge provided email into notify_emails array (unique)
+            cur.execute("""
+                UPDATE download_tokens
+                SET notify_emails = (
+                    SELECT ARRAY(SELECT DISTINCT e FROM (
+                        SELECT unnest(COALESCE(notify_emails, ARRAY[]::text[])) UNION ALL SELECT unnest(%s::text[])
+                    ) AS e)
+                )
+                WHERE token = %s;
+            """, ([email], token))
             conn.commit()
 
             ap = row.get('archive_path') or row.get('file_path')
@@ -441,7 +451,8 @@ def download_regenerate(token):
                         t.start()
                     else:
                         # someone else started packing concurrently
-                        return render_template('download_preparing.html', token=token, stack_name=row.get('stack_name'), notify_email=row.get('notify_email'), expires_at=row.get('expires_at')), 202
+                        # Do not prefill email input
+                        return render_template('download_preparing.html', token=token, stack_name=row.get('stack_name'), expires_at=row.get('expires_at')), 202
                 except Exception as e:
                     logger.exception('Failed to start regeneration for token %s: %s', token, e)
                     try:
@@ -450,7 +461,8 @@ def download_regenerate(token):
                         pass
                     return render_template('download_error.html', reason='Failed to start regeneration. Please contact the administrator.'), 500
 
-        return render_template('download_preparing.html', token=token, stack_name=row.get('stack_name'), notify_email=email, expires_at=row.get('expires_at'))
+        # Return preparing page without prefilled email
+        return render_template('download_preparing.html', token=token, stack_name=row.get('stack_name'), expires_at=row.get('expires_at'))
     except Exception as e:
         logger.exception('Error handling regenerate form: %s', e)
         return render_template('download_error.html', reason='Interner Serverfehler'), 500
