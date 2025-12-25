@@ -253,16 +253,28 @@ def reload_schedules():
         logger.info("[Scheduler] Maintenance mode enabled - no schedules loaded")
         return
     
-    # Load enabled archive schedules
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT * FROM archives 
-            WHERE schedule_enabled = true 
-            AND schedule_cron IS NOT NULL
-            AND schedule_cron != '';
-        """)
-        archives = cur.fetchall()
+    # Load enabled archive schedules (if DB schema not ready, skip quietly and retry later)
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT * FROM archives 
+                WHERE schedule_enabled = true 
+                AND schedule_cron IS NOT NULL
+                AND schedule_cron != '';
+            """)
+            archives = cur.fetchall()
+    except Exception as e:
+        # Handle common DB errors during initial startup (e.g., missing tables, transient DB errors)
+        try:
+            import psycopg2
+            if isinstance(e, (psycopg2.errors.UndefinedTable, psycopg2.OperationalError)):
+                logger.info("[Scheduler] Database schema not ready or DB unavailable, skipping schedule load: %s", e)
+                return
+        except Exception:
+            pass
+        logger.exception("[Scheduler] Unexpected error loading schedules: %s", e)
+        return
     
     display_tz = None
     try:
