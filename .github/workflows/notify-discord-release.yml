@@ -1,0 +1,106 @@
+# Notify Discord on Release (sends release title + notes to a Discord webhook)
+# Requires repository secret: DISCORD_WEBHOOK_URL
+# Optional: uses GITHUB_TOKEN to fetch latest release on manual dispatch
+
+name: Notify Discord on Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional: release tag to notify. Leave empty to use latest published release.'
+        required: false
+
+jobs:
+  notify-discord:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.DISCORD_WEBHOOK_URL != '' }}
+    env:
+      WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      # When triggered by a release event these will be populated from the event
+      RELEASE_NAME: ${{ github.event.release.name }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_BODY: ${{ github.event.release.body }}
+      RELEASE_URL: ${{ github.event.release.html_url }}
+    steps:
+      - name: Populate release info (when run manually)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ github.event.inputs.release_tag }}
+          # Optional PAT fallback in case GITHUB_TOKEN cannot access releases (create secret RELEASE_FETCH_TOKEN with a PAT having 'repo' scope)
+          RELEASE_FETCH_TOKEN: ${{ secrets.RELEASE_FETCH_TOKEN }}
+        run: |-
+          set -e
+          TAG="$INPUT_TAG"
+          # Choose auth header: prefer a provided PAT (RELEASE_FETCH_TOKEN), otherwise use GITHUB_TOKEN
+          if [ -n "$RELEASE_FETCH_TOKEN" ]; then
+            AUTH_HEADER="Authorization: token $RELEASE_FETCH_TOKEN"
+          else
+            AUTH_HEADER="Authorization: Bearer $GITHUB_TOKEN"
+          fi
+
+          if [ -z "$TAG" ]; then
+            echo "Fetching latest release from GitHub API..."
+            curl -s -H "Accept: application/vnd.github+json" -H "$AUTH_HEADER" "https://api.github.com/repos/${{ github.repository }}/releases/latest" -o /tmp/release.json
+          else
+            echo "Fetching release for tag: $TAG"
+            curl -s -H "Accept: application/vnd.github+json" -H "$AUTH_HEADER" "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG" -o /tmp/release.json
+          fi
+
+          python - <<'PY'
+import json, os
+try:
+    d=json.load(open('/tmp/release.json'))
+except Exception as e:
+    print('Failed to parse release JSON:', e)
+    print(open('/tmp/release.json').read())
+    raise
+name = d.get('name') or d.get('tag_name') or ''
+tag = d.get('tag_name') or ''
+body = d.get('body') or ''
+url = d.get('html_url') or ''
+# Append to GITHUB_ENV so following steps see these values
+with open(os.environ['GITHUB_ENV'],'a') as f:
+    f.write(f"RELEASE_NAME={name}\n")
+    f.write(f"RELEASE_TAG={tag}\n")
+    f.write(f"RELEASE_BODY={body}\n")
+    f.write(f"RELEASE_URL={url}\n")
+PY
+
+      - name: Send Discord notification
+        run: |-
+          if [ -z "${WEBHOOK_URL}" ]; then
+            echo "DISCORD_WEBHOOK_URL not set, skipping notification";
+            exit 0;
+          fi
+
+          python - <<'PY'
+import os, json, urllib.request
+webhook_url = os.environ['WEBHOOK_URL']
+name = os.environ.get('RELEASE_NAME') or os.environ.get('RELEASE_TAG') or 'Release'
+tag = os.environ.get('RELEASE_TAG') or ''
+body = os.environ.get('RELEASE_BODY') or ''
+url = os.environ.get('RELEASE_URL') or ''
+content_lines = [f"**New release: {name}**"]
+if tag:
+    content_lines.append(f"Tag: {tag}")
+if url:
+    content_lines.append(url)
+content_lines.append("")
+if body:
+    content_lines.append(body)
+content = "\n".join(content_lines)
+if len(content) > 1900:
+    content = content[:1900] + "..."
+payload = json.dumps({"content": content}).encode('utf-8')
+req = urllib.request.Request(webhook_url, data=payload, headers={'Content-Type': 'application/json'})
+try:
+    with urllib.request.urlopen(req) as resp:
+        print('Discord notification sent, HTTP', resp.status)
+except Exception as e:
+    print('Failed to send Discord notification:', e)
+    raise
+PY
