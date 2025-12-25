@@ -1,5 +1,5 @@
-# Build and publish edge image from dev branch
-# Triggers: schedule (every 6 hours), push to dev branch, and manual workflow_dispatch
+# Build and publish edge image from main branch
+# Triggers: schedule (every 6 hours), push to main branch, and manual workflow_dispatch
 # Publishes multi-arch image (amd64, arm64) to Docker Hub and GHCR with tag `:edge`
 name: Publish Edge Image
 
@@ -11,7 +11,7 @@ on:
   schedule:
     - cron: '0 */6 * * *'   # every 6 hours
   push:
-    branches: [ dev ]
+    branches: [ main ]
   workflow_dispatch: {}
 
 env:
