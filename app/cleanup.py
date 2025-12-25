@@ -307,7 +307,7 @@ def cleanup_download_tokens(is_dry_run=False, log_callback=None):
     deleted_tokens = 0
     deleted_files = 0
     reclaimed_bytes = 0
-    downloads_base = get_downloads_path()
+    downloads_base = utils.get_downloads_path()
 
     try:
         with get_db() as conn:
