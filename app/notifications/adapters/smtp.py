@@ -4,7 +4,7 @@ import os
 import smtplib
 from email.message import EmailMessage
 from app.notifications.adapters.base import AdapterBase, AdapterResult
-from app.notifications.core import get_subject_with_tag, get_user_emails
+from app.notifications import get_subject_with_tag, get_user_emails
 from app.notifications.formatters import strip_html_tags
 from app.utils import get_logger
 
@@ -18,7 +18,7 @@ class SMTPAdapter(AdapterBase):
         # Read configuration from DB settings via get_setting (preferred).
         # Do NOT fall back to environment variables anymore - SMTP is configured via application settings.
         try:
-            from app.notifications.core import get_setting
+            from app.notifications import get_setting
             self.server = get_setting('smtp_server', None) or None
             port = get_setting('smtp_port', '') or ''
             try:
@@ -43,7 +43,7 @@ class SMTPAdapter(AdapterBase):
             return recipients
         # Fall back to user emails from profile (import at runtime so tests can monkeypatch)
         try:
-            from app.notifications.core import get_user_emails as _get_user_emails
+            from app.notifications import get_user_emails as _get_user_emails
             return _get_user_emails()
         except Exception:
             return []

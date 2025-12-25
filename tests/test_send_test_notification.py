@@ -1,6 +1,6 @@
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from app.notifications.core import send_test_notification
+from app.notifications import send_test_notification
 
 
 def test_send_test_notification_uses_smtp(monkeypatch):
@@ -12,7 +12,7 @@ def test_send_test_notification_uses_smtp(monkeypatch):
         }
         return mapping.get(k, d)
 
-    monkeypatch.setattr('app.notifications.core.get_setting', fake_get_setting)
+    monkeypatch.setattr('app.notifications.get_setting', fake_get_setting)
 
     captured = {'calls': []}
 

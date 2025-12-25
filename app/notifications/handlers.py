@@ -4,8 +4,8 @@ Notification handlers for different job types.
 import os
 from app.db import get_db
 from app.utils import format_bytes, format_duration, get_archives_path, get_logger
-from app.notifications.helpers import get_setting, get_user_emails, get_subject_with_tag, should_notify
-from app.notifications.formatters import build_full_body, build_compact_text, build_sections
+from app.notifications.helpers import get_setting, get_user_emails, get_subject_with_tag, should_notify, get_notification_format
+from app.notifications.formatters import build_full_body, build_compact_text, build_sections, strip_html_tags
 from app.notifications.sender import send_email
 
 logger = get_logger(__name__)
@@ -419,3 +419,232 @@ def send_archive_notification(archive_config, job_id, stack_metrics, duration, t
 
 
 # Other handlers can be added here as needed
+
+
+def send_retention_notification(archive_name, deleted_count, deleted_dirs, deleted_files, reclaimed_bytes):
+    """Send notification for retention job completion."""
+    if not should_notify('success'):
+        return
+
+    try:
+        # Build message
+        reclaimed_gb = reclaimed_bytes / (1024 * 1024 * 1024)
+        reclaimed_mb = reclaimed_bytes / (1024 * 1024)
+        size_str = f"{reclaimed_gb:.2f}GB" if reclaimed_gb >= 1 else f"{reclaimed_mb:.1f}MB"
+        
+        base_url = get_setting('base_url', 'http://localhost:8080')
+        
+        title = get_subject_with_tag(f"🗑️ Retention Cleanup: {archive_name}")
+        body = f"""<h2>Retention cleanup completed for: {archive_name}</h2>
+<p>
+<strong>Archives deleted:</strong> {deleted_count} <small>({deleted_dirs} dirs, {deleted_files} files)</small><br>
+<strong>Space freed:</strong> {size_str}
+</p>
+<hr>
+<p><small>Docker Archiver: <a href=\"{base_url}\">{base_url}</a></small></p>"""
+        
+        # Get format preference
+        body_format = get_notification_format()
+        
+        # Convert to plain text if needed
+        if body_format == 'text':
+            from app.notifications.formatters import strip_html_tags
+            body = strip_html_tags(body)
+        
+        # Send email
+        send_email(title, body, context=f'retention_{archive_name}')
+        
+    except Exception as e:
+        logger.exception("Failed to send retention notification: %s", e)
+
+
+def send_error_notification(archive_name, error_message):
+    """Send notification for job failure."""
+    if not should_notify('error'):
+        return
+    
+    try:
+        base_url = get_setting('base_url', 'http://localhost:8080')
+        
+        title = get_subject_with_tag(f"❌ Archive Failed: {archive_name}")
+        body = f"""<h2>Archive job failed for: {archive_name}</h2>
+<p>
+<strong>Error:</strong><br>
+<code>{error_message}</code>
+</p>
+<hr>
+<p><small>Docker Archiver: <a href=\"{base_url}\">{base_url}</a></small></p>"""
+
+        # Send email
+        send_email(title, body, context='error_notification')
+    except Exception as e:
+        logger.exception("Failed to send error notification: %s", e)
+
+
+def send_test_notification():
+    """Send a test notification to verify SMTP configuration and recipients."""
+    base_url = get_setting('base_url', 'http://localhost:8080')
+    title = get_subject_with_tag("🔔 Docker Archiver - Test Notification")
+
+    # Compose HTML body for email
+    body = f"""<h2>Test Notification from Docker Archiver</h2>
+<p>If you received this message, your notification configuration is working correctly!</p>
+<div style='border-top:1px solid #eee;margin:8px 0'></div>
+<p><small>Docker Archiver: <a href=\"{base_url}\">{base_url}</a></small></p>"""
+
+    # Send email
+    try:
+        send_email(title, body, context='test_notification')
+    except Exception as e:
+        raise Exception(f"Failed to send test notification: {e}")
+
+
+def send_permissions_fix_notification(result, report_path=None):
+    """Send notification after a permissions fix run.
+
+    `result` is the dict returned from `apply_permissions_recursive`.
+    `report_path`, if provided, will be attached to the notification as a TXT file (full report).
+
+    The email contains totals and a per-stack summary derived from the collected samples (if any).
+    """
+    if not should_notify('success'):
+        # Clean up the report file if present (best-effort)
+        try:
+            if report_path and os.path.exists(report_path):
+                os.unlink(report_path)
+        except Exception:
+            pass
+        return
+
+    try:
+        # SMTP-only: build email and send via SMTPAdapter
+        base = get_archives_path()
+
+        # Extract samples from result (may be truncated)
+        fixed_files = (result.get('fixed_files') or [])[:200]
+        fixed_dirs = (result.get('fixed_dirs') or [])[:200]
+
+        # Group files/dirs by stack using same logic as check_permissions.
+        # Keep small sample lists for display (limited) and counters for accurate totals.
+        from collections import defaultdict
+        stacks = defaultdict(lambda: {'files': [], 'dirs': [], 'file_count': 0, 'dir_count': 0})
+
+        def _stack_key(p):
+            try:
+                rel = os.path.relpath(p, base)
+            except Exception:
+                rel = p
+            parts = rel.split(os.sep) if rel and not rel.startswith('..') else []
+            top = parts[0] if len(parts) >= 1 else ''
+            stack = parts[1] if len(parts) >= 2 else '<root>'
+            if stack == '<root>':
+                display = top or base
+            else:
+                display = f"{top}/{stack}"
+            return display
+
+        # Populate stacks from available in-memory samples (if any)
+        for p in fixed_files:
+            s = stacks[_stack_key(p)]
+            if len(s['files']) < 5:
+                s['files'].append(p)
+            s['file_count'] += 1
+        for p in fixed_dirs:
+            s = stacks[_stack_key(p)]
+            if len(s['dirs']) < 5:
+                s['dirs'].append(p)
+            s['dir_count'] += 1
+
+        # If no in-memory samples, try to parse the report file to build per-stack counts (best-effort)
+        if not fixed_files and not fixed_dirs and report_path:
+            try:
+                with open(report_path, 'r', encoding='utf-8') as rf:
+                    for line in rf:
+                        line = line.strip()
+                        if not line or line.startswith('#'):
+                            continue
+                        if line.startswith('F\t'):
+                            p = line[2:]
+                            s = stacks[_stack_key(p)]
+                            if len(s['files']) < 5:
+                                s['files'].append(p)
+                            s['file_count'] += 1
+                        elif line.startswith('D\t'):
+                            p = line[2:]
+                            s = stacks[_stack_key(p)]
+                            if len(s['dirs']) < 5:
+                                s['dirs'].append(p)
+                            s['dir_count'] += 1
+            except Exception:
+                # Best-effort: if report can't be read, fall back to available data
+                pass
+
+        # Prefer totals reported in result (full counts); fall back to parsed/sample sums
+        total_files = None
+        total_dirs = None
+        try:
+            if result and isinstance(result, dict):
+                total_files = int(result.get('files_changed')) if result.get('files_changed') is not None else None
+                total_dirs = int(result.get('dirs_changed')) if result.get('dirs_changed') is not None else None
+        except Exception:
+            total_files = None
+            total_dirs = None
+
+        if total_files is None:
+            total_files = sum(v.get('file_count', len(v.get('files', []))) for v in stacks.values())
+        if total_dirs is None:
+            total_dirs = sum(v.get('dir_count', len(v.get('dirs', []))) for v in stacks.values())
+
+        title = get_subject_with_tag(f"🔧 Permissions Fixed: {total_files} files, {total_dirs} dirs")
+
+        css = """
+        <style>
+        .da-table { width: 100%; border-collapse: collapse; font-family: monospace; }
+        .da-table th, .da-table td { padding: 6px 8px; border-bottom: 1px solid #eee; text-align: left; }
+        .da-small { font-size: 90%; color: #666; }
+        .da-stack { margin-bottom: 12px; }
+        </style>
+        """
+
+        body = f"""
+{css}
+<div style='font-family: Arial, Helvetica, sans-serif; max-width:800px; margin:0; text-align:left; color:#222;'>
+  <h2 style='margin-bottom:6px;'>🔧 Permissions Fix Completed</h2>
+  <p class='da-small'><strong>Files fixed:</strong> {total_files} &nbsp;|&nbsp; <strong>Dirs fixed:</strong> {total_dirs}</p>
+"""
+        # Per-stack sections (summary only; full report attached separately)
+        if stacks:
+            body += "\n  <h3>FIXED ITEMS BY STACK (summary)</h3>\n"
+            body += "  <ul>\n"
+            for stack_name in sorted(stacks.keys()):
+                s = stacks[stack_name]
+                body += f"    <li><strong>{stack_name}</strong>: {len(s['files'])} file(s), {len(s['dirs'])} dir(s)</li>\n"
+            body += "  </ul>\n"
+            body += "  <p class='da-small'>A full report has been attached to this notification (if available).</p>\n"
+        else:
+            body += "  <p><em>No fixes were necessary.</em></p>\n"
+
+        body += "\n  <p class='da-small'>Docker Archiver</p>\n</div>\n"
+
+        # Send as HTML unless user prefers text
+        body_format = get_notification_format()
+        if body_format == 'text':
+            send_body = strip_html_tags(body)
+        else:
+            send_body = body
+
+        # Attach full report if it exists
+        attach_path = None
+        try:
+            if report_path and os.path.exists(report_path):
+                attach_path = report_path
+        except Exception:
+            attach_path = None
+
+        try:
+            # Use send_email instead of direct SMTPAdapter
+            send_email(title, send_body, body_format=body_format, attach=attach_path, context='permissions_fix')
+        except Exception as e:
+            logger.exception("Failed to send permissions notification: %s", e)
+    except Exception as e:
+        logger.exception("Failed to send permissions notification: %s", e)
