@@ -33,21 +33,65 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ "${{ github.event_name }}" = "release" ]; then
-            TAG="${{ github.event.release.tag_name }}"
-            TITLE="${{ github.event.release.name }}"
-            RELEASE_URL="${{ github.event.release.html_url }}"
-            BODY="${{ github.event.release.body }}"
+          # Use the event JSON file written by GitHub Actions to extract release information
+          TAG=""
+          TITLE=""
+          RELEASE_URL=""
+          BODY=""
+
+          if [ "${GITHUB_EVENT_NAME:-}" = "release" ]; then
+            TAG=$(python - <<'PY'
+import json, os
+try:
+    e = json.load(open(os.environ['GITHUB_EVENT_PATH']))
+    print(e.get('release', {}).get('tag_name', ''))
+except Exception:
+    print('')
+PY
+)
+            TITLE=$(python - <<'PY'
+import json, os
+try:
+    e = json.load(open(os.environ['GITHUB_EVENT_PATH']))
+    print(e.get('release', {}).get('name', '') or '')
+except Exception:
+    print('')
+PY
+)
+            RELEASE_URL=$(python - <<'PY'
+import json, os
+try:
+    e = json.load(open(os.environ['GITHUB_EVENT_PATH']))
+    print(e.get('release', {}).get('html_url', '') or '')
+except Exception:
+    print('')
+PY
+)
+            BODY=$(python - <<'PY'
+import json, os
+try:
+    e = json.load(open(os.environ['GITHUB_EVENT_PATH']))
+    print(e.get('release', {}).get('body', '') or '')
+except Exception:
+    print('')
+PY
+)
           else
-            TAG="${{ github.event.inputs.release_tag }}"
+            # workflow_dispatch stores inputs in the event JSON under 'inputs'
+            TAG=$(python - <<'PY'
+import json, os
+try:
+    e = json.load(open(os.environ['GITHUB_EVENT_PATH']))
+    print(e.get('inputs', {}).get('release_tag', '') or '')
+except Exception:
+    print('')
+PY
+)
 
-            # Use GITHUB_TOKEN to fetch release info
-            TOKEN="${{ secrets.GITHUB_TOKEN }}"
-
-            API_URL="https://api.github.com/repos/${REPO}/releases/tags/${TAG}"
-            RESP=$(curl -sS -H "Authorization: token $TOKEN" "$API_URL")
-
-            TITLE=$(echo "$RESP" | python - <<'PY'
+            # If tag is present, try to fetch the release info from the API using GITHUB_TOKEN
+            if [ -n "$TAG" ]; then
+              RESP=$(curl -sS -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/${REPO}/releases/tags/${TAG}" || true)
+              TITLE=$(echo "$RESP" | python - <<'PY'
 import sys, json
 try:
     d=json.load(sys.stdin)
@@ -56,7 +100,7 @@ except Exception:
     print('')
 PY
 )
-            RELEASE_URL=$(echo "$RESP" | python - <<'PY'
+              RELEASE_URL=$(echo "$RESP" | python - <<'PY'
 import sys, json
 try:
     d=json.load(sys.stdin)
@@ -65,7 +109,7 @@ except Exception:
     print('')
 PY
 )
-            BODY=$(echo "$RESP" | python - <<'PY'
+              BODY=$(echo "$RESP" | python - <<'PY'
 import sys, json
 try:
     d=json.load(sys.stdin)
@@ -74,6 +118,7 @@ except Exception:
     print('')
 PY
 )
+            fi
           fi
 
           # Provide fallbacks
@@ -121,4 +166,4 @@ PY
 )
 
           curl -sS -H "Content-Type: application/json" -d "$JSON_PAYLOAD" "$DISCORD_WEBHOOK_URL" -o /dev/null
-          echo "Posted release ${{ env.release_tag }} to Discord."
+          echo "Posted release $release_tag to Discord."
