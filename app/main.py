@@ -396,9 +396,10 @@ def download_file(token):
             return render_template('download_error.html', reason='Download file could not be found.', hint='Contact the administrator if this problem persists.'), 404
         
         # Serve the file using a normalized download filename
-        filename = utils.make_download_filename(file_path.name)
+        # Ensure we treat file_path as a Path in case it's a string from the DB
+        filename = utils.make_download_filename(Path(file_path).name)
         return send_file(
-            file_path,
+            str(file_path),
             as_attachment=True,
             download_name=filename,
             mimetype='application/octet-stream'
