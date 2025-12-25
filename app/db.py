@@ -326,7 +326,7 @@ def init_db():
                 ('image_pull_policy', 'never'),
                 ('image_pull_inactivity_timeout', '300'),
                 ('image_pull_excerpt_lines', '8'),
-                ('app_version', '0.7.0')
+                ('app_version', '0.8.0')
             ON CONFLICT (key) DO NOTHING;
         """)
         
