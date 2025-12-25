@@ -24,38 +24,7 @@ def generate_token():
     return str(uuid.uuid4())
 
 
-def cleanup_expired_tokens():
-    """Remove expired tokens and their associated files."""
-    try:
-        with get_db() as conn:
-            cur = conn.cursor()
-            # Get expired tokens
-            cur.execute("""
-                SELECT token, file_path FROM download_tokens
-                WHERE expires_at < NOW();
-            """)
-            expired = cur.fetchall()
-            
-            # Delete files
-            for token_row in expired:
-                try:
-                    file_path = Path(token_row['file_path'])
-                    if file_path.exists():
-                        file_path.unlink()
-                        logger.info(f"Cleaned up expired download file: {file_path}")
-                except Exception as e:
-                    logger.warning(f"Failed to delete expired file {token_row['file_path']}: {e}")
-            
-            # Delete tokens
-            cur.execute("DELETE FROM download_tokens WHERE expires_at < NOW();")
-            deleted_count = cur.rowcount
-            conn.commit()
-            
-            if deleted_count > 0:
-                logger.info(f"Cleaned up {deleted_count} expired download tokens")
-                
-    except Exception as e:
-        logger.exception(f"Error during token cleanup: {e}")
+# Note: expired-download cleanup moved to `app.cleanup.cleanup_download_tokens` for single-responsibility. Wrapper removed.
 
 
 def send_download_email(stack_name, download_url):
@@ -200,7 +169,8 @@ def request_download():
                     'success': True,
                     'message': 'Download link sent via email',
                     'is_folder': False,
-                    'download_url': download_url
+                    'download_url': download_url,
+                    'token': token
                 })
                 
             elif path.is_dir():
@@ -222,7 +192,8 @@ def request_download():
                 return jsonify({
                     'success': True,
                     'message': 'Archive preparation started. You will receive an email when ready.',
-                    'is_folder': True
+                    'is_folder': True,
+                    'token': token
                 })
             
             else:
@@ -241,7 +212,7 @@ def list_active_tokens():
         with get_db() as conn:
             cur = conn.cursor()
             cur.execute("""
-                SELECT token, stack_name, created_at, expires_at, is_packing
+                SELECT token, stack_name, created_at, expires_at, is_packing, file_path
                 FROM download_tokens
                 WHERE expires_at > NOW()
                 ORDER BY created_at DESC;
@@ -254,7 +225,8 @@ def list_active_tokens():
                 'stack_name': t['stack_name'],
                 'created_at': t['created_at'].isoformat() if t['created_at'] else None,
                 'expires_at': t['expires_at'].isoformat() if t['expires_at'] else None,
-                'is_packing': t['is_packing']
+                'is_packing': t['is_packing'],
+                'file_path': t.get('file_path')
             } for t in tokens]
         })
         
@@ -263,13 +235,34 @@ def list_active_tokens():
         return jsonify({'error': 'Internal server error'}), 500
 
 
-@bp.route('/downloads/cleanup', methods=['POST'])
+@bp.route('/downloads/status')
 @api_auth_required
-def trigger_cleanup():
-    """Manually trigger cleanup of expired tokens."""
+def download_status():
+    """Return the status for a preparing download token."""
+    token = request.args.get('token')
+    if not token:
+        return jsonify({'error': 'Missing token'}), 400
     try:
-        cleanup_expired_tokens()
-        return jsonify({'success': True, 'message': 'Cleanup completed'})
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT file_path, expires_at, is_packing, stack_name FROM download_tokens WHERE token = %s;
+            """, (token,))
+            row = cur.fetchone()
+            if not row:
+                return jsonify({'ready': False, 'error': 'Token not found or expired'}), 404
+            # Check expiry
+            if row['expires_at'] and row['expires_at'] < datetime.now():
+                return jsonify({'ready': False, 'error': 'Token expired'}), 404
+            fp = row.get('file_path')
+            if fp and Path(fp).exists() and not row.get('is_packing'):
+                base = get_setting('base_url', 'http://localhost:8080')
+                return jsonify({'ready': True, 'download_url': f"{base}/download/{token}"})
+            else:
+                return jsonify({'ready': False, 'is_packing': row.get('is_packing', False)})
     except Exception as e:
-        logger.exception("Error during manual cleanup")
+        logger.exception('Error checking download status')
         return jsonify({'error': 'Internal server error'}), 500
+
+
+
