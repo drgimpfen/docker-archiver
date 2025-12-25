@@ -33,7 +33,7 @@
 
                 <div class="form-check form-switch mb-3">
                     <input class="form-check-input" type="checkbox" role="switch" id="allowImagePull" name="allow_image_pull" {% if settings.get('allow_image_pull') == 'true' %}checked{% endif %}>
-                    <label class="form-check-label" for="allowImagePull"><strong>Allow image pulls on start</strong><br><small class="text-muted">If enabled, missing images will be pulled automatically before starting stacks. If disabled, stacks missing images will be skipped.</small></label>
+                    <label class="form-check-label" for="allowImagePull"><strong>Allow image pulls on start</strong><br><small class="text-muted">If enabled, missing images will be pulled automatically before starting stacks. If disabled, stacks missing images will be skipped. See <a href="https://github.com/drgimpfen/Docker-Archiver#image-pull-policy" target="_blank" rel="noopener">README — Image pull policy</a> for details.</small></label>
                 </div>
             </div>
         </div>
