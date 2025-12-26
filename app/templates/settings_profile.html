@@ -43,6 +43,13 @@
                                    value="{{ current_user.created_at|datetime('%Y-%m-%d %H:%M') }}" 
                                    disabled>
                         </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Last Login</label>
+                            <input type="text" class="form-control" 
+                                   value="{{ current_user.last_login|datetime('%Y-%m-%d %H:%M') if current_user.last_login else 'Never' }}"
+                                   disabled>
+                        </div>
                     </div>
                 </div>
 

@@ -18,14 +18,16 @@ def verify_password(password, password_hash):
 
 
 def create_user(username, password, email=None, role='admin'):
-    """Create a new user."""
+    """Create a new user and set created_at explicitly using UTC-aware utils.now()."""
     password_hash = hash_password(password)
+    from app import utils as _utils
+    created_at = _utils.now()
     with get_db() as conn:
         cur = conn.cursor()
         try:
             cur.execute(
-                "INSERT INTO users (username, password_hash, email, role) VALUES (%s, %s, %s, %s) RETURNING id;",
-                (username, password_hash, email, role)
+                "INSERT INTO users (username, password_hash, email, role, created_at) VALUES (%s, %s, %s, %s, %s) RETURNING id;",
+                (username, password_hash, email, role, created_at)
             )
             user_id = cur.fetchone()['id']
             conn.commit()
@@ -43,10 +45,12 @@ def authenticate_user(username, password):
         user = cur.fetchone()
         
         if user and verify_password(password, user['password_hash']):
-            # Update last login
-            cur.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = %s;", (user['id'],))
+            # Update last login using tz-aware UTC timestamp
+            from app import utils as _utils
+            now_ts = _utils.now()
+            cur.execute("UPDATE users SET last_login = %s WHERE id = %s RETURNING id, username, email, role, created_at, last_login;", (now_ts, user['id']))
             conn.commit()
-            return dict(user)
+            return cur.fetchone()
         return None
 
 
@@ -76,5 +80,5 @@ def get_current_user():
     
     with get_db() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id, username, email, role FROM users WHERE id = %s;", (session['user_id'],))
+        cur.execute("SELECT id, username, email, role, created_at, last_login FROM users WHERE id = %s;", (session['user_id'],))
         return cur.fetchone()

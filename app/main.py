@@ -9,7 +9,7 @@ from app.utils import setup_logging, get_logger, get_sentinel_path, format_bytes
 setup_logging()
 logger = get_logger(__name__)
 
-__version__ = '0.8.1'
+__version__ = '0.8.2'
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file
 from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
