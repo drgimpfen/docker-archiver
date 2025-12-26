@@ -368,11 +368,12 @@ def _mark_archive_as_deleted(archive_path, deleted_by='retention'):
         
         with get_db() as conn:
             cur = conn.cursor()
+            now_ts = utils.now()
             cur.execute("""
                 UPDATE job_stack_metrics 
-                SET deleted_at = NOW(), deleted_by = %s
+                SET deleted_at = %s, deleted_by = %s
                 WHERE archive_path = %s AND deleted_at IS NULL;
-            """, (deleted_by, archive_path))
+            """, (now_ts, deleted_by, archive_path))
             conn.commit()
     except Exception as e:
         logger.exception("[Retention] Failed to mark archive as deleted in DB: %s", e)

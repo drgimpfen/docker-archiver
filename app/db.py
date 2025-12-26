@@ -45,9 +45,9 @@ def init_db():
                 password_hash VARCHAR(255) NOT NULL,
                 email VARCHAR(255),
                 role VARCHAR(50) DEFAULT 'admin',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_login TIMESTAMP
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMPTZ
             );
         """)
         
@@ -66,8 +66,8 @@ def init_db():
                 retention_keep_months INTEGER DEFAULT 6,
                 retention_keep_years INTEGER DEFAULT 2,
                 retention_one_per_day BOOLEAN DEFAULT false,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             );
         """)
         
@@ -78,8 +78,8 @@ def init_db():
                 archive_id INTEGER REFERENCES archives(id) ON DELETE CASCADE,
                 job_type VARCHAR(50) NOT NULL,
                 status VARCHAR(50) DEFAULT 'running',
-                start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                end_time TIMESTAMP,
+                start_time TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                end_time TIMESTAMPTZ,
                 duration_seconds INTEGER,
                 total_size_bytes BIGINT DEFAULT 0,
                 reclaimed_bytes BIGINT DEFAULT 0,
@@ -98,8 +98,8 @@ def init_db():
                 job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
                 stack_name VARCHAR(255) NOT NULL,
                 status VARCHAR(50) DEFAULT 'pending',
-                start_time TIMESTAMP,
-                end_time TIMESTAMP,
+                start_time TIMESTAMPTZ,
+                end_time TIMESTAMPTZ,
                 duration_seconds INTEGER,
                 archive_path TEXT,
                 archive_size_bytes BIGINT DEFAULT 0,
@@ -116,8 +116,8 @@ def init_db():
                 token VARCHAR(64) UNIQUE NOT NULL,
                 stack_name VARCHAR(255) NOT NULL,
                 file_path TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                expires_at TIMESTAMP NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMPTZ NOT NULL,
                 is_packing BOOLEAN DEFAULT FALSE
             );
         """)
@@ -136,13 +136,13 @@ def init_db():
                     SELECT 1 FROM information_schema.columns
                     WHERE table_name='download_tokens' AND column_name='created_at'
                 ) THEN
-                    ALTER TABLE download_tokens ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                    ALTER TABLE download_tokens ADD COLUMN created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
                 END IF;
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
                     WHERE table_name='download_tokens' AND column_name='expires_at'
                 ) THEN
-                    ALTER TABLE download_tokens ADD COLUMN expires_at TIMESTAMP;
+                    ALTER TABLE download_tokens ADD COLUMN expires_at TIMESTAMPTZ;
                 END IF;
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
@@ -207,9 +207,9 @@ def init_db():
                 user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
                 token VARCHAR(64) UNIQUE NOT NULL,
                 name VARCHAR(255),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                expires_at TIMESTAMP,
-                last_used_at TIMESTAMP
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMPTZ,
+                last_used_at TIMESTAMPTZ
             );
         """)
         
@@ -286,7 +286,7 @@ def init_db():
                     SELECT 1 FROM information_schema.columns 
                     WHERE table_name='job_stack_metrics' AND column_name='deleted_at'
                 ) THEN
-                    ALTER TABLE job_stack_metrics ADD COLUMN deleted_at TIMESTAMP;
+                    ALTER TABLE job_stack_metrics ADD COLUMN deleted_at TIMESTAMPTZ;
                 END IF;
                 
                 -- Add deleted_by column to track what deleted it
@@ -344,6 +344,55 @@ def init_db():
         conn.commit()
         logger.info("[DB] Database schema initialized successfully")
 
+        # Ensure timestamp columns are timezone-aware (timestamptz) and migrate if needed
+        try:
+            migrate_timestamp_columns()
+        except Exception as e:
+            logger.exception("[DB] Timestamp migration failed: %s", e)
+
+
+def migrate_timestamp_columns():
+    """Detect TIMESTAMP columns and migrate them to TIMESTAMPTZ interpreting
+    existing naive timestamps as UTC. This is performed automatically at
+    application startup to ensure consistent timezone-aware storage.
+    """
+    cols = [
+        ('jobs', 'start_time'),
+        ('jobs', 'end_time'),
+        ('job_stack_metrics', 'start_time'),
+        ('job_stack_metrics', 'end_time'),
+        ('job_stack_metrics', 'deleted_at'),
+        ('download_tokens', 'created_at'),
+        ('download_tokens', 'expires_at'),
+        ('download_tokens', 'last_used_at'),
+        ('users', 'created_at'),
+        ('users', 'updated_at'),
+        ('users', 'last_login'),
+        ('archives', 'created_at'),
+        ('archives', 'updated_at'),
+    ]
+
+    with get_db() as conn:
+        cur = conn.cursor()
+        for table, col in cols:
+            try:
+                cur.execute("SELECT data_type FROM information_schema.columns WHERE table_name = %s AND column_name = %s", (table, col))
+                r = cur.fetchone()
+                if not r:
+                    continue
+                dt = r.get('data_type') if isinstance(r, dict) else r[0]
+                if dt == 'timestamp without time zone':
+                    logger.info('[DB] Migrating %s.%s from TIMESTAMP to TIMESTAMPTZ', table, col)
+                    try:
+                        cur.execute(f"ALTER TABLE {table} ALTER COLUMN {col} TYPE timestamptz USING {col} AT TIME ZONE 'UTC';")
+                        conn.commit()
+                        logger.info('[DB] Migrated %s.%s successfully', table, col)
+                    except Exception:
+                        logger.exception('[DB] Failed to migrate %s.%s', table, col)
+                        conn.rollback()
+            except Exception:
+                logger.exception('[DB] Failed to check column %s.%s', table, col)
+
 
 def is_archive_running(archive_id):
     """Return True if there is a running job for the given archive id."""
@@ -372,32 +421,34 @@ def mark_stale_running_jobs(threshold_minutes=None):
 
             if threshold_minutes is None:
                 # Mark any running jobs missing an end_time as failed
+                now_ts = utils.now()
                 cur.execute("""
                     UPDATE jobs
                     SET status = 'failed',
-                        end_time = NOW(),
+                        end_time = %s,
                         duration_seconds = CASE WHEN start_time IS NOT NULL
-                            THEN EXTRACT(EPOCH FROM (NOW() - start_time))::INTEGER
+                            THEN EXTRACT(EPOCH FROM (%s - start_time))::INTEGER
                             ELSE NULL END,
                         error = COALESCE(error, '') || %s,
                         log = COALESCE(log, '') || %s
                     WHERE status = 'running' AND end_time IS NULL;
-                """, (msg, log_line))
+                """, (now_ts, now_ts, msg, log_line))
                 count = cur.rowcount
                 conn.commit()
                 return count
             else:
                 # Legacy: mark only jobs older than threshold
+                now_ts = utils.now()
                 cur.execute("""
                     UPDATE jobs
                     SET status = 'failed',
-                        end_time = NOW(),
-                        duration_seconds = EXTRACT(EPOCH FROM (NOW() - start_time))::INTEGER,
+                        end_time = %s,
+                        duration_seconds = EXTRACT(EPOCH FROM (%s - start_time))::INTEGER,
                         error = COALESCE(error, '') || %s,
                         log = COALESCE(log, '') || %s
                     WHERE status = 'running'
-                      AND start_time < NOW() - (%s || ' minutes')::interval;
-                """, (msg, log_line, str(threshold_minutes)))
+                      AND start_time < (%s - (%s || ' minutes')::interval);
+                """, (now_ts, now_ts, msg, log_line, now_ts, str(threshold_minutes)))
                 count = cur.rowcount
                 conn.commit()
                 return count
