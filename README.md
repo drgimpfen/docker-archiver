@@ -25,6 +25,85 @@
 - 💾 **Multiple Formats** - Support for tar, tar.gz, tar.zst, or folder output
 - 🌍 **Timezone Support** - Configurable timezone via environment variable
 
+## Screenshots
+
+<p align="center">
+  <figure style="display:block; margin:18px auto; text-align:center;">
+    <img src="https://raw.githubusercontent.com/drgimpfen/docker-archiver/main/assets/screenshots/dashboard.png" alt="Dashboard" width="1200"><br/>
+    <figcaption style="font-size:small;color:#666">Dashboard</figcaption>
+  </figure>
+</p>
+
+<p align="center">
+  <figure style="display:block; margin:18px auto; text-align:center; max-width:1200px;">
+    <img src="https://raw.githubusercontent.com/drgimpfen/docker-archiver/main/assets/screenshots/create-archive.png" alt="Create Archive" width="1200"><br/>
+    <figcaption style="font-size:small;color:#666">Create Archive</figcaption>
+  </figure>
+</p>
+
+<p align="center">
+  <figure style="display:block; margin:18px auto; text-align:center; max-width:1200px;">
+    <img src="https://raw.githubusercontent.com/drgimpfen/docker-archiver/main/assets/screenshots/job-details.png" alt="Job Details" width="1200"><br/>
+    <figcaption style="font-size:small;color:#666">Job Details</figcaption>
+  </figure>
+</p>
+
+<p align="center">
+  <figure style="display:block; margin:18px auto; text-align:center; max-width:1200px;">
+    <img src="https://raw.githubusercontent.com/drgimpfen/docker-archiver/main/assets/screenshots/job-history.png" alt="Job History" width="1200"><br/>
+    <figcaption style="font-size:small;color:#666">Job History</figcaption>
+  </figure>
+</p>
+
+<p align="center">
+  <figure style="display:block; margin:18px auto; text-align:center; max-width:1200px;">
+    <img src="https://raw.githubusercontent.com/drgimpfen/docker-archiver/main/assets/screenshots/downloads.png" alt="Downloads" width="1200"><br/>
+    <figcaption style="font-size:small;color:#666">Downloads</figcaption>
+  </figure>
+</p>
+
+<p align="center">
+  <figure style="display:block; margin:18px auto; text-align:center; max-width:1200px;">
+    <img src="https://raw.githubusercontent.com/drgimpfen/docker-archiver/main/assets/screenshots/notifications.png" alt="Notifications" width="1200"><br/>
+    <figcaption style="font-size:small;color:#666">Notifications</figcaption>
+  </figure>
+</p>
+
+<p align="center">
+  <figure style="display:block; margin:18px auto; text-align:center; max-width:1200px;">
+    <img src="https://raw.githubusercontent.com/drgimpfen/docker-archiver/main/assets/screenshots/general-settings.png" alt="Settings" width="1200"><br/>
+    <figcaption style="font-size:small;color:#666">Settings</figcaption>
+  </figure>
+</p>
+
+<p align="center">
+  <figure style="display:block; margin:18px auto; text-align:center; max-width:1200px;">
+    <img src="https://raw.githubusercontent.com/drgimpfen/docker-archiver/main/assets/screenshots/profile-settings.png" alt="Profile" width="1200"><br/>
+    <figcaption style="font-size:small;color:#666">Profile</figcaption>
+  </figure>
+</p>
+
+<p align="center">
+  <figure style="display:block; margin:18px auto; text-align:center; max-width:1200px;">
+    <img src="https://raw.githubusercontent.com/drgimpfen/docker-archiver/main/assets/screenshots/security.png" alt="Security" width="1200"><br/>
+    <figcaption style="font-size:small;color:#666">Security</figcaption>
+  </figure>
+</p>
+
+<p align="center">
+  <figure style="display:block; margin:18px auto; text-align:center; max-width:1200px;">
+    <img src="https://raw.githubusercontent.com/drgimpfen/docker-archiver/main/assets/screenshots/cleanup.png" alt="Cleanup" width="1200"><br/>
+    <figcaption style="font-size:small;color:#666">Cleanup</figcaption>
+  </figure>
+</p>
+
+<p align="center">
+  <figure style="display:block; margin:18px auto; text-align:center; max-width:1200px;">
+    <img src="https://raw.githubusercontent.com/drgimpfen/docker-archiver/main/assets/screenshots/run-cleanup.png" alt="Run Cleanup" width="1200"><br/>
+    <figcaption style="font-size:small;color:#666">Run Cleanup</figcaption>
+  </figure>
+</p>
+
 ## Architecture
 
 ### Phased Execution
