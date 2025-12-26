@@ -189,11 +189,10 @@ def format_datetime(dt, format_string='%Y-%m-%d %H:%M:%S'):
             # dt is timezone-aware: convert to display tz
             dt_local = dt.astimezone(local_tz)
         else:
-            # dt is naive: assume it's in the system/display timezone (configured via TZ)
-            sys_tz = get_display_timezone()
-            dt_local = dt.replace(tzinfo=sys_tz).astimezone(local_tz)
+            # dt is naive: assume it's in UTC (stored in DB as UTC) and convert to display tz
+            dt_local = dt.replace(tzinfo=timezone.utc).astimezone(local_tz)
     except Exception:
-        # Fallback: try treating as UTC
+        # Fallback: if anything goes wrong, try a safe fallback by attaching UTC
         try:
             dt_local = dt.replace(tzinfo=timezone.utc).astimezone(local_tz)
         except Exception:
